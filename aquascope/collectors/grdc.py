@@ -51,6 +51,8 @@ class GRDCCollector(BaseCollector):
         source_type : str
             ``"in_situ"`` (default, Zenodo gauge subset) or
             ``"satellite"`` (RSEG, DaRUS).
+        max_items : int | None
+            Maximum number of records to return. ``None`` returns all records.
         """
         if source_type == "in_situ":
             return self._fetch_zenodo_insitu(max_items=max_items)
@@ -58,7 +60,7 @@ class GRDCCollector(BaseCollector):
             return self._fetch_rseg(max_items=max_items)
         raise ValueError(f"source_type must be 'in_situ' or 'satellite', got {source_type!r}")
 
-    def _fetch_zenodo_insitu(self, max_items: int | None = 50_000):
+    def _fetch_zenodo_insitu(self, max_items: int | None = 50_000) -> list[dict]:
         """Download (and locally cache) the Zenodo in-situ ZIP, parse station text files."""
         import hashlib
         import zipfile
@@ -164,7 +166,7 @@ class GRDCCollector(BaseCollector):
             )
         return rows
 
-    def _fetch_rseg(self, max_items: int | None = 50_000):
+    def _fetch_rseg(self, max_items: int | None = 50_000) -> list[dict]:
         """
         Fetch the RSEG satellite discharge extension from DaRUS.
 
