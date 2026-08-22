@@ -477,3 +477,100 @@ def test_it_does_not_argue_with_the_model_forever() -> None:
     with pytest.raises(LLMHTTPError):
         analyst_mod.ask("How wet is Taipei?", client=AlwaysMalformed(), model="test", max_steps=2)
     assert calls["n"] == 3, f"the first try and two nudges, then stop: {calls['n']}"
+
+
+# ── the second pass over the checks (#233) ──────────────────────────────────
+#
+# Reading all eight recorded traces showed three more ways a correct answer was
+# marked down. Each is a limit of the check, not a defect in the answer.
+
+def test_a_station_named_only_by_its_search_result_still_counts() -> None:
+    """flood_frequency returns the id and no name; the search that found it has the name.
+
+    So an answer saying "Kingston" was reported as not naming its record, because
+    the only identifier the check looked at was a UUID the prose sensibly omits.
+    """
+    results = [
+        {"name": "find_stations", "arguments": {"query": "Kingston"}, "ok": True,
+         "payload": {"stations": [{"source": "uk_ea", "station_id": "8496ce69", "name": "Kingston"}]}},
+        {"name": "flood_frequency", "arguments": {}, "ok": True,
+         "payload": {"station_id": "8496ce69-482c-406a", "unit": "m3/s",
+                     "ffa": {"return_periods": [100], "fits": {"gev": {"q": [497.0], "ci": [[453.0, 525.0]]}}}}},
+    ]
+    v = verify_mod.verify("The 100-year flood at Kingston is 497 m3/s (453 to 525).", results)
+    assert "record_is_named" not in {c.name for c in v.failed}
+
+
+def test_a_unit_with_an_exponent_is_not_a_claim_of_minus_one() -> None:
+    """"mm yr-1" appeared five times in one answer and was read as five claims of -1."""
+    payload = {"climate": {"precip_mm_yr": 1180.0, "pet_mm_yr": 900.0}, "station_id": "P1"}
+    v = verify_mod.verify("At P1 rainfall is 1180 mm yr-1 and PET is 900 mm yr-1.",
+                          [{"name": "anywhere", "arguments": {}, "payload": payload, "ok": True}])
+    assert "numbers_come_from_tools" not in {c.name for c in v.failed}
+
+
+def test_a_coordinate_the_tool_accepted_is_not_invented() -> None:
+    """The answer repeats back the point it was asked about, which is in the arguments."""
+    results = [{"name": "describe_catchment", "arguments": {"lat": 47.0, "lon": -68.6},
+                "payload": {"area_km2": 1420.0, "name": "Upper St John"}, "ok": True}]
+    v = verify_mod.verify("The catchment upstream of 47.0 N, 68.6 W (Upper St John) covers 1420 km2.", results)
+    assert "numbers_come_from_tools" not in {c.name for c in v.failed}
+
+
+def test_a_significance_threshold_is_a_convention_not_a_measurement() -> None:
+    payload = {"trend": {"trend": "decreasing", "p_value": 0.0016, "n_years": 40}, "station_id": "S", "unit": "m3/s"}
+    payload["stats"] = {"mean": 43.4}
+    v = verify_mod.verify("At S the decreasing trend is significant (p = 0.0016 < 0.05), 43.4 m3/s.",
+                          [{"name": "analyze_station", "arguments": {}, "payload": payload, "ok": True}])
+    assert "numbers_come_from_tools" not in {c.name for c in v.failed}
+
+
+def test_a_claim_about_a_series_the_test_never_ran_on_is_not_a_contradiction() -> None:
+    """The tool tests annual means. "No significant trend in low flow" is about something else.
+
+    Marking that wrong taught the reader to distrust the checks, which is the
+    opposite of the point.
+    """
+    payload = {"trend": {"trend": "increasing", "p_value": 0.0016, "n_years": 40},
+               "station_id": "Seine", "unit": "m3/s"}
+    answer = ("No significant trend in low flow is reported for either gauge at Seine "
+              "(the annual mean does show a modest increasing trend).")
+    v = verify_mod.verify(answer, [{"name": "analyze_station", "arguments": {}, "payload": payload, "ok": True}])
+    assert "trend_matches_the_test" not in {c.name for c in v.failed}
+
+
+def test_a_blanket_denial_that_contradicts_the_test_is_still_caught() -> None:
+    payload = {"trend": {"trend": "increasing", "p_value": 0.0016, "n_years": 40},
+               "station_id": "Seine", "unit": "m3/s"}
+    v = verify_mod.verify("At Seine there is no significant trend.",
+                          [{"name": "analyze_station", "arguments": {}, "payload": payload, "ok": True}])
+    assert "trend_matches_the_test" in {c.name for c in v.failed}
+
+
+def test_a_coordinate_in_the_wrong_hemisphere_is_caught() -> None:
+    """Reading the sign off the compass letter is stricter than the original check.
+
+    Before this the longitude was never verified at all; accepting "either sign"
+    would have let a hemisphere error through, which in hydrology is a real error.
+    """
+    results = [{"name": "describe_catchment", "arguments": {"lat": 47.0, "lon": -68.6},
+                "payload": {"area_km2": 1420.0, "name": "Upper St John", "unit": "km2"}, "ok": True}]
+    good = verify_mod.verify("Upstream of 47.0 N, 68.6 W (Upper St John) covers 1420 km2.", results)
+    bad = verify_mod.verify("Upstream of 47.0 N, 68.6 E (Upper St John) covers 1420 km2.", results)
+    assert "numbers_come_from_tools" not in {c.name for c in good.failed}
+    assert "numbers_come_from_tools" in {c.name for c in bad.failed}
+
+
+def test_a_squared_unit_is_not_a_claim_of_two() -> None:
+    results = [{"name": "describe_catchment", "arguments": {},
+                "payload": {"area_km2": 1420.0, "name": "Upper St John"}, "ok": True}]
+    v = verify_mod.verify("Upper St John covers 1420 km2.", results)
+    assert "numbers_come_from_tools" not in {c.name for c in v.failed}
+
+
+def test_a_counted_thing_is_not_mistaken_for_a_unit() -> None:
+    """"gauge 3" must keep its 3: only closed-up unit spellings are stripped."""
+    results = [{"name": "find_stations", "arguments": {},
+                "payload": {"stations": [{"name": "A"}], "n_returned": 1}, "ok": True}]
+    v = verify_mod.verify("Station A is gauge 3 of the set.", results)
+    assert "numbers_come_from_tools" in {c.name for c in v.failed}, "3 is a claim, not a unit"
