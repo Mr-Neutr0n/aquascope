@@ -39,8 +39,9 @@ jobs:
 
       - name: Install pyodide
         run: |
-          # PRs/dispatch: pinned to 0.29.3 so incompatible upstream releases don't fail contributor PRs.
-          # Scheduled Monday canary: float to detect new incompatibilities ear.
+          # PRs/dispatch: pinned to PYODIDE_VERSION (the version explorer/config.js
+          # loads) so this job tests the runtime the site actually serves.
+          # Scheduled Monday canary: float, to detect new incompatibilities early.
           if [ "${{ github.event_name }}" = "schedule" ]; then
             npm install pyodide
           else
