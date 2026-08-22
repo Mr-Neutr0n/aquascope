@@ -609,6 +609,11 @@ class USGSCollector(BaseCollector):
                 if val is None:
                     continue
 
+                time_str = props.get("time")
+                if time_str is None:
+                    continue
+                dt = datetime.fromisoformat(str(time_str).replace("Z", "+00:00"))
+
                 loc = None
                 if coords[0] is not None:
                     loc = GeoLocation(latitude=coords[1], longitude=coords[0])
@@ -630,7 +635,7 @@ class USGSCollector(BaseCollector):
                             station_id=props.get("monitoring_location_id"),
                             station_name=props.get("station_name"),
                             location=loc,
-                            reading_datetime=datetime.fromisoformat(props["time"]),
+                            reading_datetime=dt,
                             discharge_cms=rounded_discharge_cms,
                             source_type="in_situ",
                             uncertainty_cms=None,
@@ -652,7 +657,7 @@ class USGSCollector(BaseCollector):
                             station_id=props.get("monitoring_location_id"),
                             station_name=props.get("station_name"),
                             location=loc,
-                            reading_datetime=datetime.fromisoformat(props["time"]),
+                            reading_datetime=dt,
                             water_level=rounded_stage_m,
                             unit="m",
                         )
@@ -664,7 +669,7 @@ class USGSCollector(BaseCollector):
                             source=DataSource.USGS,
                             station_id=props.get("monitoring_location_id", "unknown"),
                             location=loc,
-                            sample_datetime=datetime.fromisoformat(props["time"]),
+                            sample_datetime=dt,
                             parameter=param_label,
                             value=float(val),
                             unit=props.get("unit_of_measure", ""),
