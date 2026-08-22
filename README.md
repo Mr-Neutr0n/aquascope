@@ -7,18 +7,19 @@
 **Open-source Python toolkit for water data, hydrology, and agricultural water management — with an AI engine that recommends and auto-executes research methodologies.**
 
 [![CI](https://github.com/Rekin226/aquascope/actions/workflows/ci.yml/badge.svg)](https://github.com/Rekin226/aquascope/actions/workflows/ci.yml)
+[![Pyodide](https://github.com/Rekin226/aquascope/actions/workflows/pyodide-smoke.yml/badge.svg)](https://github.com/Rekin226/aquascope/actions/workflows/pyodide-smoke.yml)
 [![PyPI version](https://img.shields.io/pypi/v/aquascope.svg?color=blue&cacheSeconds=300&v=2)](https://pypi.org/project/aquascope/)
 [![Python](https://img.shields.io/pypi/pyversions/aquascope.svg?color=informational&cacheSeconds=300&v=2)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21903143.svg)](https://doi.org/10.5281/zenodo.21903143)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Tests](https://img.shields.io/badge/tests-1000%2B%20passing-brightgreen.svg)](#)
-[![Live demo](https://img.shields.io/badge/%F0%9F%8C%8A%20Live%20demo-AquaScope%20Explorer-blue)](https://rekin226-aquascope-explorer.static.hf.space/)
+[![Live Explorer Demo – Runs in Your Browser](https://img.shields.io/badge/%F0%9F%8C%8A%20Live%20Demo-AquaScope%20Explorer-blue)](https://rekin226-aquascope-explorer.static.hf.space/)
 
 [![GitHub stars](https://img.shields.io/github/stars/Rekin226/aquascope?style=social)](https://github.com/Rekin226/aquascope/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Rekin226/aquascope?style=social)](https://github.com/Rekin226/aquascope/network/members)
 
-[**🌊 Live Demo**](https://rekin226-aquascope-explorer.static.hf.space/) ·
+[**🌊 Live Explorer Demo - Runs in Your Browser, No Install Required**](https://rekin226-aquascope-explorer.static.hf.space/) ·
 [**Install**](#-install) ·
 [**Examples**](#-examples) ·
 [**CLI**](#-cli) ·
