@@ -188,13 +188,18 @@ export function ensureBasinsLayers() {
     map.addSource("basins6", { type: "vector", url: `pmtiles://${basinsUrl("lev06.pmtiles")}` });
     map.addSource("basins12", { type: "vector", url: `pmtiles://${basinsUrl("lev12.pmtiles")}` });
     const before = map.getLayer("catchment-fill") ? "catchment-fill" : undefined;
-    map.addLayer({ id: "basins6-line", type: "line", source: "basins6", "source-layer": "basins6", minzoom: 1, maxzoom: 7,
+    // From zoom 3 rather than 1: at the world view every level-6 basin on Earth
+    // drew at once and buried the map under outlines.
+    map.addLayer({ id: "basins6-line", type: "line", source: "basins6", "source-layer": "basins6", minzoom: 3, maxzoom: 7,
       layout: { visibility: "none" }, paint: { "line-color": "#6a1b9a", "line-opacity": 0.35, "line-width": 0.6 } }, before);
     map.addLayer({ id: "basins12-line", type: "line", source: "basins12", "source-layer": "basins", minzoom: 6,
       layout: { visibility: "none" }, paint: { "line-color": "#6a1b9a", "line-opacity": 0.4, "line-width": 0.5 } }, before);
     map.addLayer({ id: "basins12-up", type: "fill", source: "basins12", "source-layer": "basins", minzoom: 4,
       filter: ["in", ["get", "HYBAS_ID"], ["literal", []]],
-      paint: { "fill-color": "#6a1b9a", "fill-opacity": 0.18, "fill-outline-color": "#4a148c" } }, before);
+      // A full-strength outline per sub-basin turned an upstream area of a few
+      // hundred polygons into a solid purple mesh; the wash is the signal, and
+      // basins12-line already draws the boundaries for anyone who wants them.
+      paint: { "fill-color": "#6a1b9a", "fill-opacity": 0.16, "fill-outline-color": "rgba(106,27,154,0.22)" } }, before);
     basinsLayersAdded = true;
   } catch (err) {
     console.info("basins layers unavailable:", err && err.message);
