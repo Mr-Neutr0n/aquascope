@@ -9,6 +9,10 @@ import { writeUrl } from "./url.js?v=__BUILD__";
 
 export let map = null;
 
+// Set by the app to finish setting the map up if it loads after we gave up.
+let onLate = null;
+export function whenMapLoadsLate(cb) { onLate = cb; }
+
 // Our own sources and layers, which must survive a basemap change: setStyle
 // replaces the whole style, so they are carried across explicitly.
 const OUR_SOURCES = ["stations", "catchment", "basins6", "basins12", "terrain-dem"];
@@ -159,10 +163,6 @@ export function initMap(initialView, { basemap = "light", date = null, globe = f
       style: styleFor(basemap, date),
       center: initialView ? [initialView.lon, initialView.lat] : DEFAULT_CENTER,
       zoom: initialView ? initialView.zoom : 1.6,
-      // Coverage is global and sparse, so the world view is a globe: it drops
-      // Mercator's polar exaggeration and MapLibre flattens it to Mercator on
-      // its own once you are past about zoom 5, where the work happens.
-      projection: globe ? { type: "globe" } : undefined,
       // Added by hand below, at the bottom left, where the inspector is not.
       attributionControl: false,
     });
@@ -172,6 +172,15 @@ export function initMap(initialView, { basemap = "light", date = null, globe = f
     return Promise.resolve({ ok: false, reason: "init" });
   }
   appliedBasemap = basemap;
+  // Coverage is global and sparse, so the world view is a globe: it drops
+  // Mercator's polar exaggeration, and MapLibre flattens it back to Mercator on
+  // its own past about zoom 5, where the work happens. It has to be set on the
+  // map rather than passed to the constructor, which ignores a `projection`
+  // option (getProjection() comes back undefined), and setting it as soon as
+  // the style is ready avoids a flat frame before the globe appears.
+  // applyLayerState() is what decides state.globe; this only gets the sphere on
+  // screen sooner, so it must not write back a failure over the intent.
+  if (globe) map.once("style.load", () => setGlobe(true));
   // One column at the top left: our layers and projection buttons first (see
   // .map-tools), then MapLibre's own, which the stylesheet pushes below them.
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
@@ -181,10 +190,22 @@ export function initMap(initialView, { basemap = "light", date = null, globe = f
   map.addControl(new maplibregl.ScaleControl(), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve({ ok: false, reason: "slow" }), 20000);
     let settled = false;
+    let timer = null;
     const done = (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
-    map.once("load", () => done({ ok: true }));
+    // Through done(), not resolve(): giving up has to record that we gave up,
+    // or the late-load branch below cannot tell that it is late.
+    timer = setTimeout(() => done({ ok: false, reason: "slow" }), 20000);
+    map.once("load", () => {
+      // The twenty seconds are a promise to the reader, not a verdict on the
+      // map: a cold cache with Pyodide's 15 MB downloading alongside it can
+      // take longer, and a tab that was in the background renders nothing at
+      // all until it is looked at, so `load` can arrive minutes late. It used
+      // to be terminal, which left a working map with no gauges on it under a
+      // notice saying it had failed, recoverable only by reloading.
+      if (settled) { const late = onLate; onLate = null; if (late) late(); return; }
+      done({ ok: true });
+    });
     map.once("error", (e) => {
       // A basemap host can be down (none of these have an SLA). Fall back to a
       // raster basemap once rather than losing the whole map.
@@ -322,7 +343,9 @@ export function setHillshade(on) {
 }
 
 export function setGlobe(on) {
-  if (!state.mapOk || !map.setProjection) return false;
+  // `map`, not `state.mapOk`: the projection can be set as soon as the map
+  // object exists, and mapOk is only true once the app has finished booting it.
+  if (!map || !map.setProjection) return false;
   try {
     map.setProjection({ type: on ? "globe" : "mercator" });
     return true;
