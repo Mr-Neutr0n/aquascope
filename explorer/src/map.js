@@ -65,9 +65,14 @@ export function panelPadding() {
     if (r.width < frame.width * 0.75) pad.right = Math.max(pad.right, frame.right - r.left);
     else pad.bottom = Math.max(pad.bottom, frame.bottom - r.top);
   }
-  // MapLibre needs some viewport left over, so never take more than 60 %.
-  pad.right = Math.min(pad.right, frame.width * 0.6);
-  pad.bottom = Math.min(pad.bottom, frame.height * 0.6);
+  // Never more than a bit under half. Past roughly 52 % of the width the camera
+  // centre is far enough off that MapLibre's own scale control cannot unproject
+  // on a globe and prints "NaN m" (measured: fine at 750 px of 1,440, broken at
+  // 800). With the inspector and the Analyst both open on a 1,440 px window the
+  // uncapped figure is 859. The globe then sits partly behind a card, which is
+  // what a map under a floating panel is supposed to do.
+  pad.right = Math.min(pad.right, frame.width * 0.48);
+  pad.bottom = Math.min(pad.bottom, frame.height * 0.48);
   return pad;
 }
 
