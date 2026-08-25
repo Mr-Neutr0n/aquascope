@@ -29,7 +29,6 @@
 
   <header id="top">
     <div class="brand">
-      <button id="btn-rail" class="icon-btn only-narrow" aria-expanded="false" aria-controls="rail" title="Layers and sources">☰</button>
       <button id="btn-home" class="brand-btn" title="Back to the start">
         <span class="logo" aria-hidden="true">🌊</span>
         <span class="brand-text">
@@ -62,61 +61,95 @@
         <h2>Gauges</h2>
         <span id="count" class="count">loading catalog…</span>
       </div>
-      <div id="rail-sources" class="rail-list"></div>
-      <div class="rail-list rail-style">
-        <label class="rail-field">Colour by
-          <select id="gauge-style"></select>
-        </label>
-        <div id="gauge-legend" class="swatches" hidden></div>
-        <label class="rail-row"><input type="checkbox" id="toggle-heat" /><span class="rail-label">Density heat map</span></label>
-        <button id="btn-area" class="btn small block" type="button">Select an area</button>
-        <div id="area-result" class="area-result" hidden></div>
-      </div>
 
-      <div class="rail-head"><h2>Basemap</h2></div>
-      <div id="rail-basemaps" class="rail-list"></div>
+      <details class="rail-group" open>
+        <summary>Sources</summary>
+        <div id="rail-sources" class="rail-list"></div>
+        <div class="rail-list rail-style">
+          <label class="rail-field">Colour by
+            <select id="gauge-style"></select>
+          </label>
+          <div id="gauge-legend" class="swatches" hidden></div>
+          <label class="rail-row"><input type="checkbox" id="toggle-heat" /><span class="rail-label">Density heat map</span></label>
+          <button id="btn-area" class="btn small block" type="button">Select an area</button>
+          <div id="area-result" class="area-result" hidden></div>
+        </div>
+      </details>
 
-      <div class="rail-head"><h2>Terrain</h2></div>
-      <div id="rail-terrain" class="rail-list"></div>
-      <p id="rail-terrain-note" class="rail-note muted"></p>
+      <details class="rail-group">
+        <summary>Basemap</summary>
+        <div id="rail-basemaps" class="basemap-grid"></div>
+      </details>
 
-      <div class="rail-head"><h2>Overlays</h2></div>
-      <div id="rail-date" class="rail-date" hidden>
-        <button id="date-prev" class="icon-btn tiny" type="button" title="Previous day">‹</button>
-        <input type="date" id="date-input" aria-label="Date for the time-driven layers" />
-        <button id="date-next" class="icon-btn tiny" type="button" title="Next day">›</button>
-      </div>
-      <div id="rail-overlays" class="rail-list"></div>
-      <div class="rail-list">
-        <label class="rail-row">
-          <input type="checkbox" id="toggle-basins" />
-          <i style="background:#6a1b9a;border-radius:2px"></i>
-          <span class="rail-label">Catchments (BasinATLAS)</span>
-        </label>
-      </div>
+      <details class="rail-group">
+        <summary>Relief</summary>
+        <div id="rail-terrain" class="rail-list"></div>
+        <p id="rail-terrain-note" class="rail-note muted"></p>
+      </details>
 
-      <div class="rail-head"><h2>Credits</h2></div>
-      <div id="rail-credits" class="rail-credits muted"></div>
-      <p class="rail-foot muted">
-        Gauges: <a href="https://huggingface.co/datasets/Rekin226/aquascope-gauges" target="_blank" rel="noopener">Rekin226/aquascope-gauges</a>,
-        GeoParquet, rebuilt weekly. Layer sources and licences are listed above; nothing here needs a key.
-      </p>
+      <details class="rail-group">
+        <summary>Overlays</summary>
+        <div id="rail-date" class="rail-date" hidden>
+          <button id="date-prev" class="icon-btn tiny" type="button" title="Previous day">‹</button>
+          <input type="date" id="date-input" aria-label="Date for the time-driven layers" />
+          <button id="date-next" class="icon-btn tiny" type="button" title="Next day">›</button>
+        </div>
+        <div id="rail-overlays" class="rail-list"></div>
+        <div class="rail-list">
+          <label class="rail-row">
+            <input type="checkbox" id="toggle-basins" />
+            <i style="background:#6a3ab2;border-radius:2px"></i>
+            <span class="rail-label">Catchments (BasinATLAS)</span>
+          </label>
+        </div>
+      </details>
+
+      <details class="rail-group">
+        <summary>Credits and licences</summary>
+        <div id="rail-credits" class="rail-credits muted"></div>
+        <p class="rail-foot muted">
+          Gauges: <a href="https://huggingface.co/datasets/Rekin226/aquascope-gauges" target="_blank" rel="noopener">Rekin226/aquascope-gauges</a>,
+          GeoParquet, rebuilt weekly. Nothing here needs a key.
+        </p>
+      </details>
     </nav>
 
     <div class="map-wrap">
       <div id="map" role="application" aria-label="World map of water gauges"></div>
+      <div id="map-tools" class="map-tools">
+        <button id="btn-rail" class="map-tool" type="button" aria-expanded="false" aria-controls="rail"
+                title="Layers, sources and overlays" aria-label="Layers, sources and overlays">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3 2.5 8 12 13l9.5-5L12 3Z" /><path d="M2.5 15.5 12 20.5l9.5-5" /><path d="M2.5 11.8 12 16.8l9.5-5" />
+          </svg>
+        </button>
+        <button id="btn-globe" class="map-tool" type="button" aria-pressed="false"
+                title="Globe or flat map" aria-label="Globe or flat map">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><ellipse cx="12" cy="12" rx="4.2" ry="9" />
+          </svg>
+        </button>
+      </div>
       <div id="map-fallback" class="map-fallback" hidden>
         <div id="map-fallback-text" class="status warn"></div>
       </div>
     </div>
 
+    <button id="btn-panel" class="map-tool" type="button" aria-expanded="true" aria-controls="panel"
+            title="Hide the panel and see the whole map" aria-label="Hide the panel and see the whole map">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m9 6 6 6-6 6" />
+      </svg>
+    </button>
+
     <aside id="panel" class="panel">
       <!-- welcome -->
       <div id="panel-empty" class="panel-empty">
         <h2>Pick a gauge</h2>
-        <p>Click any dot on the map, or search by name. You get the observed record straight from the agency,
-          plus flood frequency, flow duration, trend and a rainfall-runoff model, computed here in your browser by
-          <a href="https://github.com/Rekin226/aquascope" target="_blank" rel="noopener">aquascope</a>.</p>
+        <p>Click a dot on the map, or search by name, and you get the observed record straight from the
+          agency: flood frequency, flow duration, trend and a rainfall-runoff model, computed here in your
+          browser by <a href="https://github.com/Rekin226/aquascope" target="_blank" rel="noopener">aquascope</a>.
+          Click anywhere else for the hydrology of that spot.</p>
         <div class="try">
           <span class="muted">Try:</span>
           <button class="chip" data-try="s" data-key="usgs/USGS-01013500">a US gauge</button>
@@ -147,10 +180,10 @@
             <span id="st-id"></span> · <span id="st-vars"></span><span id="st-period"></span>
           </div>
           <div class="st-actions">
-            <a id="st-agency" href="#" target="_blank" rel="noopener" class="btn">Agency page ↗</a>
+            <a id="st-agency" href="#" target="_blank" rel="noopener" class="btn" title="Open this gauge on the agency’s own site">Agency ↗</a>
             <button id="btn-share" class="btn" title="Copy a link to exactly this view">Copy link</button>
-            <button id="btn-csv" class="btn" disabled>Download CSV</button>
-            <button id="btn-to-workbench" class="btn" title="Analyse this record with the workbench tools">Send to workbench</button>
+            <button id="btn-csv" class="btn" disabled title="Download the observed record as CSV">CSV</button>
+            <button id="btn-to-workbench" class="btn" title="Analyse this record with the workbench tools">Workbench</button>
             <button id="btn-cite" class="btn" title="How to cite this">Cite</button>
           </div>
           <div id="status" class="status" hidden></div>

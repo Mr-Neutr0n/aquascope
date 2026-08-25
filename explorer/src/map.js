@@ -35,6 +35,84 @@ export function webglAvailable() {
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
 const LABEL_FONT = ["Noto Sans Bold"];
 
+// Centred on the Atlantic: the one framing that holds North America, Europe and
+// west Africa at once, which is where all six agencies are. The old default
+// fitted a box from California to Taiwan, which cropped both ends of it.
+export const DEFAULT_CENTER = [-38, 28];
+
+// How much of the map is hidden behind the floating cards. MapLibre calls this
+// padding, and once it knows about it "centre" means the middle of what you can
+// actually see: the globe is not framed half under the inspector, and flying to
+// a gauge does not land it beneath the panel either.
+export function panelPadding() {
+  const pad = { top: 0, right: 0, bottom: 0, left: 0 };
+  if (!map) return pad;
+  const frame = map.getContainer().getBoundingClientRect();
+  if (!frame.width || !frame.height) return pad;
+  if (document.body.classList.contains("workbench-mode")) return pad;
+  const cards = [document.getElementById("panel"), document.getElementById("drawer")];
+  for (const el of cards) {
+    if (!el || el.hidden || el.offsetParent === null) continue;
+    if (el.id === "panel" && document.body.classList.contains("panel-collapsed")) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    // A card narrower than the map is a side panel; a full-width one is the
+    // bottom sheet the narrow layout uses.
+    if (r.width < frame.width * 0.75) pad.right = Math.max(pad.right, frame.right - r.left);
+    else pad.bottom = Math.max(pad.bottom, frame.bottom - r.top);
+  }
+  // MapLibre needs some viewport left over, so never take more than 60 %.
+  pad.right = Math.min(pad.right, frame.width * 0.6);
+  pad.bottom = Math.min(pad.bottom, frame.height * 0.6);
+  return pad;
+}
+
+export function syncMapPadding() {
+  if (!state.mapOk || !map) return;
+  const next = panelPadding();
+  // setPadding moves the camera, so only when it would actually change
+  // something: otherwise a resize or a re-render nudges the map for no reason,
+  // and can cut a fly-to short.
+  const now = map.getPadding ? map.getPadding() : null;
+  if (now && ["top", "right", "bottom", "left"].every((k) => Math.abs((now[k] || 0) - next[k]) < 2)) return;
+  try { map.setPadding(next, { duration: 0 }); } catch { /* nothing to do */ }
+}
+
+// The cards resize for reasons no click tells us about: the workbench widening
+// the inspector, a long station name wrapping, the window changing. Watch them
+// instead of trying to name every occasion.
+export function watchPanelSizes() {
+  if (typeof ResizeObserver === "undefined") return;
+  let timer = null;
+  const ro = new ResizeObserver(() => {
+    clearTimeout(timer);
+    timer = setTimeout(syncMapPadding, 120);
+  });
+  for (const id of ["panel", "drawer"]) {
+    const el = document.getElementById(id);
+    if (el) ro.observe(el);
+  }
+}
+
+// The globe does not grow as 2^zoom: MapLibre eases it towards Mercator as you
+// zoom in, so the sphere widens by about 1.78x per zoom level rather than 2x.
+// Measured on MapLibre 5.6 at zooms 0.8 to 2.4 (268, 344, 432, 544, 686 px).
+const GLOBE_PX_AT_Z0 = 169;
+const GLOBE_GROWTH = Math.log(1.782);
+
+// Zoom so the globe (or the world) fills the part of the map you can see.
+// It has to be derived from the container: a hard-coded zoom leaves a marble in
+// a sea of white on a monitor and overflows on a phone.
+export function fitWorldZoom(container, { globe = true } = {}) {
+  const pad = panelPadding();
+  const w = Math.max(220, (container ? container.clientWidth : 900) - pad.right);
+  const h = Math.max(220, (container ? container.clientHeight : 700) - pad.bottom);
+  const zoom = globe
+    ? Math.log((Math.min(w, h) * 0.76) / GLOBE_PX_AT_Z0) / GLOBE_GROWTH
+    : Math.log2((Math.max(w, Math.min(w, h)) * 1.02) / 256);
+  return Math.max(0, Math.min(4, zoom));
+}
+
 // A raster basemap as a whole style, so switching basemaps is always the same
 // operation whether the target is a vector style URL or a tile template.
 function rasterStyle(b, date) {
@@ -70,7 +148,7 @@ function styleFor(basemapId, date) {
   return b.kind === "style" ? b.url : rasterStyle(b, date);
 }
 
-export function initMap(initialView, { basemap = "light", date = null } = {}) {
+export function initMap(initialView, { basemap = "light", date = null, globe = false } = {}) {
   if (!webglAvailable()) {
     trace("map: no webgl");
     return Promise.resolve({ ok: false, reason: "webgl" });
@@ -79,9 +157,14 @@ export function initMap(initialView, { basemap = "light", date = null } = {}) {
     map = dbg.map = new maplibregl.Map({
       container: "map",
       style: styleFor(basemap, date),
-      center: initialView ? [initialView.lon, initialView.lat] : [0, 30],
+      center: initialView ? [initialView.lon, initialView.lat] : DEFAULT_CENTER,
       zoom: initialView ? initialView.zoom : 1.6,
-      attributionControl: { compact: true },
+      // Coverage is global and sparse, so the world view is a globe: it drops
+      // Mercator's polar exaggeration and MapLibre flattens it to Mercator on
+      // its own once you are past about zoom 5, where the work happens.
+      projection: globe ? { type: "globe" } : undefined,
+      // Added by hand below, at the bottom left, where the inspector is not.
+      attributionControl: false,
     });
   } catch (err) {
     console.warn("map unavailable:", err && err.message);
@@ -89,10 +172,14 @@ export function initMap(initialView, { basemap = "light", date = null } = {}) {
     return Promise.resolve({ ok: false, reason: "init" });
   }
   appliedBasemap = basemap;
+  // One column at the top left: our layers and projection buttons first (see
+  // .map-tools), then MapLibre's own, which the stylesheet pushes below them.
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
-  map.addControl(new maplibregl.ScaleControl(), "bottom-left");
-  map.addControl(new maplibregl.FullscreenControl(), "top-left");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-left");
+  map.addControl(new maplibregl.FullscreenControl(), "top-left");
+  // Bottom left, both of them: the inspector floats over the bottom right.
+  map.addControl(new maplibregl.ScaleControl(), "bottom-left");
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ ok: false, reason: "slow" }), 20000);
     let settled = false;
@@ -141,6 +228,7 @@ export const currentBasemap = () => appliedBasemap;
 export function setBasemap(id, { date = null, then = null } = {}) {
   if (!state.mapOk) return;
   const terrainOn = Boolean(map.getTerrain && map.getTerrain());
+  const globeOn = Boolean(state.globe);
   appliedBasemap = id;
   map.setStyle(styleFor(id, date), { diff: false, transformStyle: carryOver });
   // The new style is not usable until it has loaded; terrain in particular is a
@@ -149,6 +237,8 @@ export function setBasemap(id, { date = null, then = null } = {}) {
     if (terrainOn && map.getSource("terrain-dem")) {
       map.setTerrain({ source: "terrain-dem", exaggeration: 1.3 });
     }
+    // setStyle replaces the projection along with everything else.
+    if (globeOn) setGlobe(true);
     if (then) then();
   });
 }
@@ -227,7 +317,7 @@ export function setHillshade(on) {
   if (map.getLayer("hillshade")) return;
   map.addLayer({
     id: "hillshade", type: "hillshade", source: "terrain-dem",
-    paint: { "hillshade-exaggeration": 0.5, "hillshade-shadow-color": "#4a4a4a" },
+    paint: { "hillshade-exaggeration": 0.38, "hillshade-shadow-color": "#3f5566", "hillshade-accent-color": "#5b7286" },
   }, firstDataLayerId());
 }
 
@@ -274,28 +364,46 @@ export function setHeatmap(on) {
 
 export function addStationLayers(fc) {
   map.addSource("catchment", { type: "geojson", data: EMPTY_FC });
-  map.addLayer({ id: "catchment-fill", type: "fill", source: "catchment", paint: { "fill-color": "#1565c0", "fill-opacity": 0.14 } });
-  map.addLayer({ id: "catchment-line", type: "line", source: "catchment", paint: { "line-color": "#0d47a1", "line-width": 1.6, "line-dasharray": [2, 1.5] } });
-  map.addSource("stations", { type: "geojson", data: fc, cluster: true, clusterMaxZoom: 9, clusterRadius: 38 });
+  map.addLayer({ id: "catchment-fill", type: "fill", source: "catchment", paint: { "fill-color": "#0b6bb8", "fill-opacity": 0.15 } });
+  map.addLayer({ id: "catchment-line", type: "line", source: "catchment", paint: { "line-color": "#075390", "line-width": 1.8, "line-dasharray": [2, 1.5] } });
+  // clusterRadius 38 with clusterMaxZoom 9 tiled the United States with
+  // touching bubbles right down to state level. Wider grouping makes fewer,
+  // separated circles, and handing over to real dots at zoom 6 means you are
+  // looking at gauges as soon as you are looking at a river basin.
+  map.addSource("stations", { type: "geojson", data: fc, cluster: true, clusterMaxZoom: 6, clusterRadius: 92 });
   map.addLayer({
     id: "clusters", type: "circle", source: "stations", filter: ["has", "point_count"],
     paint: {
-      "circle-color": "#1565c0", "circle-opacity": 0.7, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5,
-      "circle-radius": ["step", ["get", "point_count"], 13, 50, 17, 250, 22, 1000, 28],
+      "circle-color": ["interpolate", ["linear"], ["get", "point_count"],
+        1, "#4d9fe0", 100, "#2b7fc4", 1000, "#125ea3", 10000, "#0b3f76"],
+      "circle-opacity": 0.92,
+      "circle-stroke-color": "rgba(255,255,255,.85)",
+      "circle-stroke-width": ["step", ["get", "point_count"], 1.5, 250, 2],
+      "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "point_count"]],
+        1, 11, 10, 17, 40, 23, 130, 29],
     },
   });
   map.addLayer({
     id: "cluster-count", type: "symbol", source: "stations", filter: ["has", "point_count"],
-    layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 11, "text-font": LABEL_FONT },
-    paint: { "text-color": "#fff" },
+    layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": ["step", ["get", "point_count"], 11, 250, 12.5], "text-font": LABEL_FONT },
+    paint: { "text-color": "#fff", "text-halo-color": "rgba(10,45,80,.35)", "text-halo-width": 0.6 },
   });
   map.addLayer({
     id: "points", type: "circle", source: "stations", filter: ["!", ["has", "point_count"]],
-    paint: { "circle-color": ["get", "color"], "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3, 10, 6, 14, 9], "circle-stroke-color": "#fff", "circle-stroke-width": 1 },
+    paint: {
+      "circle-color": ["get", "color"],
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.4, 7, 4.6, 10, 6.5, 14, 9],
+      "circle-stroke-color": "rgba(255,255,255,.92)",
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 10, 1.4],
+      "circle-opacity": 0.95,
+    },
   });
   map.addLayer({
     id: "selected", type: "circle", source: "stations", filter: ["==", ["get", "key"], "__none__"],
-    paint: { "circle-color": "#ffd600", "circle-radius": 11, "circle-stroke-color": "#212121", "circle-stroke-width": 2 },
+    paint: {
+      "circle-color": "#ffc400", "circle-radius": 10,
+      "circle-stroke-color": "#10222f", "circle-stroke-width": 2.5, "circle-opacity": 1,
+    },
   });
 
   map.on("click", "clusters", async (e) => {
@@ -343,6 +451,12 @@ export function highlightStation(key) {
 
 export function flyToStation(r) {
   if (state.mapOk) map.flyTo({ center: [r.lon, r.lat], zoom: Math.max(map.getZoom(), 9) });
+}
+
+// A gauge gets flown to; a point never was, so "the climate of Taipei" and any
+// #p= link dropped a marker somewhere off screen and left you on the world view.
+export function flyToPoint(lat, lon, { zoom = 8 } = {}) {
+  if (state.mapOk) map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom) });
 }
 
 export function setPointMarker(lat, lon) {
