@@ -1,6 +1,6 @@
 # Data Sources
 
-AquaScope ships **28 collectors** that normalise water data into typed Pydantic records. One API call per source, one schema across the toolkit.
+AquaScope ships **29 collectors** that normalise water data into typed Pydantic records. One API call per source, one schema across the toolkit.
 
 Most sources emit point observations and share the unified `water_data` schema (`WaterQualitySample`, `WaterLevelReading`, `ReservoirStatus`). Three aggregate/gridded sources use purpose-built record types that match their data shape: **FAO AQUASTAT** returns country-level `AquastatRecord`, **UN SDG 6** returns `SDG6Indicator`, and **FAO WaPOR** returns gridded `WaPORObservation`.
 
@@ -40,6 +40,7 @@ To request a new source, open an [issue](https://github.com/Rekin226/aquascope/i
 | [CAMELS-BR](https://doi.org/10.5281/zenodo.3709337) | Brazil | Daily observed streamflow, catchment attributes | ZIP / CSV | ✅ |
 | [Ireland OPW](https://waterlevel.ie) | Ireland | River / lake water level (15-min resolution) | GeoJSON / CSV | ✅ |
 | [UK Environment Agency](https://environment.data.gov.uk) | UK | River and groundwater levels, river flow, rainfall data | REST | ✅ |
+| [BOM Water Data Online](http://www.bom.gov.au/waterdata/) | Australia | Streamflow, water level, storage, groundwater level | KISTERS WISKI (KiWIS) | ✅ |
 
 ---
 
@@ -65,6 +66,7 @@ To request a new source, open an [issue](https://github.com/Rekin226/aquascope/i
 | CAMELS-BR | No | Open access via Zenodo |
 | Ireland OPW | No | Open access via waterlevel.ie |
 | UK Environment Agency | No | Open access |
+| BOM Water Data Online | No | Open access |
 
 ---
 
@@ -103,6 +105,66 @@ aquascope collect --source pegelonline \
 aquascope collect --source pegelonline \
   --station 593647aa-9fea-43ec-a7d6-6476a76ae868 --timeseries Q
 ```
+
+## BOM Water Data Online (Australia)
+
+- **Source type:** `bom`
+- **Coverage:** Australia — streamflow, water level, storage, and groundwater level from ~8,000 gauging stations
+- **Collector:** `aquascope.collectors.bom.BOMCollector`
+
+BOM stations are addressed by AWRC station number. The collector resolves
+the underlying KISTERS WISKI `ts_id` for a station/parameter combination
+(defaulting to the quality-checked merged daily mean time series) before
+fetching values. Discharge, quality, and rainfall parameters normalise to
+`WaterQualitySample`; level-type parameters (`Water Course Level`,
+`Storage Level`, `Ground Water Level`) normalise to `WaterLevelReading`.
+
+**Usage:**
+```python
+from aquascope.collectors import BOMCollector
+
+collector = BOMCollector()
+
+# Discharge -- confirmed working with the default time-series name.
+samples = collector.collect(
+    station_id="410001",  # Murrumbidgee River at Wagga Wagga
+    parameter_type="Water Course Discharge",
+    days=30,
+)
+
+# Water level -- confirmed working. Note: not every station maintains a
+# discharge series (see below), but level is broadly reliable.
+levels = collector.collect(
+    station_id="409001",  # Murray River at Albury (Union Bridge)
+    parameter_type="Water Course Level",
+    days=30,
+)
+```
+
+From the CLI:
+```bash
+aquascope collect --source bom --station 410001 --days 30
+aquascope collect --source bom --station 409001 --parameter-type "Water Course Level" --days 30
+```
+
+**Known data-availability quirks (verified against the live API):**
+
+- **Not every station has a populated discharge series.** BOM publishes a
+  `Water Course Discharge` parameter entry for most stations, but on
+  regulated rivers with locks/weirs the merged daily-mean series can be
+  entirely `None`, and even the raw continuous series can hold a constant
+  placeholder value (observed: `0.0` with quality code `210`) rather than
+  real readings. This collector already filters out `None` values, so a
+  call against such a station simply returns an empty list rather than
+  fabricated zeros — but it's worth checking `Water Course Level` for that
+  station instead, since level is usually maintained even when discharge
+  isn't.
+- **Daily-mean naming varies by station.** Some stations only populate
+  `DMQaQc.Merged.DailyMean.24HR` (calendar day), others also/instead
+  populate `DMQaQc.Merged.DailyMean.09HR` (the 9am-to-9am Australian
+  hydrological day). The collector defaults to `24HR`; pass
+  `ts_name="DMQaQc.Merged.DailyMean.09HR"` if a station's `24HR` series
+  comes back empty.
 
 ## GRDC (Global Runoff Data Centre)
 

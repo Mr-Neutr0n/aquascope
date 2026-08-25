@@ -7,17 +7,19 @@
 **Open-source Python toolkit for water data, hydrology, and agricultural water management — with an AI engine that recommends and auto-executes research methodologies.**
 
 [![CI](https://github.com/Rekin226/aquascope/actions/workflows/ci.yml/badge.svg)](https://github.com/Rekin226/aquascope/actions/workflows/ci.yml)
+[![Pyodide](https://github.com/Rekin226/aquascope/actions/workflows/pyodide-smoke.yml/badge.svg)](https://github.com/Rekin226/aquascope/actions/workflows/pyodide-smoke.yml)
 [![PyPI version](https://img.shields.io/pypi/v/aquascope.svg?color=blue&cacheSeconds=300&v=2)](https://pypi.org/project/aquascope/)
 [![Python](https://img.shields.io/pypi/pyversions/aquascope.svg?color=informational&cacheSeconds=300&v=2)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21903143.svg)](https://doi.org/10.5281/zenodo.21903143)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Tests](https://img.shields.io/badge/tests-1000%2B%20passing-brightgreen.svg)](#)
-[![Live demo](https://img.shields.io/badge/%F0%9F%8C%8A%20Live%20demo-Hugging%20Face%20Space-blue)](https://huggingface.co/spaces/Rekin226/aquascope-dashboard)
+[![Live Explorer Demo – Runs in Your Browser](https://img.shields.io/badge/%F0%9F%8C%8A%20Live%20Demo-AquaScope%20Explorer-blue)](https://rekin226-aquascope-explorer.static.hf.space/)
 
 [![GitHub stars](https://img.shields.io/github/stars/Rekin226/aquascope?style=social)](https://github.com/Rekin226/aquascope/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Rekin226/aquascope?style=social)](https://github.com/Rekin226/aquascope/network/members)
 
-[**🌊 Live Demo**](https://huggingface.co/spaces/Rekin226/aquascope-dashboard) ·
+[**🌊 Live Explorer Demo - Runs in Your Browser, No Install Required**](https://rekin226-aquascope-explorer.static.hf.space/) ·
 [**Install**](#-install) ·
 [**Examples**](#-examples) ·
 [**CLI**](#-cli) ·
@@ -34,15 +36,30 @@
 
 ---
 
-AquaScope unifies **28 global water-data sources** behind one Python schema, then layers a full scientific computing stack on top — from **Bulletin 17C flood frequency** to **FAO-56 crop water requirements** — wrapped in an AI engine that scores **26 research methodologies** against your dataset and auto-executes **26 analysis pipelines**. Validated against the CAMELS benchmark with 1,000+ tests.
+AquaScope unifies **29 global water-data sources** behind one Python schema, then layers a full scientific computing stack on top — from **Bulletin 17C flood frequency** to **FAO-56 crop water requirements** — wrapped in an AI engine that scores **26 research methodologies** against your dataset and auto-executes **26 analysis pipelines**. Validated against the CAMELS benchmark with 1,000+ tests.
 
 ---
+
+## 🌍 Try it without installing anything
+
+**[AquaScope Explorer](https://rekin226-aquascope-explorer.static.hf.space/)**: every public gauge we can reach on one map
+(45,919 stations from USGS, UK EA, Hub'Eau, PEGELONLINE, Ireland OPW and Taiwan CWA). Click one and get the observed record,
+flood frequency with confidence limits, flow duration and trend, computed in your browser by aquascope on Pyodide.
+The catalog behind it is an open GeoParquet dataset, [`Rekin226/aquascope-gauges`](https://huggingface.co/datasets/Rekin226/aquascope-gauges), harvested weekly.
+Press **Ask ✨** to type a question in plain language (bring your own key, Groq and Hugging Face are free): the model picks the
+tools, aquascope runs them in your browser, and the answer ends with the data used and the methods with citations.
+Not a Python user? The same files open in [R, QGIS, DuckDB and Julia](docs/readers.md) in place; `integrations/qgis/` has a
+drag-and-drop layer definition.
+
+Prefer an assistant? `pip install "aquascope[mcp]"` then `claude mcp add aquascope -- aquascope mcp` gives Claude (or any
+MCP client) `find_stations`, `get_timeseries`, `analyze_station` and `flood_frequency` over the same catalog and methods
+([docs](docs/mcp.md)).
 
 ## ✨ What you can do
 
 - 🌊 **Pull water data** from USGS, FAO AQUASTAT, FAO WaPOR, GEMStat, EU WFD, Copernicus ERA5, France Hub'Eau, Taiwan MOENV/WRA/Civil IoT/DataGov, Japan MLIT, Korea WAMIS, India WRIS, GRDC, CAMELS-CL, OpenMeteo, UN SDG 6, US Water Quality Portal — **one unified Python API**.
-- 📈 **Run hydrological analyses** — Bulletin 17C flood frequency (GEV / LP3 / Gumbel / non-stationary GEV / EMA), baseflow separation, rating curves, 21 hydrological signatures.
-- 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 20 crops, irrigation scheduling, soil water balance with auto-irrigation.
+- 📈 **Run hydrological analyses** — Bulletin 17C flood frequency (GEV / LP3 / Gumbel / non-stationary GEV / EMA), baseflow separation, rating curves, 22 hydrological signatures.
+- 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 23 crops, irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
 - 📊 **Visualise + report** — 16 plot types, Q-Q / P-P diagnostics, Markdown / HTML reports with embedded figures, threshold alerts (WHO / EPA / EU WFD).
 - 🗺️ **Spatial hydrology** — DEM processing, D8 flow direction, watershed delineation, Strahler ordering.
@@ -57,7 +74,7 @@ For the full capability list see [docs/features.md](docs/features.md).
 | Non-stationary GEV | ✅ | — | partial | — |
 | Baseflow separation (Lyne-Hollick, Eckhardt) | ✅ | — | — | — |
 | FAO-56 Penman-Monteith ET₀ + crop water | ✅ | — | — | — |
-| 28 unified data collectors | ✅ | — | — | per-source |
+| 29 unified data collectors | ✅ | — | — | per-source |
 | AI methodology recommender (OpenAI / Groq / HF / Ollama) | ✅ | — | — | — |
 | Interactive Streamlit dashboard | ✅ | — | — | — |
 | Free, MIT, Python-native | ✅ | partial | ✅ | varies |
@@ -122,12 +139,18 @@ print(sig.q5, sig.q95)         # high-flow / low-flow exceedances
 print(sig.flashiness_index)    # Richards-Baker flashiness index
 ```
 
-21 signatures across magnitude, variability, timing, recession, and flashiness — see [docs/features.md](docs/features.md#hydrological-analysis).
+22 signatures across magnitude, variability, timing, recession, and flashiness — see [docs/features.md](docs/features.md#hydrological-analysis).
 
-### 3. Collect data from any of the 28 sources
+### 3. Collect data from any of the 29 sources
 
 ```python
+from aquascope import find_stations
 from aquascope.collectors import USGSCollector, AquastatCollector, WaPORCollector
+
+# Which gauges measure discharge around Greater London? (USGS, UK EA, Hub'Eau,
+# PEGELONLINE, Ireland OPW and Taiwan CWA expose station catalogs; more coming)
+gauges = find_stations(bbox=(-0.5, 51.3, 0.3, 51.7), variable="discharge")
+print(gauges[0].name, gauges[0].url)
 
 usgs = USGSCollector()   # pass api_key=... for reliable access
 flow = usgs.collect(days=7, bbox="-77.6,38.7,-76.9,39.1")   # Potomac basin, last week
@@ -175,6 +198,8 @@ balance = SoilWaterBalance(soil).auto_irrigate(
 print(balance["irrigation_mm"].sum())             # total irrigation applied (mm)
 print(int(balance["irrigation_trigger"].sum()))   # number of deficit days
 ```
+
+Notebook tutorial: [agricultural water demand and irrigation scheduling](notebooks/07_agricultural_water_demand.ipynb).
 
 ### 5. AI methodology recommender
 
@@ -238,10 +263,20 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 20-command CLI for the most common workflows:
+AquaScope ships a 25-command CLI (`agri`, `basins`, `caravan` and `gym` carry subcommands) for the most common workflows:
 
 ```bash
-# Collect data
+# Find stations, then collect data
+aquascope stations --bbox -0.5,51.3,0.3,51.7 --variable discharge --format geojson
+aquascope harvest stations --out archive          # the open gauge catalog (GeoParquet)
+aquascope basins at 48.85 2.35                    # the catchment of any point: area, climate, land cover, soils, dams (BasinATLAS)
+aquascope basins similar 25.04 121.56             # gauged basins whose catchments look most like this point's (ungauged-site donors)
+aquascope basins regionalize 52.29 -3.51          # estimated flow regime of an ungauged point from those donors, with the leave-one-out skill
+aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive
+aquascope gym run --basin uk_ea/013054a3-670e-49ee-afda-e0865a449197   # HydroGym: calibrate GR4J on a real basin as a gym episode
+aquascope mcp                                     # serve the same tools to Claude / Cursor over MCP
+aquascope ask "100-year flood of the Seine at Paris?"   # the analyst: tools + a cited Markdown report
+aquascope ingest agency_export.csv --unit cfs     # any CSV/Excel -> clean daily series + QA report
 aquascope collect --source usgs --days 365
 aquascope collect --source wapor --bbox 30.5,29.8,31.1,30.2 --variable RET --start-date 2026-04-01
 
@@ -270,7 +305,7 @@ Run `aquascope --help` for the full command list.
 
 ## 🌍 Data sources at a glance
 
-28 data collectors spanning four regions (highlights below, full list in the [docs](docs/data_sources.md)):
+29 data collectors spanning four regions (highlights below, full list in the [docs](docs/data_sources.md)):
 
 - 🌎 **Americas** — USGS (streamflow + WQ), NOAA NWPS (US streamflow), Water Quality Portal (400+ agencies), CAMELS-CL (Chile), CAMELS-BR (Brazil)
 - 🌍 **Europe** — EU Water Framework Directive, Copernicus ERA5, France Hub'Eau, Germany PEGELONLINE, UK Environment Agency
@@ -286,7 +321,7 @@ Full details, endpoints, and API-key requirements: [docs/data_sources.md](docs/d
 - **1,000+ tests** — covering every collector, hydrology method, and pipeline (spatial and ARIMA tests require the optional `[all]` / `[ml]` extras)
 - **CAMELS benchmark** — a 10-catchment validation subset of the [CAMELS dataset](https://ral.ucar.edu/solutions/products/camels) ships with the repo at `data/camels_benchmark/` and runs as part of CI
 - **Every method cited** — equations, decision trees, and DOI references for all 26 methodologies live in the [theory guide](docs/theory.md)
-- **JOSS paper in submission** — see [`paper.md`](paper.md) and [`paper.bib`](paper.bib)
+- **JOSS paper in preparation** — see [`paper.md`](paper.md) and [`paper.bib`](paper.bib)
 
 ---
 
@@ -295,12 +330,13 @@ Full details, endpoints, and API-key requirements: [docs/data_sources.md](docs/d
 | Resource | What it covers |
 | :--- | :--- |
 | [Features](docs/features.md) | Full capability list — hydrology, agriculture, ML, spatial, I/O |
-| [Data sources](docs/data_sources.md) | All 28 sources, endpoints, API-key requirements |
+| [Data sources](docs/data_sources.md) | All 29 sources, endpoints, API-key requirements |
 | [Theory guide](docs/theory.md) | Equations, DOI citations, decision trees for every method |
 | [Methodology matrix](docs/methodology_matrix.md) | When to use which method |
 | [Architecture](docs/guides/architecture.md) | How AquaScope is structured internally |
 | [FAQ](docs/faq.md) · [Troubleshooting](docs/troubleshooting.md) | Common questions and fixes |
 | [Use cases](docs/use_cases.md) | Real-world applications and case studies |
+| [HydroGym](docs/gym.md) | A gym-style calibration environment over real basins, with baselines and a leaderboard |
 | [Integration guides](docs/integration_guides/) | xarray, QGIS, R interoperability |
 | [Contributing](CONTRIBUTING.md) | How to add a data source, methodology, or test |
 
@@ -366,7 +402,13 @@ Thanks to these wonderful people who make AquaScope possible ([emoji key](CONTRI
       <td align="center" valign="top" width="20%"><a href="https://github.com/taran-dev4u"><img src="https://avatars.githubusercontent.com/u/78680216?v=4?s=100" width="100px;" alt="Taran"/><br /><sub><b>Taran</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=taran-dev4u" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=taran-dev4u" title="Tests">⚠️</a></td>
       <td align="center" valign="top" width="20%"><a href="https://github.com/aobaruwa"><img src="https://avatars.githubusercontent.com/u/28014016?v=4?s=100" width="100px;" alt="Ahmed Baruwa"/><br /><sub><b>Ahmed Baruwa</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=aobaruwa" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=aobaruwa" title="Tests">⚠️</a></td>
       <td align="center" valign="top" width="20%"><a href="https://github.com/AB1775"><img src="https://avatars.githubusercontent.com/u/66264218?v=4?s=100" width="100px;" alt="Anthony"/><br /><sub><b>Anthony</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=AB1775" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=AB1775" title="Tests">⚠️</a></td>
-      <td align="center" valign="top" width="20%"><a href="https://github.com/JamesBoardman27"><img src="https://avatars.githubusercontent.com/u/77696811?v=4?s=100" width="100px;" alt="James Boardman"/><br /><sub><b>James Boardman</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=JamesBoardman27" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=JamesBoardman27" title="Tests">⚠️</a> <a href="https://github.com/Rekin226/aquascope/commits?author=JamesBoardman27" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://github.com/JamesBoardman27"><img src="https://avatars.githubusercontent.com/u/77696811?v=4?s=100" width="100px;" alt="James Boardman"/><br /><sub><b>James Boardman</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=JamesBoardman27" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=JamesBoardman27" title="Tests">⚠️</a> <a href="https://github.com/Rekin226/aquascope/commits?author=JamesBoardman27" title="Documentation">📖</a> <a href="https://github.com/Rekin226/aquascope/issues?q=author%3AJamesBoardman27" title="Bug reports">🐛</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://github.com/khyahahati"><img src="https://avatars.githubusercontent.com/u/132439126?v=4?s=100" width="100px;" alt="Khyati Tiwari"/><br /><sub><b>Khyati Tiwari</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=khyahahati" title="Code">💻</a> <a href="#data-khyahahati" title="Data">🔣</a></td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="20%"><a href="https://github.com/Prakshal0809"><img src="https://avatars.githubusercontent.com/u/116380035?v=4?s=100" width="100px;" alt="PRAKSHAL BHAVINKUMAR BHANDARI"/><br /><sub><b>PRAKSHAL BHAVINKUMAR BHANDARI</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Prakshal0809" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://github.com/Osheun"><img src="https://avatars.githubusercontent.com/u/138526540?v=4?s=100" width="100px;" alt="Osheun"/><br /><sub><b>Osheun</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Tests">⚠️</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://dipakchaudhari.me"><img src="https://avatars.githubusercontent.com/u/111210939?v=4?s=100" width="100px;" alt="Dipak Chaudhari"/><br /><sub><b>Dipak Chaudhari</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=dchaudhari7177" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=dchaudhari7177" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>
@@ -388,14 +430,16 @@ If you use AquaScope in your research, please cite:
   author  = {Ouédraogo, Abdoul Rachid},
   year    = {2026},
   url     = {https://github.com/Rekin226/aquascope},
-  version = {0.9.0},
+  version = {0.12.0},
+  doi     = {10.5281/zenodo.21903143},
   license = {MIT}
 }
 ```
 
 Machine-readable metadata lives in [CITATION.cff](CITATION.cff); GitHub's "Cite this
 repository" button renders it in APA and BibTeX. Every tagged release is archived on
-Zenodo with a version DOI.
+Zenodo; `10.5281/zenodo.21903143` is the concept DOI that always resolves to the latest
+version (v0.11.0 is [10.5281/zenodo.21989509](https://doi.org/10.5281/zenodo.21989509)).
 
 ## 📄 License
 

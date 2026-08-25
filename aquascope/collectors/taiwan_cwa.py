@@ -26,6 +26,7 @@ from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 
 from aquascope.collectors.base import BaseCollector
+from aquascope.schemas.station import Station, in_bbox
 from aquascope.schemas.water_data import ClimateReading, DataSource, GeoLocation
 from aquascope.utils.http_client import CachedHTTPClient, RateLimiter
 
@@ -49,6 +50,15 @@ PARAMETER_MAP: dict[str, tuple[str, str, str]] = {
 # negative sentinel/QC artifacts (e.g. pan evaporation -0.9) that must not
 # leak into analyses.
 _NON_NEGATIVE = {"rainfall_mm", "solar_radiation_mj_m2", "pan_evaporation_mm"}
+
+
+def _parse_cwa_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 class TaiwanCWACollector(BaseCollector):
@@ -84,6 +94,61 @@ class TaiwanCWACollector(BaseCollector):
             logger.warning("CODIS station_list unavailable (%s); records will lack coordinates.", exc)
         self._station_meta = meta
         return meta
+
+    def stations(
+        self,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        variable: str | None = None,
+        max_items: int | None = None,
+    ) -> list[Station]:
+        """CWA station catalog from CODIS ``station_list`` (manned, agricultural, automatic).
+
+        Every station reports precipitation; the manned (``cwb``) network also
+        carries the full climate set. ``extra["attribute"]`` keeps the CODIS
+        group (``cwb`` / ``agr`` / ``auto``) so callers can pick long-archive
+        stations.
+        """
+        if variable and variable not in ("precipitation", "climate"):
+            return []
+        payload = self.client.post_json("station_list", form={})
+        stations: list[Station] = []
+        for group in payload.get("data", []):
+            attribute = group.get("stationAttribute")
+            for item in group.get("item", []):
+                sid = item.get("stationID")
+                lat, lon = item.get("latitude"), item.get("longitude")
+                if not sid or lat is None or lon is None:
+                    continue
+                lat, lon = float(lat), float(lon)
+                if not in_bbox(lat, lon, bbox):
+                    continue
+                stations.append(
+                    Station(
+                        source="taiwan_cwa",
+                        station_id=str(sid),
+                        name=item.get("stationName"),
+                        latitude=lat,
+                        longitude=lon,
+                        variables=("climate", "precipitation"),
+                        period_start=_parse_cwa_date(item.get("stationStartDate")),
+                        period_end=_parse_cwa_date(item.get("stationEndDate")),
+                        url=f"https://codis.cwa.gov.tw/StationData?station={sid}",
+                        country="TWN",
+                        extra={
+                            k: v
+                            for k, v in (
+                                ("attribute", attribute),
+                                ("altitude_m", item.get("altitude")),
+                                ("county", item.get("countryName")),
+                            )
+                            if v not in (None, "")
+                        },
+                    )
+                )
+                if max_items is not None and len(stations) >= max_items:
+                    return stations
+        return stations
 
     # ── fetch ────────────────────────────────────────────────────────
     def fetch_raw(

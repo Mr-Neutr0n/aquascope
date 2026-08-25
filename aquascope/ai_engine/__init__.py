@@ -12,8 +12,10 @@ from aquascope.ai_engine.planner import ChallengePlanner, ChallengeSpec
 from aquascope.ai_engine.recommender import (
     DatasetProfile,
     Recommendation,
+    RecommendationResult,
     recommend,
     recommend_with_llm,
+    recommend_with_llm_detailed,
 )
 
 __all__ = [
@@ -23,8 +25,10 @@ __all__ = [
     "search_methodologies",
     "DatasetProfile",
     "Recommendation",
+    "RecommendationResult",
     "recommend",
     "recommend_with_llm",
+    "recommend_with_llm_detailed",
     "ChallengePlanner",
     "ChallengeSpec",
     "ModelRecommender",

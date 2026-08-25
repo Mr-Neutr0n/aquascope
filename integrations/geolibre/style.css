@@ -1,0 +1,18 @@
+/* AquaScope Gauges plugin: scoped to the aq-gauges- prefix; theme-aware via GeoLibre tokens. */
+.aq-gauges-control button { display: flex; align-items: center; justify-content: center; }
+.aq-gauges-control button.is-active { background: hsl(var(--primary, 210 80% 45%) / 0.15); }
+.aq-gauges-panel { padding: 12px 14px; font: 13px/1.45 system-ui, sans-serif; color: hsl(var(--foreground, 220 10% 15%)); }
+.aq-gauges-panel h2 { margin: 0 0 6px; font-size: 15px; font-weight: 650; }
+.aq-gauges-panel p { margin: 0 0 8px; }
+.aq-gauges-panel .aq-muted { opacity: .7; font-size: 12px; }
+.aq-gauges-panel ul { list-style: none; padding: 0; margin: 8px 0; }
+.aq-gauges-panel li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.aq-gauges-panel li i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.aq-gauges-panel input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid hsl(var(--border, 220 10% 85%)); border-radius: 6px; background: transparent; color: inherit; margin: 6px 0; }
+.aq-gauges-panel .aq-hits div { padding: 4px 0; cursor: pointer; border-bottom: 1px solid hsl(var(--border, 220 10% 85%) / .6); }
+.aq-gauges-panel .aq-hits div:hover { opacity: .8; }
+.aq-gauges-panel a { color: hsl(var(--primary, 210 80% 45%)); }
+.aq-gauges-popup { font: 13px/1.4 system-ui, sans-serif; min-width: 200px; }
+.aq-gauges-popup strong { display: block; margin-bottom: 2px; }
+.aq-gauges-popup .aq-muted { opacity: .7; font-size: 12px; }
+.aq-gauges-popup a { display: inline-block; margin-top: 6px; margin-right: 10px; }

@@ -1,0 +1,8 @@
+{
+  "id": "aquascope-gauges",
+  "name": "AquaScope Gauges",
+  "version": "0.1.0",
+  "description": "Every public water gauge AquaScope can reach (45,000+ stations from USGS, UK EA, Hub'Eau, PEGELONLINE, Ireland OPW, Taiwan CWA and more) as a clustered layer with a popup that links to the observed record and flood frequency in AquaScope Explorer.",
+  "entry": "index.js",
+  "style": "style.css"
+}

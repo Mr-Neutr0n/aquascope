@@ -117,3 +117,54 @@ class TestGR4JCalibrate:
         result = calibrate(precip, pet, true_model_streamflow, maxiter=5, seed=2)
         for key, (lo, hi) in GR4J_PARAM_BOUNDS.items():
             assert lo <= result.params[key] <= hi
+
+
+def _reference_simulate(model, precip: pd.Series, pet: pd.Series) -> np.ndarray:
+    """The original day-by-day formulation (buffer shifts with np.roll), kept as the parity oracle."""
+    p = precip.values.astype(float)
+    e = pet.values.astype(float)
+    n = len(p)
+    x1, x2, x3 = model.x1, model.x2, model.x3
+    uh1, uh2 = model._unit_hydrographs()
+    s, r = 0.3 * x1, 0.3 * x3
+    uh1_state, uh2_state, out = np.zeros(len(uh1)), np.zeros(len(uh2)), np.zeros(n)
+    for t in range(n):
+        pn, en = model._net_rainfall_pet(p[t], e[t])
+        if pn > 0:
+            ps = model._production_store_input(pn, s, x1)
+            s += ps
+            perc_input = pn - ps
+        else:
+            s -= model._production_store_evap(en, s, x1)
+            perc_input = 0.0
+        perc = s * (1 - (1 + (4.0 / 9.0 * s / x1) ** 4) ** -0.25)
+        s -= perc
+        pr = perc + perc_input
+        uh1_state = np.roll(uh1_state, -1)
+        uh1_state[-1] = 0.0
+        uh1_state += 0.9 * pr * uh1
+        uh2_state = np.roll(uh2_state, -1)
+        uh2_state[-1] = 0.0
+        uh2_state += 0.1 * pr * uh2
+        q9, q1 = uh1_state[0], uh2_state[0]
+        exch = x2 * (r / x3) ** 3.5
+        r = max(0.0, r + q9 + exch)
+        qr = r * (1 - (1 + (r / x3) ** 4) ** -0.25)
+        r -= qr
+        out[t] = qr + max(0.0, q1 + exch)
+    return out
+
+
+@pytest.mark.parametrize("params", [
+    dict(x1=320.0, x2=-0.8, x3=70.0, x4=2.1), dict(x1=1200.0, x2=3.0, x3=400.0, x4=0.6),
+    dict(x1=50.0, x2=-8.0, x3=5.0, x4=9.7), dict(x1=1.0, x2=0.0, x3=1.0, x4=0.5),
+])
+def test_vectorised_simulate_matches_the_day_by_day_reference(params):
+    """The convolution + two-scalar-loop simulate must reproduce the original buffer-shift loop to round-off."""
+    from aquascope.models.rainfall_runoff import GR4J
+
+    precip, pet = _make_forcing(1500, seed=7)
+    model = GR4J(**params)
+    new = model.simulate(precip, pet, warmup_days=0).streamflow.to_numpy()
+    ref = _reference_simulate(model, precip, pet)
+    assert np.max(np.abs(new - ref)) < 1e-10 * max(1.0, np.max(ref))

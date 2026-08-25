@@ -21,6 +21,7 @@ Perrin, C., Michel, C., & Andreassian, V. (2003). Improvement of a
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -171,62 +172,56 @@ class GR4J:
 
         x1, x2, x3 = self.x1, self.x2, self.x3
         uh1, uh2 = self._unit_hydrographs()
-        n1, n2 = len(uh1), len(uh2)
 
         # Initial store levels at 30% capacity (airGR convention).
         s = 0.3 * x1
         r = 0.3 * x3
 
-        # UH convolution buffers.
-        uh1_state = np.zeros(n1)
-        uh2_state = np.zeros(n2)
-
-        streamflow = np.zeros(n)
-        s_trace = np.zeros(n)
-        r_trace = np.zeros(n)
-
+        # 1. Production store: a scalar loop in plain floats (no per-day numpy calls), giving the
+        #    effective rainfall Pr that feeds the routing. This is the only truly sequential part
+        #    besides the routing store, and math.tanh on floats is ~50x cheaper than np.tanh on scalars.
+        pr = np.empty(n)
+        s_trace = np.empty(n)
+        tanh = math.tanh
         for t in range(n):
-            pn, en = self._net_rainfall_pet(p[t], e[t])
-
-            # Production store update.
-            if pn > 0:
-                ps = self._production_store_input(pn, s, x1)
+            pt, et = p[t], e[t]
+            if pt >= et:
+                pn = pt - et
+                ratio = s / x1
+                tw = tanh(pn / x1)
+                ps = (x1 * (1 - ratio * ratio) * tw) / (1 + ratio * tw)
                 s += ps
                 perc_input = pn - ps
             else:
-                es = self._production_store_evap(en, s, x1)
-                s -= es
+                en = et - pt
+                ratio = s / x1
+                tw = tanh(en / x1)
+                s -= (s * (2 - ratio) * tw) / (1 + (1 - ratio) * tw)
                 perc_input = 0.0
-
-            # Percolation from the production store.
             perc = s * (1 - (1 + (4.0 / 9.0 * s / x1) ** 4) ** -0.25)
             s -= perc
+            pr[t] = perc + perc_input
+            s_trace[t] = s
 
-            pr = perc + perc_input
+        # 2. Unit hydrographs: the two causal convolutions of Pr, vectorised (identical to the
+        #    day-by-day buffer shift they replace: q9[t] = 0.9 * sum_k pr[t-k] uh1[k]).
+        q9 = 0.9 * np.convolve(pr, uh1)[:n]
+        q1 = 0.1 * np.convolve(pr, uh2)[:n]
 
-            # Split: 90% through UH1+UH2 with exchange, 10% through UH2 only.
-            uh1_state = np.roll(uh1_state, -1)
-            uh1_state[-1] = 0.0
-            uh1_state += 0.9 * pr * uh1
-
-            uh2_state = np.roll(uh2_state, -1)
-            uh2_state[-1] = 0.0
-            uh2_state += 0.1 * pr * uh2
-
-            q9 = uh1_state[0]
-            q1 = uh2_state[0]
-
-            # Groundwater exchange term (applied to both branches' store).
+        # 3. Routing store and exchange: the second scalar loop.
+        streamflow = np.empty(n)
+        r_trace = np.empty(n)
+        for t in range(n):
             exch = x2 * (r / x3) ** 3.5
-
-            r = max(0.0, r + q9 + exch)
+            r = r + q9[t] + exch
+            if r < 0.0:
+                r = 0.0
             qr = r * (1 - (1 + (r / x3) ** 4) ** -0.25)
             r -= qr
-
-            qd = max(0.0, q1 + exch)
-
+            qd = q1[t] + exch
+            if qd < 0.0:
+                qd = 0.0
             streamflow[t] = qr + qd
-            s_trace[t] = s
             r_trace[t] = r
 
         return GR4JResult(

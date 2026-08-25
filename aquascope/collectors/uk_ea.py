@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from aquascope.collectors.base import BaseCollector
+from aquascope.schemas.station import Station, in_bbox
 from aquascope.schemas.water_data import (
     DataSource,
     GeoLocation,
@@ -36,6 +37,13 @@ MAPPED_OBSERVED_PROPERTY_UNITS = {
     "rainfall": "mm",
     "groundwaterLevel": "mAOD (metres Above Ordnance Datum)"
 }
+# Registry variable -> EA observedProperty (station catalog filter).
+STATION_VARIABLE_PROPERTY = {
+    "discharge": "waterFlow",
+    "water_level": "waterLevel",
+    "precipitation": "rainfall",
+    "groundwater_level": "groundwaterLevel",
+}
 MAPPED_OBSERVED_PROPERTY_MEASURE_CODE = {
     "flow": "waterFlow",
     "level": "waterLevel",
@@ -46,6 +54,29 @@ COLLECTION_PERIOD_VALUES = {
     "15min": 900,
     "daily": 86400
 }
+
+def _is_number(value: Any) -> bool:
+    try:
+        return value is not None and float(value) == float(value)
+    except (TypeError, ValueError):
+        return False
+
+
+def _first_str(value: Any) -> str | None:
+    """EA fields are sometimes a list of alternate labels; keep the first."""
+    if isinstance(value, list):
+        value = value[0] if value else None
+    return str(value) if value not in (None, "") else None
+
+
+def _parse_iso_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
 
 class UKEACollector(BaseCollector):
     """Collect readings from the UK Environment Agency hydrology API.
@@ -71,6 +102,83 @@ class UKEACollector(BaseCollector):
                 cache_ttl_seconds=3600,
             )
         )
+
+    def stations(
+        self,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        variable: str | None = None,
+        max_items: int | None = None,
+    ) -> list[Station]:
+        """EA Hydrology API station catalog (``id/stations.json``).
+
+        The API filters by ``observedProperty`` and by lat/long bounds; each
+        item lists every observed property at the site, which becomes
+        ``variables``. ``dateOpened`` / ``dateClosed`` become the period.
+        """
+        if variable and variable not in STATION_VARIABLE_PROPERTY:
+            return []
+        params: dict[str, Any] = {"_limit": 500}
+        if variable:
+            params["observedProperty"] = STATION_VARIABLE_PROPERTY[variable]
+        if bbox:
+            west, south, east, north = bbox
+            params.update({"mineq-long": west, "mineq-lat": south, "maxeq-long": east, "maxeq-lat": north})
+
+        prop_to_var = {v: k for k, v in STATION_VARIABLE_PROPERTY.items()}
+        stations: list[Station] = []
+        offset = 0
+        while True:
+            params["_offset"] = offset
+            data = self.client.get_json("id/stations.json", params=params)
+            items = data.get("items", [])
+            if not items:
+                break
+            for item in items:
+                lat, lon = item.get("lat"), item.get("long")
+                if lat is None or lon is None:
+                    continue
+                lat, lon = float(lat), float(lon)
+                if not in_bbox(lat, lon, bbox):
+                    continue
+                props = item.get("observedProperty") or []
+                if isinstance(props, dict):
+                    props = [props]
+                variables = sorted(
+                    {prop_to_var[p["@id"].rsplit("/", 1)[-1]] for p in props if isinstance(p, dict) and "@id" in p
+                     and p["@id"].rsplit("/", 1)[-1] in prop_to_var}
+                )
+                if variable and variable not in variables:
+                    variables = sorted(set(variables) | {variable})
+                notation = item.get("notation") or item.get("stationGuid")
+                if not notation:
+                    continue
+                stations.append(
+                    Station(
+                        source="uk_ea",
+                        station_id=str(notation),
+                        name=_first_str(item.get("label")),
+                        latitude=lat,
+                        longitude=lon,
+                        variables=tuple(variables),
+                        period_start=_parse_iso_date(item.get("dateOpened")),
+                        period_end=_parse_iso_date(item.get("dateClosed")),
+                        url=str(item.get("@id")) if item.get("@id") else None,
+                        river=_first_str(item.get("riverName")),
+                        country="GBR",
+                        extra={
+                            **{k: item[k] for k in ("wiskiID", "easting", "northing") if item.get(k) is not None},
+                            **({"catchment_area_km2": float(item["catchmentArea"])}
+                               if _is_number(item.get("catchmentArea")) else {}),
+                        },
+                    )
+                )
+                if max_items is not None and len(stations) >= max_items:
+                    return stations
+            if len(items) < params["_limit"]:
+                break
+            offset += params["_limit"]
+        return stations
 
     def fetch_raw(
         self,

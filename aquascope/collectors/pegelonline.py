@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aquascope.collectors.base import BaseCollector
+from aquascope.schemas.station import Station, in_bbox
 from aquascope.schemas.water_data import (
     DataSource,
     GeoLocation,
@@ -70,6 +71,58 @@ class PegelonlineCollector(BaseCollector):
         if end is not None:
             params["end"] = end
         return params
+
+    def stations(
+        self,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        variable: str | None = None,
+        max_items: int | None = None,
+    ) -> list[Station]:
+        """All PEGELONLINE gauges (``stations.json?includeTimeseries=true``).
+
+        The API has no spatial filter, so ``bbox`` is applied client side.
+        ``variables`` comes from the advertised timeseries codes (``W`` water
+        level, ``Q`` discharge).
+        """
+        if variable and variable not in ("water_level", "discharge"):
+            return []
+        data = self.client.get_json("/stations.json", params={"includeTimeseries": "true"})
+        code_to_var = {"W": "water_level", "Q": "discharge"}
+        stations: list[Station] = []
+        for rec in data or []:
+            lat, lon = rec.get("latitude"), rec.get("longitude")
+            uuid = rec.get("uuid")
+            if not uuid or lat is None or lon is None:
+                continue
+            lat, lon = float(lat), float(lon)
+            if not in_bbox(lat, lon, bbox):
+                continue
+            variables = tuple(
+                sorted({code_to_var[t.get("shortname")] for t in rec.get("timeseries", []) if t.get("shortname") in code_to_var})
+            )
+            if variable and variable not in variables:
+                continue
+            water = rec.get("water") or {}
+            stations.append(
+                Station(
+                    source="pegelonline",
+                    station_id=str(uuid),
+                    name=rec.get("longname") or rec.get("shortname"),
+                    latitude=lat,
+                    longitude=lon,
+                    variables=variables,
+                    url=f"https://www.pegelonline.wsv.de/gast/stammdaten?pegelnr={rec.get('number')}"
+                    if rec.get("number")
+                    else None,
+                    river=water.get("longname") or water.get("shortname"),
+                    country="DEU",
+                    extra={k: rec[k] for k in ("number", "km", "agency") if rec.get(k) is not None},
+                )
+            )
+            if max_items is not None and len(stations) >= max_items:
+                break
+        return stations
 
     def fetch_raw(
         self,

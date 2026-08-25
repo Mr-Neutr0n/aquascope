@@ -517,7 +517,7 @@ class TaiwanWRAGroundwaterDailyCollector(BaseCollector):
             )
         )
         self.zones = list(zones) if zones else None
-        self.stations = list(stations) if stations else None
+        self.station_ids = list(stations) if stations else None
         self.aggregate = aggregate
         self.window_years = max(1, int(window_years))
         self.with_metadata = with_metadata
@@ -630,8 +630,8 @@ class TaiwanWRAGroundwaterDailyCollector(BaseCollector):
             self._load_well_metadata()
         # Build the (station, zone) work list.
         work: list[tuple[str, str, str]] = []  # (station_no, station_name, zone_name)
-        if self.stations:
-            work = [(s, "", "") for s in self.stations]
+        if self.station_ids:
+            work = [(s, "", "") for s in self.station_ids]
         else:
             for code, zname in self._resolve_zone_codes():
                 for st, sname in self._stations_for_zone(code):

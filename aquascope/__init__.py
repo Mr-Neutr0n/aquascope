@@ -7,7 +7,7 @@ suitable research methodologies for water-related studies.
 
 Quick start::
 
-    from aquascope import collect, recommend, HydroAgent
+    from aquascope import collect, find_stations, recommend, HydroAgent
     from aquascope.hydrology import flow_duration_curve, lyne_hollick
     from aquascope.viz import plot_timeseries, plot_fdc
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__version__ = "0.10.0"
+__version__ = "0.12.0"
 __author__ = "AquaScope Contributors"
 __license__ = "MIT"
 
@@ -38,49 +38,15 @@ def collect(source: str, **kwargs):
     """
     source = source.lower()
 
-    from aquascope.collectors import (
-        AquastatCollector,
-        CopernicusCollector,
-        EUWFDCollector,
-        GEMStatCollector,
-        JapanMLITCollector,
-        KoreaWAMISCollector,
-        OpenMeteoCollector,
-        SDG6Collector,
-        TaiwanCivilIoTCollector,
-        TaiwanMOENVCollector,
-        TaiwanWRAReservoirCollector,
-        TaiwanWRAWaterLevelCollector,
-        USGSCollector,
-        WaPORCollector,
-        WQPCollector,
-    )
+    from aquascope.registry import SOURCES, build_collector
 
-    params = dict(kwargs)
-    collector_map = {
-        "taiwan_moenv": lambda p: TaiwanMOENVCollector(api_key=p.pop("api_key", "")),
-        "taiwan_wra_level": lambda p: TaiwanWRAWaterLevelCollector(),
-        "taiwan_wra_reservoir": TaiwanWRAReservoirCollector,
-        "usgs": lambda p: USGSCollector(api_key=p.pop("api_key", "DEMO_KEY")),
-        "sdg6": SDG6Collector,
-        "gemstat": GEMStatCollector,
-        "aquastat": AquastatCollector,
-        "taiwan_civil_iot": TaiwanCivilIoTCollector,
-        "wqp": WQPCollector,
-        "openmeteo": lambda p: OpenMeteoCollector(mode=p.pop("mode", "weather")),
-        "copernicus": CopernicusCollector,
-        "wapor": WaPORCollector,
-        "eu_wfd": EUWFDCollector,
-        "japan_mlit": JapanMLITCollector,
-        "korea_wamis": KoreaWAMISCollector,
-    }
-
-    factory = collector_map.get(source)
-    if factory is None:
-        msg = f"Unknown source: {source!r}.  Available: {sorted(collector_map)}"
+    if source not in SOURCES:
+        msg = f"Unknown source: {source!r}.  Available: {sorted(SOURCES)}"
         raise ValueError(msg)
 
-    collector = factory(params) if callable(factory) and not isinstance(factory, type) else factory()  # type: ignore[misc]
+    params = dict(kwargs)
+    ctor_kwargs = {k: params.pop(k) for k in ("mode", "data_type", "dataset_id") if k in params}
+    collector = build_collector(source, api_key=params.pop("api_key", None), **ctor_kwargs)
     return collector.collect(**params)
 
 
@@ -150,6 +116,10 @@ def __getattr__(name: str):
         "groundwater_analysis": "aquascope.api",
         "climate_downscale": "aquascope.api",
         "climate_indices": "aquascope.api",
+        # Station catalog / registry (#187)
+        "find_stations": "aquascope.registry",
+        "station_catalogs": "aquascope.registry",
+        "Station": "aquascope.schemas.station",
         # Key classes from new modules
         "GRACEProcessor": "aquascope.groundwater.grace",
         "CMIP6Processor": "aquascope.climate.cmip6",

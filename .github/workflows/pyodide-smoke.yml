@@ -1,0 +1,67 @@
+name: Pyodide Smoke Test
+
+# Proves the aquascope wheel installs and runs under Pyodide (WASM).
+# Catches incompatible C-extension dependencies or module-load side-effects
+# that would silently break the live demo.
+
+on:
+  pull_request:
+    paths:
+      - "aquascope/**"
+      - "explorer/**"
+      - "pyproject.toml"
+      - ".github/scripts/pyodide_smoke.mjs"
+  schedule:
+    - cron: "0 0 * * 1"  # 00:00 UTC on Monday — weekly upstream canary
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYODIDE_VERSION: "0.28.2" # Current version of Pyodide used by Explorer, found in explorer/config.js
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install pyodide
+        run: |
+          # PRs/dispatch: pinned to PYODIDE_VERSION (the version explorer/config.js
+          # loads) so this job tests the runtime the site actually serves.
+          # Scheduled Monday canary: float, to detect new incompatibilities early.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            npm install pyodide
+          else
+            npm install pyodide@${{ env.PYODIDE_VERSION }}
+          fi
+
+      - name: Cache Pyodide packages
+        uses: actions/cache@v5
+        with:
+          path: /tmp/pyodide-cache
+          key: pyodide-${{ hashFiles('.github/scripts/pyodide_smoke.mjs') }}
+          restore-keys: pyodide-
+
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build --wheel
+
+      - name: Run Pyodide smoke test
+        run: node .github/scripts/pyodide_smoke.mjs dist/aquascope-*.whl
+
+      - name: Assemble Explorer site
+        run: python explorer/build.py --out dist-explorer --wheel dist/aquascope-*.whl

@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from aquascope.schemas.station import Station
 from aquascope.utils.http_client import CachedHTTPClient
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,29 @@ class BaseCollector(ABC):
     @abstractmethod
     def normalise(self, raw: Any) -> Sequence[BaseModel]:
         """Convert raw API response into unified Pydantic records."""
+
+    def stations(
+        self,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        variable: str | None = None,
+        max_items: int | None = None,
+    ) -> list[Station]:
+        """Return this source's station catalog.
+
+        Sources that expose a catalog override this. ``bbox`` is
+        ``(west, south, east, north)`` in WGS84 degrees, ``variable`` is one
+        of :data:`aquascope.schemas.station.VARIABLES`, and ``max_items``
+        caps the result for sources whose catalog is large. The default
+        raises so callers (and the registry drift guard) can tell "no
+        catalog" from "empty catalog".
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not expose a station catalog.")
+
+    @classmethod
+    def supports_stations(cls) -> bool:
+        """True when this collector overrides :meth:`stations`."""
+        return cls.stations is not BaseCollector.stations
 
     def collect(
         self,

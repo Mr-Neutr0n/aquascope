@@ -18,9 +18,13 @@ _INSTALL_MAP = {
     "rasterio": "spatial",
     "geopandas": "spatial",
     "shapely": "spatial",
+    "pyogrio": "basins",
     "pyproj": "spatial",
     "streamlit": "dashboard",
     "openai": "llm",
+    "pyarrow": "archive",
+    "huggingface_hub": "archive",
+    "mcp": "mcp",
 }
 
 

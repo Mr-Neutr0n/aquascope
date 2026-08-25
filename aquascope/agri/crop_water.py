@@ -50,6 +50,9 @@ KC_TABLE: dict[str, dict[str, float]] = {
     "banana": {"initial": 0.50, "mid": 1.10, "late": 1.00},
     "coffee": {"initial": 0.90, "mid": 0.95, "late": 0.95},
     "tea": {"initial": 0.95, "mid": 1.00, "late": 1.00},
+    "sorghum": {"initial": 0.30, "mid": 1.05, "late": 0.55},
+    "groundnut": {"initial": 0.40, "mid": 1.15, "late": 0.60},
+    "sugar_beet": {"initial": 0.35, "mid": 1.20, "late": 0.70},
 }
 
 # ---------------------------------------------------------------------------
@@ -78,6 +81,9 @@ KCB_TABLE: dict[str, dict[str, float]] = {
     "banana": {"initial": 0.15, "mid": 1.05, "late": 0.90},
     "coffee": {"initial": 0.85, "mid": 0.90, "late": 0.90},
     "tea": {"initial": 0.90, "mid": 0.95, "late": 0.95},
+    "sorghum": {"initial": 0.15, "mid": 0.95, "late": 0.35},
+    "groundnut": {"initial": 0.15, "mid": 1.10, "late": 0.50},
+    "sugar_beet": {"initial": 0.15, "mid": 1.15, "late": 0.50},
 }
 
 # ---------------------------------------------------------------------------
@@ -105,6 +111,9 @@ DEFAULT_STAGE_LENGTHS: dict[str, dict[str, int]] = {
     "banana": {"initial": 120, "development": 60, "mid": 180, "late": 5},
     "coffee": {"initial": 60, "development": 90, "mid": 120, "late": 60},
     "tea": {"initial": 60, "development": 90, "mid": 120, "late": 60},
+    "sorghum": {"initial": 20, "development": 35, "mid": 40, "late": 30},
+    "groundnut": {"initial": 25, "development": 35, "mid": 45, "late": 25},
+    "sugar_beet": {"initial": 30, "development": 45, "mid": 90, "late": 15},
 }
 
 

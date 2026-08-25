@@ -91,6 +91,57 @@ m = plot_station_map(stations)
 display(m)
 ```
 
+## AI Recommender Issues
+
+### How do I try the AI recommender for free?
+Three options, cheapest first:
+
+1. **Do nothing.** The rule-based scorer needs no key, no account, and no
+   network. It is the default and it scores all 26 methodologies.
+2. **Free HuggingFace token.** Create one at
+   <https://huggingface.co/settings/tokens> (read access, no credit card),
+   then paste it under **⚙️ LLM enhancement → HuggingFace**. Models known to
+   be served are listed in the Model dropdown.
+3. **Ollama, fully offline.** `ollama serve`, then select **Ollama (local)**.
+   No account and no data leaves your machine.
+
+There is no anonymous hosted inference: HuggingFace returns 401 without a
+token. If you are running a public deployment for others, see
+[the Explorer](https://rekin226-aquascope-explorer.static.hf.space/), which runs the same analyses in your browser
+for how to supply one token server-side so visitors need no account.
+
+### "Free hosted AI unavailable"
+The deployment's shared free quota is exhausted or its token is invalid. You
+still get rule-based results. Add your own free key under **⚙️ LLM
+enhancement** to bypass the shared quota.
+
+### "LLM unavailable — showing rule-based results"
+The recommender always returns results: if the language model cannot be reached
+it falls back to the built-in rule-based scorer and tells you why. The message
+after the banner is the actual cause:
+
+| Message | Fix |
+|---|---|
+| `The 'openai' package is not installed` | `pip install "aquascope[llm]"` |
+| `rejected the API key (authentication failed)` | Check the key, and that it belongs to the selected provider |
+| `does not serve the model '<name>'` | Pick a different model; provider catalogues change over time |
+| `rate limit or quota exceeded` | Wait, or switch provider |
+| `Could not reach <provider>` | Check network access, or that Ollama is running (`ollama serve`) |
+| `replied, but the model did not return JSON` | Use a stronger instruction-following model |
+
+The rule-based results are still valid, they just come from the heuristic
+scorer rather than a model.
+
+### Recommendations look generic
+Rationales like "This methodology is generally applicable to …" come from the
+rule-based scorer. If you selected an LLM provider and still see these, check
+for the fallback banner above: the model was not used.
+
+### The recommender hangs for a long time
+Local Ollama models have a 120 s timeout. A large model on CPU can use all of
+it. Pick a smaller model (for example `llama3.2`) or run `ollama serve` with GPU
+acceleration.
+
 ## CLI Issues
 
 ### `aquascope: command not found`

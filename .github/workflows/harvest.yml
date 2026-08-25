@@ -1,0 +1,187 @@
+name: Harvest station catalogs
+
+# The Archive (#188). Phase 0: every station-capable source is asked for its
+# catalog (GeoParquet + GeoJSON + health.json). Phase 1: a budget of stations
+# per source gets its daily series harvested into obs/<variable>/<source>/,
+# incrementally (the previous obs/ tree is synced first). Phase 2: more
+# variables (level, rainfall, groundwater) and one Parquet bundle per variable
+# and source. Everything is then published to the public Hugging Face dataset. Per-source failures are
+# recorded and shown in the job summary; the run only fails when every
+# catalog source failed.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"  # Mondays 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the Hugging Face dataset"
+        type: boolean
+        default: true
+      max_items:
+        description: "Cap per source (leave empty for the full catalog)"
+        type: string
+        default: ""
+      obs_budget:
+        description: "Stations per source to harvest daily series for (default 150)"
+        type: string
+        default: ""
+      skip_obs:
+        description: "Skip the observation harvest (catalog, station catchments and bundles only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET: Rekin226/aquascope-gauges
+      # Optional: a free USGS API key lifts the shared demo-key throttling on
+      # the national catalog walk (https://api.waterdata.usgs.gov/signup/).
+      USGS_API_KEY: ${{ secrets.USGS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install aquascope with the archive and basins extras
+        run: python -m pip install -q ".[archive,basins]"
+
+      - name: Sync the existing observations (incremental runs)
+        if: env.HF_TOKEN != ''
+        run: python -c "from aquascope.archive.observations import sync_from_hub; sync_from_hub('archive', '$HF_DATASET')"
+
+      - name: Harvest station catalogs
+        id: harvest
+        run: |
+          set +e
+          ARGS="--out archive"
+          if [ -n "${{ inputs.max_items }}" ]; then ARGS="$ARGS --max-items ${{ inputs.max_items }}"; fi
+          aquascope harvest stations $ARGS
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Assign every station to its BasinATLAS sub-basin (basins/station_catchments.parquet)
+        # Reads the published lev12.fgb (955 MB) and lev12_attributes.parquet from the Hub, spatially joins the
+        # fresh catalog, and writes the table the similar-basins search runs on. Skipped when basins are not
+        # published yet; a failure here must not stop the observation harvest.
+        continue-on-error: true
+        run: |
+          python - <<'EOF'
+          import os, sys, logging
+          logging.basicConfig(level=logging.INFO, format="%(message)s")
+          from huggingface_hub import hf_hub_download
+          repo = os.environ["HF_DATASET"]
+          try:
+              fgb = hf_hub_download(repo, "basins/lev12.fgb", repo_type="dataset")
+              attrs = hf_hub_download(repo, "basins/lev12_attributes.parquet", repo_type="dataset")
+          except Exception as exc:
+              print(f"basins not published yet, skipping ({exc})"); sys.exit(0)
+          from aquascope.archive.similar import assign_station_catchments
+          from aquascope.archive.catalog import load_stations
+          catalog = load_stations(path="archive/stations.parquet")
+          table = assign_station_catchments(catalog, fgb, attrs, "archive/basins/station_catchments.parquet")
+          print(f"{len(table):,} of {len(catalog):,} stations assigned")
+          EOF
+
+      - name: Harvest daily observations (budgeted; the archive fills up over weeks)
+        id: obs
+        if: ${{ !inputs.skip_obs }}
+        timeout-minutes: 120
+        run: |
+          set +e
+          B=${{ inputs.obs_budget || 150 }}
+          # Phase 1: discharge for the three long-record sources.
+          aquascope harvest obs --out archive --variable discharge \
+            --source usgs --source uk_ea --source hubeau_hydrometrie --max-stations $B
+          # Phase 2: the other variables, smaller budgets (UK EA: 3.6k boreholes, 1k rain gauges, 2.6k level sites).
+          aquascope harvest obs --out archive --variable groundwater_level --source uk_ea --max-stations $((B / 2))
+          aquascope harvest obs --out archive --variable precipitation --source uk_ea --max-stations $((B / 3))
+          aquascope harvest obs --out archive --variable water_level --source uk_ea --max-stations $((B / 3))
+          aquascope harvest obs --out archive --variable water_level --source usgs --max-stations $((B / 5))
+          aquascope harvest obs --out archive --variable precipitation --source taiwan_cwa --max-stations 15
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Roll the per-station files into Parquet bundles (one per variable and source)
+        run: aquascope harvest bundles --out archive
+
+      - name: Donor signatures and leave-one-out skill (basins/station_signatures.parquet, regionalization_skill.json)
+        # Flow signatures of every gauged station with 10+ years of archived discharge and a catchment row, then
+        # every donor predicted from the others (even stride sample) so the regionalisation reports its own skill.
+        # Skipped quietly when the catchment table is not on the Hub yet or the discharge bundles are empty.
+        continue-on-error: true
+        run: |
+          set -e
+          ls archive/obs/discharge/*.parquet >/dev/null 2>&1 || { echo "no discharge bundles, skipping"; exit 0; }
+          CAT_ARG=""
+          if [ -f archive/basins/station_catchments.parquet ]; then
+            CAT_ARG="--catchments archive/basins/station_catchments.parquet"   # built by the assign step above
+          fi                                                                   # else: the published table from the Hub
+          aquascope basins signatures --archive archive $CAT_ARG --out archive/basins/station_signatures.parquet
+          aquascope basins loo --signatures archive/basins/station_signatures.parquet $CAT_ARG \
+            --out archive/basins/regionalization_skill.json --max-stations 3000
+
+      - name: Publish to the Hugging Face dataset
+        # inputs.publish is a boolean input: compare it as one (a string compare
+        # against 'true' is always false and silently skipped the first CI runs).
+        if: env.HF_TOKEN != '' && (github.event_name == 'schedule' || inputs.publish == true)
+        run: |
+          python - <<'EOF'
+          import os
+          from aquascope.archive import publish_folder
+          print(publish_folder("archive", os.environ["HF_DATASET"], commit_message=f"harvest {os.environ.get('GITHUB_RUN_ID','')}"))
+          EOF
+
+      - name: Job summary
+        if: always()
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("archive/health.json")
+          if not p.exists():
+              print("## Harvest\n\nno health.json written (harvest crashed before writing)")
+              raise SystemExit
+          h = json.loads(p.read_text())
+          print(f"## Harvest {h['run_at']}\n")
+          print(f"**{h['n_stations']:,} stations**, {h['n_ok']}/{len(h['sources'])} sources OK\n")
+          print("| source | status | stations | seconds |\n| --- | --- | ---: | ---: |")
+          for s in h["sources"]:
+              status = "ok" if s["ok"] else f"FAILED: `{s['error']}`"
+              print(f"| `{s['source']}` | {status} | {s['n_stations']:,} | {s['seconds']} |")
+          EOF
+
+      - name: Open / update / close collector-health issues from health.json
+        if: always() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/harvest_issues.py archive/health.json --repo "$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Upload the harvest as an artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harvest-${{ github.run_id }}
+          path: archive/
+          retention-days: 30
+
+      - name: Fail only if every source failed
+        run: |
+          if [ "${{ steps.harvest.outputs.exit }}" != "0" ]; then
+            echo "harvest exited ${{ steps.harvest.outputs.exit }} (all sources failed or publish failed)"; exit 1
+          fi

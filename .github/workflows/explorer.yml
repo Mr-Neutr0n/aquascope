@@ -1,0 +1,72 @@
+name: Deploy Explorer
+
+# AquaScope Explorer (#189): a static page (MapLibre + DuckDB-WASM + Pyodide)
+# that reads the station catalog from the Archive and runs aquascope in the
+# browser. This builds the wheel from the pushed commit, assembles the site,
+# and publishes it to the Hugging Face static Space. GitHub Pages gets the same
+# files from docs.yml under /explorer/.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "explorer/**"
+      - "aquascope/**"
+      - "pyproject.toml"
+      - ".github/workflows/explorer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: explorer
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_SPACE: Rekin226/aquascope-explorer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install -q build huggingface_hub
+
+      - name: Assemble the site (wheel + explorer/ + wheels.json)
+        run: python explorer/build.py --out dist-explorer
+
+      - name: Upload the site as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: explorer-${{ github.sha }}
+          path: dist-explorer/
+          retention-days: 14
+
+      - name: Publish to the Hugging Face static Space
+        if: env.HF_TOKEN != ''
+        run: |
+          python - <<'EOF'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          api.create_repo(os.environ["HF_SPACE"], repo_type="space", space_sdk="static", exist_ok=True)
+          info = api.upload_folder(
+              folder_path="dist-explorer", repo_id=os.environ["HF_SPACE"], repo_type="space",
+              commit_message=f"deploy explorer {os.environ.get('GITHUB_SHA', '')[:7]}",
+              delete_patterns=["*.whl"],  # keep exactly one wheel in the Space
+          )
+          print(getattr(info, "commit_url", info))
+          EOF
+
+      - name: Note when HF_TOKEN is missing
+        if: env.HF_TOKEN == ''
+        run: echo "::warning::HF_TOKEN not set; site built as an artifact but not published"

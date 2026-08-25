@@ -45,3 +45,6 @@ htmlcov/
 site/
 .cache/
 .gstack/
+
+# Explorer build output
+dist-explorer/

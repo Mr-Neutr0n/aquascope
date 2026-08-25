@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aquascope"
-version = "0.10.0"
+version = "0.12.0"
 description = "Open-source water data aggregation toolkit with AI-powered research methodology recommendations"
 readme = "README.md"
 license = {text = "MIT"}
@@ -94,8 +94,27 @@ interop = [
     "geopandas>=0.14",
     "shapely>=2.0",
 ]
+archive = [
+    "pyarrow>=14",
+    "huggingface_hub>=0.20",
+]
+gym = [
+    "gymnasium>=0.29",
+    "pyarrow>=14",
+    "huggingface_hub>=0.20",
+]
+mcp = [
+    "mcp>=1.2",
+    "pyarrow>=14",
+]
+basins = [
+    "pyogrio>=0.7",
+    "geopandas>=0.14",
+    "shapely>=2.0",
+    "pyarrow>=14",
+]
 all = [
-    "aquascope[ml,forecast,copernicus,viz,llm,scientific,dashboard,spatial,interop]",
+    "aquascope[ml,forecast,copernicus,viz,llm,scientific,dashboard,spatial,interop,archive,mcp,basins]",
 ]
 dev = [
     "pytest>=7.0",
@@ -107,6 +126,8 @@ dev = [
 ]
 test = [
     "aquascope[dev]",
+    "pyarrow>=14",
+    "mcp>=1.2",
     "matplotlib>=3.7",
     "seaborn>=0.13",
     "folium>=0.15",

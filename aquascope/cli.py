@@ -26,7 +26,6 @@ from pathlib import Path
 import argcomplete
 
 # ----------------------------------------------------------
-from aquascope.collectors.india_wris import IndiaWRISCollector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,78 +67,35 @@ def _parse_bbox(value: str | None) -> tuple[float, float, float, float] | None:
 
 def cmd_collect(args: argparse.Namespace) -> None:
     """Run a data collector and save results."""
-    from aquascope.collectors import (
-        AquastatCollector,
-        CAMELSBRCollector,
-        CAMELSCLCollector,
-        CopernicusCollector,
-        EUWFDCollector,
-        GEMStatCollector,
-        GRDCCollector,
-        HubeauHydrometrieCollector,
-        IrelandOPWCollector,
-        JapanMLITCollector,
-        KoreaWAMISCollector,
-        NOAANWPSCollector,
-        OpenMeteoCollector,
-        PegelonlineCollector,
-        SDG6Collector,
-        TaiwanCivilIoTCollector,
-        TaiwanCWACollector,
-        TaiwanDataGovCollector,
-        TaiwanMOENVCollector,
-        TaiwanWRAFhyCollector,
-        TaiwanWRAIoTCollector,
-        TaiwanWRAReservoirCollector,
-        TaiwanWRAWaterLevelCollector,
-        UKEACollector,
-        USGSCollector,
-        WaPORCollector,
-        WQPCollector,
-    )
+    from aquascope.registry import build_collector, source_keys
     from aquascope.utils.storage import save_records
 
     source = args.source.lower()
-    collector_map = {
-        "taiwan_moenv": lambda: TaiwanMOENVCollector(api_key=args.api_key or ""),
-        "taiwan_cwa": lambda: TaiwanCWACollector(),
-        "taiwan_wra_level": lambda: TaiwanWRAWaterLevelCollector(),
-        "taiwan_wra_reservoir": lambda: TaiwanWRAReservoirCollector(),
-        "usgs": lambda: USGSCollector(api_key=args.api_key or "DEMO_KEY"),
-        "sdg6": lambda: SDG6Collector(),
-        "gemstat": lambda: GEMStatCollector(),
-        "aquastat": lambda: AquastatCollector(),
-        "taiwan_civil_iot": lambda: TaiwanCivilIoTCollector(),
-        "taiwan_wra_fhy": lambda: TaiwanWRAFhyCollector(),
-        "taiwan_wra_iot": lambda: TaiwanWRAIoTCollector(),
-        "taiwan_datagov": lambda: TaiwanDataGovCollector(),
-        "uk_ea": lambda: UKEACollector(),
-        "wqp": lambda: WQPCollector(),
-        "openmeteo": lambda: OpenMeteoCollector(mode=args.mode or "weather"),
-        "copernicus": lambda: CopernicusCollector(),
-        "wapor": lambda: WaPORCollector(),
-        "eu_wfd": lambda: EUWFDCollector(),
-        "japan_mlit": lambda: JapanMLITCollector(),
-        "korea_wamis": lambda: KoreaWAMISCollector(),
-        "india_wris": lambda: IndiaWRISCollector(),
-        "ireland_opw": lambda: IrelandOPWCollector(),
-        "hubeau_hydrometrie": lambda: HubeauHydrometrieCollector(),
-        "grdc": lambda: GRDCCollector(),
-        "camels_cl": lambda: CAMELSCLCollector(),
-        "camels_br": lambda: CAMELSBRCollector(),
-        "noaa_nwps": lambda: NOAANWPSCollector(),
-        "pegelonline": lambda: PegelonlineCollector(),
-    }
-
-    if source not in collector_map:
-        logger.error("Unknown source '%s'. Available: %s", source, list(collector_map.keys()))
+    if source not in source_keys():
+        logger.error("Unknown source '%s'. Available: %s", source, source_keys())
         sys.exit(1)
 
-    collector = collector_map[source]()
+    ctor_kwargs = {}
+    if source == "openmeteo" and args.mode:
+        ctor_kwargs["mode"] = args.mode
+    collector = build_collector(source, api_key=args.api_key, **ctor_kwargs)
 
     kwargs = {}
-    if source == "usgs" and args.days:
-        kwargs["datetime_range"] = f"P{args.days}D"
+    if source == "usgs":
+        if args.days is not None:
+            kwargs["days"] = args.days
+        if args.station_id:
+            kwargs["station_id"] = args.station_id
+        if args.parameter:
+            kwargs["parameter"] = args.parameter
+        if args.bbox:
+            kwargs["bbox"] = args.bbox
+        if args.state_code:
+            kwargs["stateCd"] = args.state_code
+        if args.county_code:
+            kwargs["countyCd"] = args.county_code
+        if args.huc:
+            kwargs["huc"] = args.huc
     if source == "taiwan_cwa":
         if args.station_ids:
             kwargs["station_ids"] = [s.strip() for s in args.station_ids.split(",") if s.strip()]
@@ -252,6 +208,19 @@ def cmd_collect(args: argparse.Namespace) -> None:
             kwargs["end"] = args.end_date
     if source == "ireland_opw" and args.max_stations:
         kwargs["max_stations"] = args.max_stations
+    if source == "bom":
+        if not args.station:
+            logger.error("BOM requires --station with an AWRC station number, e.g. 410001.")
+            sys.exit(1)
+        kwargs["station_id"] = args.station
+        if args.days is not None:
+            kwargs["days"] = args.days
+        if args.start_date:
+            kwargs["start_date"] = args.start_date
+        if args.end_date:
+            kwargs["end_date"] = args.end_date
+        if args.parameter_type:
+            kwargs["parameter_type"] = args.parameter_type
     records = collector.collect(**kwargs)
     if not records:
         logger.warning("No records collected.")
@@ -263,7 +232,11 @@ def cmd_collect(args: argparse.Namespace) -> None:
 
 def cmd_recommend(args: argparse.Namespace) -> None:
     """Generate methodology recommendations."""
-    from aquascope.ai_engine.recommender import DatasetProfile, recommend, recommend_with_llm
+    from aquascope.ai_engine.recommender import (
+        DatasetProfile,
+        recommend,
+        recommend_with_llm_detailed,
+    )
 
     # Build profile from CLI args or from a data file
     parameters = [p.strip() for p in args.parameters.split(",")] if args.parameters else []
@@ -291,14 +264,22 @@ def cmd_recommend(args: argparse.Namespace) -> None:
                 sources = {r.get("source", "") for r in data if r.get("source")}
                 profile.data_sources = list(sources)
 
+    engine_note = ""
     if args.use_llm:
-        recs = recommend_with_llm(
+        result = recommend_with_llm_detailed(
             profile,
             top_k=args.top_k,
             model=args.model or "gpt-4o-mini",
             api_key=args.llm_api_key,
             base_url=args.llm_base_url,
         )
+        recs = result.recommendations
+        if result.mode == "llm":
+            engine_note = f"  Engine: {result.provider} · {result.model}"
+        else:
+            # Never degrade silently: say the LLM was skipped and why.
+            print(f"⚠️  LLM unavailable — showing rule-based results. {result.error}")
+            engine_note = "  Engine: rule-based (LLM fallback)"
     else:
         recs = recommend(profile, top_k=args.top_k)
 
@@ -308,6 +289,8 @@ def cmd_recommend(args: argparse.Namespace) -> None:
 
     print(f"\n{'=' * 70}")
     print(f"  AquaScope — Top {len(recs)} Research Methodology Recommendations")
+    if engine_note:
+        print(engine_note)
     print(f"{'=' * 70}\n")
     for i, rec in enumerate(recs, 1):
         m = rec.methodology
@@ -438,125 +421,528 @@ def cmd_list_methods(args: argparse.Namespace) -> None:
 
 
 def cmd_list_sources(args: argparse.Namespace) -> None:
-    """List all available data sources."""
-    from aquascope.schemas.water_data import DataSource
+    """List every registered data source (driven by aquascope.registry)."""
+    from aquascope.registry import SOURCES
 
     print(f"\n{'=' * 70}")
-    print(f"  AquaScope — {len(DataSource)} Data Sources")
+    print(f"  AquaScope — {len(SOURCES)} Data Sources")
     print(f"{'=' * 70}\n")
 
-    source_info = {
-        "taiwan_moenv": ("Taiwan MOENV", "Taiwan", "River/tap water quality, RPI", "https://data.moenv.gov.tw"),
-        "taiwan_cwa": ("Taiwan CWA climate", "Taiwan", "Daily station climate: rain, temp, RH, radiation, wind", "https://codis.cwa.gov.tw"),
-        "taiwan_wra": ("Taiwan WRA", "Taiwan", "Water levels, reservoir status", "https://opendata.wra.gov.tw"),
-        "taiwan_civil_iot": (
-            "Taiwan Civil IoT",
-            "Taiwan",
-            "Real-time sensor data (water level, flow, rain)",
-            "https://sta.ci.taiwan.gov.tw",
-        ),
-        "taiwan_wra_fhy": (
-            "Taiwan WRA Fhy",
-            "Taiwan",
-            "Real-time water level, rainfall, flow (防災資訊網)",
-            "https://fhy.wra.gov.tw/WraApi",
-        ),
-        "taiwan_wra_iot": (
-            "Taiwan WRA IoT",
-            "Taiwan",
-            "Real-time groundwater level, rainfall accumulation",
-            "https://iot.wra.gov.tw",
-        ),
-        "taiwan_datagov": (
-            "Taiwan Data.gov.tw",
-            "Taiwan",
-            "Real-time river & groundwater level (open gov data)",
-            "https://data.gov.tw",
-        ),
-        "usgs": ("USGS", "USA", "Streamflow, water quality, gage height", "https://api.waterdata.usgs.gov"),
-        "sdg6": ("UN SDG 6", "Global", "SDG 6 indicators (6.1.1 – 6.6.1)", "https://sdg6data.org"),
-        "gemstat": ("GEMStat", "Global", "Freshwater quality (170+ countries)", "https://gemstat.org"),
-        "uk_ea": (
-          "UK Environment Agency",
-          "UK",
-          "Water Quality and Water Level readings",
-          "https://environment.data.gov.uk/hydrology"
-        ),
-        "aquastat": (
-            "FAO AQUASTAT",
-            "Global",
-            "Country-level water withdrawal and irrigation",
-            "https://www.fao.org/aquastat",
-        ),
-        "wqp": (
-            "Water Quality Portal",
-            "USA",
-            "Integrated WQ from USGS+EPA+400 agencies",
-            "https://waterqualitydata.us",
-        ),
-        "openmeteo": (
-            "Open-Meteo",
-            "Global",
-            "ERA5 reanalysis, weather forecasts, GloFAS discharge",
-            "https://open-meteo.com",
-        ),
-        "copernicus": (
-            "Copernicus CDS",
-            "Global",
-            "GloFAS river discharge forecasts",
-            "https://cds.climate.copernicus.eu",
-        ),
-        "wapor": (
-            "FAO WaPOR",
-            "Global",
-            "Satellite ET, biomass, and water productivity",
-            "https://www.fao.org/in-action/remote-sensing-for-water-productivity",
-        ),
-        "eu_wfd": ("EU WFD", "Europe", "Water Framework Directive status", "https://www.eea.europa.eu"),
-        "france_hubeau": (
-            "Hub'Eau",
-            "France",
-            "River water level and discharge (hydrométrie)",
-            "https://hubeau.eaufrance.fr/api/v2/hydrometrie",
-        ),
-        "grdc": (
-            "GRDC",
-            "Global",
-            "River discharge: in-situ gauges + RSEG satellite estimates",
-            "https://zenodo.org/records/19126732",
-        ),
-        "japan_mlit": ("Japan MLIT", "Japan", "Hydrometeorology, river observations", "https://www.mlit.go.jp"),
-        "korea_wamis": ("Korea WAMIS", "Korea", "Hydrology, dam operations", "https://www.wamis.go.kr"),
-        "india_wris": ("India WRIS", "India", "River water level", "https://indiawris.gov.in"),
-        "ireland_opw": (
-            "Ireland OPW",
-            "Ireland",
-            "Water levels from waterlevel.ie",
-            "[https://waterlevel.ie](https://waterlevel.ie)",
-        ),
-        "noaa_nwps": ("NOAA NWPS", "USA", " Streamflow forecasts, stream observations, streamflow output, crest history, flood impacts, low water history, flood category levels, and location metadata.", "https://www.water.noaa.gov"),
-        "pegelonline": ("PEGELONLINE", "Germany", "River water level and discharge", "https://www.pegelonline.wsv.de"),
-        "camels_cl": (
-            "CAMELS-CL",
-            "Chile",
-            "Observed streamflow, meteorological forcing, attributes",
-            "https://www.cr2.cl/camels-cl",
-        ),
-        "camels_br": (
-            "CAMELS-BR",
-            "Brazil",
-            "Observed streamflow, meteorological forcing, attributes",
-            "https://doi.org/10.5281/zenodo.3709337",
-        ),
-    }
-
-    for src in DataSource:
-        info = source_info.get(src.value, (src.value, "—", "—", "—"))
-        print(f"  {info[0]}")
-        print(f"    Region : {info[1]}")
-        print(f"    Data   : {info[2]}")
-        print(f"    URL    : {info[3]}")
+    for key in sorted(SOURCES):
+        meta = SOURCES[key]
+        flags = []
+        if meta.supports_station_lookup:
+            flags.append("station catalog")
+        if meta.supports_bbox:
+            flags.append("bbox")
+        if meta.requires_api_key:
+            flags.append("API key")
+        print(f"  {key}  ({meta.label})")
+        print(f"    Region    : {meta.region}")
+        print(f"    Agency    : {meta.agency or '—'}")
+        print(f"    Data      : {meta.description}")
+        print(f"    Variables : {', '.join(meta.variables) or '—'}")
+        print(f"    License   : {meta.license}{' (redistributable)' if meta.redistributable else ''}")
+        if flags:
+            print(f"    Supports  : {', '.join(flags)}")
+        print(f"    URL       : {meta.homepage or '—'}")
         print()
+
+
+def cmd_stations(args: argparse.Namespace) -> None:
+    """Search station catalogs across sources and save the result."""
+    from aquascope.registry import station_catalogs, station_sources
+
+    bbox = _parse_bbox(args.bbox) if args.bbox else None
+    sources = args.source or None
+    if sources is None and args.variable is None:
+        logger.info("Searching every station-capable source: %s", station_sources())
+
+    catalogs = station_catalogs(
+        bbox=bbox,
+        variable=args.variable,
+        sources=sources,
+        max_items=args.max_items,
+        api_key=args.api_key,
+    )
+    if not catalogs:
+        logger.error(
+            "No station-capable source matches. Sources with a catalog: %s", station_sources(args.variable)
+        )
+        sys.exit(1)
+
+    stations = [s for key in sorted(catalogs) for s in catalogs[key].stations]
+    for key in sorted(catalogs):
+        cat = catalogs[key]
+        status = f"{len(cat.stations)} stations" if cat.ok else f"FAILED: {cat.error}"
+        logger.info("[%s] %s (%.1fs)", key, status, cat.seconds)
+
+    if not stations:
+        logger.warning("No stations found.")
+        if any(not c.ok for c in catalogs.values()):
+            sys.exit(1)
+        return
+
+    fmt = args.format
+    out_path = Path(args.output) if args.output else Path("data") / f"stations_{'_'.join(sorted(catalogs))}.{fmt}"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [st.model_dump(mode="json") for st in stations]
+
+    if fmt == "geojson":
+        features = []
+        for props in rows:
+            lon, lat = props.pop("longitude"), props.pop("latitude")
+            features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": props})
+        out_path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2))
+    elif fmt == "json":
+        out_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2))
+    else:
+        import csv
+
+        fields = ["source", "station_id", "name", "latitude", "longitude", "variables", "period_start", "period_end",
+                  "url", "river", "country", "extra"]
+        with out_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fields)
+            writer.writeheader()
+            for row in rows:
+                row = dict(row)
+                row["variables"] = "|".join(row.get("variables") or ())
+                row["extra"] = json.dumps(row.get("extra") or {}, ensure_ascii=False)
+                writer.writerow({k: row.get(k) for k in fields})
+    logger.info("Saved %d stations to %s", len(stations), out_path)
+
+
+def cmd_harvest(args: argparse.Namespace) -> None:
+    """Harvest station catalogs into GeoParquet (+ GeoJSON, health.json) and optionally publish."""
+    from aquascope.archive import harvest_stations, publish_folder
+
+    if args.what == "obs":
+        _cmd_harvest_obs(args)
+        return
+    if args.what == "bundles":
+        _cmd_harvest_bundles(args)
+        return
+
+    report = harvest_stations(
+        args.out,
+        sources=args.source or None,
+        max_items=args.max_items,
+        api_key=args.api_key,
+        max_workers=args.workers,
+        write_geojson=not args.no_geojson,
+    )
+    for s in report.sources:
+        status = f"{s.n_stations:>6} stations" if s.ok else f"FAILED: {s.error}"
+        print(f"  {s.source:<24} {status}  ({s.seconds:.1f}s)")
+    print(f"\n  {report.n_stations} stations, {report.n_ok}/{len(report.sources)} sources OK -> {args.out}")
+
+    if args.publish:
+        if report.n_ok == 0:
+            logger.error("Every source failed; not publishing an empty catalog.")
+            sys.exit(1)
+        url = publish_folder(args.out, args.publish, commit_message=f"harvest stations {report.run_at}")
+        print(f"  published: {url}")
+
+    if report.n_ok == 0:
+        sys.exit(1)
+
+
+def _cmd_harvest_obs(args: argparse.Namespace) -> None:
+    """`aquascope harvest obs`: budgeted, incremental per-station daily series (#188 Phase 1)."""
+    from aquascope.archive import publish_folder
+    from aquascope.archive.observations import HARVESTABLE, harvest_observations, sync_from_hub
+
+    if args.sync_from:
+        sync_from_hub(args.out, args.sync_from)
+    sources = args.source or None
+    if sources:
+        bad = [s for s in sources if s not in HARVESTABLE]
+        if bad:
+            logger.error("Not harvestable yet: %s. Choose from %s", bad, list(HARVESTABLE))
+            sys.exit(2)
+        if args.variable:
+            bad = [s for s in sources if args.variable not in HARVESTABLE[s]]
+            if bad:
+                logger.error("%s is not harvested for %s (they mirror %s)", args.variable, bad,
+                             {s: list(HARVESTABLE[s]) for s in bad})
+                sys.exit(2)
+    report = harvest_observations(
+        args.out,
+        sources=sources,
+        variable=args.variable,
+        years=args.years,
+        max_stations=args.max_stations,
+        refresh_days=args.refresh_days,
+        only_stations=args.station or None,
+    )
+    for h in report.sources:
+        print(
+            f"  {h.source:<20} {h.variable:<14} harvested {h.harvested:>4}  empty {h.empty:>4}  "
+            f"failed {h.failed:>3}  of {h.attempted:>4} picked  ({h.seconds:.0f}s)"
+        )
+        for err in h.errors[:3]:
+            print(f"      {err}")
+    total = sum(h.harvested for h in report.sources)
+    print(f"\n  {total} station files written under {args.out}/obs")
+
+    if args.publish:
+        url = publish_folder(args.out, args.publish, commit_message=f"harvest obs {report.run_at}")
+        print(f"  published: {url}")
+
+
+def _cmd_harvest_bundles(args: argparse.Namespace) -> None:
+    """`aquascope harvest bundles`: roll obs/<variable>/<source>/*.csv.gz into one Parquet per pair (Phase 2)."""
+    from aquascope.archive import publish_folder
+    from aquascope.archive.bundles import build_bundles
+
+    infos = build_bundles(args.out, variables=args.variable_list or None, sources=args.source or None)
+    if not infos:
+        print(f"  no observation files under {args.out}/obs; nothing to bundle")
+        return
+    for b in infos:
+        print(
+            f"  {b.file:<44} {b.n_stations:>6} stations {b.n_rows:>10,} rows  {b.bytes / 1e6:6.1f} MB  "
+            f"{b.first} to {b.last}  ({b.seconds:.0f}s)"
+        )
+    print(f"\n  {len(infos)} bundles written")
+    if args.publish:
+        url = publish_folder(args.out, args.publish, commit_message="harvest bundles")
+        print(f"  published: {url}")
+
+
+def cmd_ask(args: argparse.Namespace) -> None:
+    """Ask a water question; the analyst calls aquascope tools and writes a cited answer."""
+    from aquascope.ai_engine.analyst import ask
+
+    def on_event(msg: str) -> None:
+        if not args.quiet:
+            print(f"  · {msg}", file=sys.stderr)
+
+    try:
+        result = ask(
+            args.question, provider=args.provider, model=args.model, api_key=args.api_key, base_url=args.base_url,
+            max_steps=args.max_steps, on_event=on_event,
+        )
+    except (RuntimeError, ValueError, ImportError) as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+    md = result.to_markdown()
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(md, encoding="utf-8")
+        print(f"\n  Report saved to {args.out}")
+        print(result.answer)
+    else:
+        print(md)
+    if args.study and result.study:
+        Path(args.study).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.study).write_text(result.study, encoding="utf-8")
+        print(f"  Study saved to {args.study}; re-run it with `aquascope run {args.study}`")
+    unmet = [c for c in result.checks if not c.get("passed")]
+    if unmet and not args.quiet:
+        print("\n  Checks this answer did not meet:", file=sys.stderr)
+        for c in unmet:
+            print(f"   · {c.get('detail') or c.get('name')}", file=sys.stderr)
+
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    """`aquascope run`: a study file if one is named, otherwise a methodology pipeline."""
+    if args.study:
+        cmd_run_study(args)
+        return
+    if not (args.method and args.file):
+        logger.error("Give a study file (aquascope run study.yaml) or --method and --file for a pipeline.")
+        sys.exit(1)
+    cmd_run_pipeline(args)
+
+
+def cmd_run_study(args: argparse.Namespace) -> None:
+    """Run a study file: the steps behind an answer, again, with no model in the loop."""
+    from aquascope.study import load, run_study, write_outputs
+
+    try:
+        study = load(args.study)
+    except (OSError, ValueError) as exc:
+        logger.error("Could not read %s: %s", args.study, exc)
+        sys.exit(1)
+
+    def on_event(msg: str) -> None:
+        if not args.quiet:
+            print(f"  · {msg}", file=sys.stderr)
+
+    if args.dry_run:
+        print(f"{len(study.steps)} step(s) in {args.study}:")
+        for i, step in enumerate(study.steps, 1):
+            print(f"  {i}. {step.tool}({', '.join(f'{k}={v!r}' for k, v in step.arguments.items())})")
+        return
+    run = run_study(study, on_event=on_event)
+    if args.out:
+        paths = write_outputs(run, args.out)
+        print(f"\n  Report saved to {paths['report.md']}")
+    else:
+        print(run.to_markdown())
+    if not run.ok:
+        sys.exit(1)
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    """Map + QA an arbitrary CSV/Excel export into a clean series with a report."""
+    from aquascope.ingest import ingest, write_outputs
+
+    client = model = None
+    if args.llm:
+        try:
+            from aquascope.ai_engine.analyst import resolve_llm
+            from aquascope.ai_engine.llm_transport import make_client
+
+            cfg = resolve_llm(args.provider, args.model, args.api_key)
+            client, model = make_client(cfg["api_key"], cfg["base_url"]), cfg["model"]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("LLM mapping unavailable (%s); using heuristics", exc)
+    try:
+        result = ingest(
+            args.file, variable=args.variable, date_column=args.date_column, value_column=args.value_column,
+            unit=args.unit, station=args.station, sheet=args.sheet, llm_client=client, llm_model=model,
+            description=args.describe or "",
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+    m, q = result["mapping"], result["qa"]
+    print(f"  mapping  : {m['datetime_column']} + {m['value_column']} -> {m['variable']} [{m['unit']}] "
+          f"(x{m['to_si_factor']}, {m['method']}, confidence {m['confidence']:.0%})")
+    print(f"  values   : {q['n_values']:,} kept of {q['n_rows_in']:,} rows; {q['start']} -> {q['end']}; "
+          f"coverage {q['coverage_pct']}%")
+    print(f"  dropped  : {q['n_duplicates_dropped']} duplicates, {q['n_sentinels_dropped']} sentinels; "
+          f"flagged {q['n_negative']} negative, {q['n_spikes_flagged']} spikes")
+    for w in q["warnings"]:
+        print(f"  warning  : {w}")
+    stem = args.out or str(Path(args.file).with_suffix("")) + "_clean"
+    paths = write_outputs(result, stem)
+    print(f"  written  : {paths['csv']}, {paths['qa_md']}")
+
+
+def cmd_mcp(args: argparse.Namespace) -> None:
+    """Serve aquascope's tools over the Model Context Protocol (stdio by default)."""
+    try:
+        from aquascope.mcp_server import main as mcp_main
+    except ImportError as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+    mcp_main(transport=args.transport)
+
+
+def cmd_basins(args: argparse.Namespace) -> None:
+    """`aquascope basins`: catchments from BasinATLAS in the Archive (at LAT LON | upstream HYBAS_ID | build GDB)."""
+    from aquascope.archive import basins
+
+    if args.basins_cmd == "build":
+        report = basins.build_basins(args.gdb, args.out, max_features=args.max_features, write_fgb=args.fgb)
+        for name, size in report.files.items():
+            print(f"  {name:<32} {size / 1e6:8.1f} MB")
+        print(f"\n  {report.n_basins:,} sub-basins in {report.seconds:.0f}s -> {args.out}/basins")
+        return
+    if args.basins_cmd == "assign":
+        from aquascope.archive.catalog import load_stations
+        from aquascope.archive.similar import assign_station_catchments
+
+        catalog = load_stations()
+        table = assign_station_catchments(catalog, args.fgb, args.attributes, args.out)
+        print(f"  {len(table):,} of {len(catalog):,} stations assigned to a sub-basin -> {args.out}")
+        return
+    if args.basins_cmd == "similar":
+        from aquascope.archive.similar import similar_for_point, similar_for_station
+
+        if args.station:
+            src, _, sid = args.station.partition("/")
+            res = similar_for_station(src, sid, k=args.k, method=args.method, sources=args.source or None)
+        else:
+            res = similar_for_point(args.lat, args.lon, k=args.k, method=args.method, sources=args.source or None)
+        if args.json:
+            print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+            return
+        if res.get("error"):
+            print(f"  {res['error']}")
+            sys.exit(1)
+        print(f"  {res['k']} of {res['n_candidates']} gauged basins, method {res['method']}, "
+              f"features {', '.join(res['features_used'])}")
+        for i, st in enumerate(res["stations"], 1):
+            dist = f"{st['distance_km']:,.0f} km" if st.get("distance_km") is not None else ""
+            print(f"  {i:>2}. {st['source']:<20} {st['station_id']:<40} {(st.get('name') or '')[:38]:<38} "
+                  f"area {st['up_area_km2']:>9,.0f} km2  score {st['score']:.3f} {dist}")
+        return
+    if args.basins_cmd == "regionalize":
+        from aquascope.archive.regionalize import regionalize_point
+
+        res = regionalize_point(args.lat, args.lon, k=args.k, method=args.method)
+        if args.json:
+            print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+            return
+        if res.get("error"):
+            print(f"  {res['error']}")
+            sys.exit(1)
+        est = res.get("estimates", {})
+        print(f"  {len(est)} signatures from {res.get('n_donors_available', 0):,} donors, method {res['method']}"
+              + (f", k={res['similarity']['k']}" if "similarity" in res else ""))
+        skill = (res.get("skill") or {}).get("by_signature", {})
+        for name, e in est.items():
+            sk = skill.get(name) or {}
+            tail = f"  LOO NSE {sk['nse']:.2f}, median error {sk['median_ape'] * 100:.0f} %" if sk else ""
+            print(f"  {e['label']:<48} {e['value']:>10.3f} {e['unit']:<7} [{e['low']:.3f}, {e['high']:.3f}]{tail}")
+        return
+    if args.basins_cmd == "signatures":
+        from aquascope.archive.bundles import read_bundle
+        from aquascope.archive.regionalize import compute_station_signatures
+        from aquascope.archive.similar import load_station_catchments
+
+        root = Path(args.archive) / "obs" / "discharge"
+        bundles = {p.stem: read_bundle(p) for p in sorted(root.glob("*.parquet"))} if root.exists() else {}
+        cat = load_station_catchments(path=args.catchments) if args.catchments else load_station_catchments()
+        table = compute_station_signatures(bundles, cat, min_years=args.min_years)
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        table.to_parquet(out, index=False)
+        print(f"  {len(table):,} stations with signatures ({len(bundles)} discharge bundles) -> {out}")
+        return
+    if args.basins_cmd == "loo":
+        from aquascope.archive.catalog import load_stations
+        from aquascope.archive.regionalize import load_station_signatures, loo_skill
+        from aquascope.archive.similar import load_station_catchments
+
+        sig = load_station_signatures(path=args.signatures) if args.signatures else load_station_signatures()
+        cat = load_station_catchments(path=args.catchments) if args.catchments else load_station_catchments()
+        skill = loo_skill(sig, cat, load_stations(), k=args.k, max_stations=args.max_stations or None)
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(skill, indent=1), encoding="utf-8")
+        print(f"  leave-one-out over {skill['n_stations']:,} stations -> {out}")
+        for m, per in skill["methods"].items():
+            for name, sk in per.items():
+                print(f"  {m:<11} {name:<22} n={sk['n']:>6}  NSE {sk['nse']:>6.2f}  median APE {sk['median_ape']:.2f}")
+        return
+    if args.basins_cmd == "upstream":
+        topo = basins.Topology(basins.load_topology())
+        ids = topo.upstream_ids(int(args.hybas_id), limit=args.limit)
+        print("\n".join(str(i) for i in ids))
+        print(f"\n  {len(ids)} sub-basins upstream of (and including) {args.hybas_id}", file=sys.stderr)
+        return
+    try:
+        res = basins.describe_catchment(args.lat, args.lon, upstream=not args.local)
+    except ImportError as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return
+    if res.get("error"):
+        print(f"  {res['error']}")
+        sys.exit(1)
+    sb = res["sub_basin"]
+    print(f"  Sub-basin {sb['hybas_id']} (Pfafstetter {sb.get('pfaf_id')}), {sb.get('sub_area', 0):,.1f} km², "
+          f"upstream area {sb.get('up_area', 0):,.1f} km²")
+    print(f"  {res['upstream']['note']}")
+    attrs = res.get("attributes", {})
+    for key, v in attrs.items():
+        if isinstance(v, dict):
+            print(f"  {v['label']:<48} {v['value']:>12,.2f} {v['unit']}")
+    print(f"\n  {res['attribution']}")
+
+
+def cmd_gym(args: argparse.Namespace) -> None:
+    """`aquascope gym basins|run|leaderboard`: HydroGym, the calibration environment over real basins."""
+    from aquascope import gym as hg
+
+    if args.gym_cmd == "basins":
+        rows = hg.suggest_basins(args.n, sources=args.source or None, min_years=args.min_years,
+                                 max_snow_pct=None if args.allow_snow else 20.0)
+        if args.json:
+            print(json.dumps(rows, indent=2, default=str))
+            return
+        if not rows:
+            print("  no candidate basins yet (the archive publishes basins/station_signatures.parquet weekly)")
+            return
+        print(f"  {len(rows)} basins with long archived discharge and a catchment area (use SOURCE/ID with `gym run`)")
+        for r in rows:
+            snow = f"snow {r['snow_cover_pct']:.0f} %" if r.get("snow_cover_pct") is not None else ""
+            print(f"  {r['source']}/{r['station_id']:<42} {r['area_km2']:>9,.0f} km2  {r['n_years']:>4.0f} yr  "
+                  f"q {r['q_mean_mm']:.2f} mm/d  RR {r['runoff_ratio'] if r['runoff_ratio'] is not None else float('nan'):.2f}  {snow}")
+        return
+
+    def _basins():
+        if args.synthetic or not args.basin:
+            return [hg.synthetic_basin(i) for i in range(args.n_synthetic)]
+        out = []
+        for spec in args.basin:
+            src, _, sid = spec.partition("/")
+            out.append(hg.load_basin(src, sid))
+        return out
+
+    if args.gym_cmd == "leaderboard":
+        basins = _basins()
+        table = hg.run_leaderboard(basins, args.agent or None, objective=args.objective, max_steps=args.steps,
+                                   seeds=tuple(range(args.seeds)))
+        if args.json:
+            print(table.to_json(orient="records", indent=2))
+            return
+        cols = ["agent", "basin", "seed", "steps", "simulator_calls", "best_reward", "val_nse", "val_kge", "seconds"]
+        print(table[cols].to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+        if args.out:
+            table.to_csv(args.out, index=False)
+            print(f"\n  -> {args.out}")
+        return
+    # run: one agent on one (or the first) basin
+    basins = _basins()
+    env = hg.CalibrationEnv(basins, objective=args.objective, max_steps=args.steps)
+    env.reset(seed=args.seed)
+    fn = hg.BASELINES[args.agent[0] if args.agent else "differential_evolution"]
+    res = fn(env, {"seed": args.seed} if (args.agent or ["differential_evolution"])[0] != "nelder_mead" else {})
+    if args.json:
+        print(json.dumps({**res, "history": hg.episode_table(env).to_dict("records")}, indent=2, default=str))
+        return
+    print(env.render())
+    print(f"  {res['agent']}: {res['steps']} steps, {res.get('simulator_calls', res['steps'])} simulator calls, "
+          f"{res['seconds']} s")
+    val = res.get("validation") or {}
+    print(f"  validation: NSE {val.get('nse')}, KGE {val.get('kge')}, PBIAS {val.get('pbias')}")
+
+
+def cmd_caravan(args: argparse.Namespace) -> None:
+    """`aquascope caravan export|validate`: Caravan-format sub-datasets from the Archive."""
+    from aquascope.archive import caravan
+
+    if args.caravan_cmd == "validate":
+        res = caravan.validate_caravan(args.out, args.prefix)
+        print(f"  {res['n_gauges']} gauges, {'OK' if res['ok'] else str(len(res['problems'])) + ' problems'}")
+        for pr in res["problems"][:30]:
+            print(f"    - {pr}")
+        if not res["ok"]:
+            sys.exit(1)
+        return
+
+    def say(msg: str) -> None:
+        if not args.quiet:
+            print(f"  · {msg}", file=sys.stderr)
+
+    try:
+        report = caravan.export_caravan(
+            args.source, args.out, station_ids=args.station or None, max_stations=args.max_stations,
+            min_years=args.min_years, start=args.start, end=args.end, prefix=args.prefix,
+            forcing=not args.no_forcing, forcing_models=None if args.era5 else "best_match",
+            fetch_missing=args.fetch_missing, write_netcdf=args.netcdf, pause=args.pause, on_event=say,
+        )
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(2)
+    for g in report.gauges:
+        status = f"{g.n_days:>6} days, {g.n_streamflow:>6} with flow, area {g.area_km2:,.0f} km2 ({g.area_source})" \
+            if g.ok else f"skipped: {g.error}"
+        print(f"  {g.gauge_id:<48} {status}")
+    print(f"\n  {report.n_ok}/{len(report.gauges)} gauges written under {report.out_dir} (prefix {report.prefix})")
+    res = caravan.validate_caravan(args.out, report.prefix) if report.n_ok else {"ok": False, "problems": ["nothing written"]}
+    print(f"  validation: {'OK' if res['ok'] else '; '.join(res['problems'][:5])}")
+    if report.n_ok == 0:
+        sys.exit(1)
 
 
 def cmd_completion(args: argparse.Namespace) -> None:
@@ -1095,50 +1481,32 @@ def cmd_agri_productivity(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    from aquascope.registry import source_keys
+    from aquascope.schemas.station import VARIABLES
+
     parser = argparse.ArgumentParser(
-        prog="aquascope",
-        description="AquaScope — Water data collection, analysis & AI research recommender",
+        description="AquaScope — Water data collection, analysis & AI research recomm..."
     )
     sub = parser.add_subparsers(dest="command")
 
-    # ── collect ──────────────────────────────────────────────────────
+    # — collect ——————————————————————————————
     p_collect = sub.add_parser("collect", help="Collect water data from an API source")
     p_collect.add_argument(
         "--source",
         required=True,
-        choices=[
-            "taiwan_moenv",
-            "taiwan_cwa",
-            "taiwan_wra_level",
-            "taiwan_wra_reservoir",
-            "taiwan_wra_fhy",
-            "taiwan_wra_iot",
-            "taiwan_datagov",
-            "usgs",
-            "sdg6",
-            "gemstat",
-            "aquastat",
-            "taiwan_civil_iot",
-            "wqp",
-            "openmeteo",
-            "copernicus",
-            "wapor",
-            "eu_wfd",
-            "hubeau_hydrometrie",
-            "japan_mlit",
-            "korea_wamis",
-            "grdc",
-            "camels_cl",
-            "camels_br",
-            "noaa_nwps",
-            "ireland_opw",
-            "pegelonline",
-            "uk_ea",
-        ],
+        choices=source_keys(),
         help="Data source to collect from",
     )
     p_collect.add_argument("--api-key", default=None, help="API key (if required)")
-    p_collect.add_argument("--days", type=int, default=None, help="Number of days (USGS/UKEA/PEGELONLINE; PEGELONLINE max: 31)")
+    p_collect.add_argument(
+        "--days", type=int, default=None, help="Number of days (USGS/UKEA/PEGELONLINE/BOM; PEGELONLINE max: 31)"
+    )
+    p_collect.add_argument(
+        "--parameter-type",
+        default=None,
+        help='BOM parameter type, e.g. "Water Course Discharge", "Water Course Level" (BOM). '
+        'Defaults to "Water Course Discharge".',
+    )
     p_collect.add_argument("--max-stations", type=int, default=None, help="Cap stations to fetch (Ireland OPW)")
     p_collect.add_argument("--country", default="all", help="ISO3 country code or 'all' (AQUASTAT)")
     p_collect.add_argument("--countries", default=None, help="ISO3 country codes, comma-separated (SDG6)")
@@ -1160,8 +1528,8 @@ def main() -> None:
     p_collect.add_argument("--lid", default=None, help="A unique 5-character alphanumeric code e.g. ANAW1 (NOAA_NWPS)")
     p_collect.add_argument("--lat", type=float, default=None, help="Latitude (openmeteo/copernicus)")
     p_collect.add_argument("--lon", type=float, default=None, help="Longitude (openmeteo/copernicus)")
-    p_collect.add_argument("--start-date", default=None, help="Start date YYYY-MM-DD (openmeteo/copernicus/UKEA)")
-    p_collect.add_argument("--end-date", default=None, help="End date YYYY-MM-DD (openmeteo/copernicus/UKEA)")
+    p_collect.add_argument("--start-date", default=None, help="Start date YYYY-MM-DD (openmeteo/copernicus/UKEA/BOM)")
+    p_collect.add_argument("--end-date", default=None, help="End date YYYY-MM-DD (openmeteo/copernicus/UKEA/BOM)")
     p_collect.add_argument("--start-year", type=int, default=2000, help="Start year (AQUASTAT)")
     p_collect.add_argument("--end-year", type=int, default=2023, help="End year (AQUASTAT)")
     p_collect.add_argument("--format", default="json", choices=["json", "csv", "geojson"], help="Output format")
@@ -1169,7 +1537,14 @@ def main() -> None:
     p_collect.add_argument(
         "--station-ids", default=None, help="Comma-separated gauge codes to filter (camels_cl, camels_br)"
     )
-    p_collect.add_argument("--station", default=None, help="Station UUID/SUID (PEGELONLINE/UKEA)")
+    p_collect.add_argument(
+        "--station", default=None, help="Station UUID/SUID (PEGELONLINE/UKEA), or AWRC station number (BOM)"
+    )
+    p_collect.add_argument("--station-id", default=None, help="USGS monitoring station identifier")
+    p_collect.add_argument("--parameter", default=None, help="USGS parameter code, e.g. 00060 for discharge")
+    p_collect.add_argument("--state-code", default=None, help="USGS state code filter, e.g. MD")
+    p_collect.add_argument("--county-code", default=None, help="USGS county code filter")
+    p_collect.add_argument("--huc", default=None, help="USGS hydrologic unit code filter")
     p_collect.add_argument(
         "--timeseries",
         default=None,
@@ -1211,11 +1586,19 @@ def main() -> None:
     p_quality.add_argument("--fix", action="store_true", help="Apply recommended preprocessing and save cleaned file")
 
     # ── run ───────────────────────────────────────────────────────────
-    p_run = sub.add_parser("run", help="Execute a methodology pipeline on data")
-    p_run.add_argument("--method", required=True, help="Pipeline method ID (use list-methods to see available)")
-    p_run.add_argument("--file", required=True, help="Path to JSON or CSV data file")
+    p_run = sub.add_parser(
+        "run",
+        help="Run a study file (the steps behind an answer, reproducibly), or a methodology pipeline on data",
+    )
+    p_run.add_argument("study", nargs="?", default=None,
+                       help="A study.yaml from `aquascope ask --study` or written by hand (#54)")
+    p_run.add_argument("--method", default=None, help="Pipeline method ID (use list-methods to see available)")
+    p_run.add_argument("--file", default=None, help="Path to JSON or CSV data file")
     p_run.add_argument("--config", default=None, help="Pipeline config as JSON string")
     p_run.add_argument("--output", default=None, help="Path to save results JSON")
+    p_run.add_argument("--out", "-o", default=None, help="Study: write report.md, manifest.json and results.json here")
+    p_run.add_argument("--dry-run", action="store_true", help="Study: list the steps without running them")
+    p_run.add_argument("--quiet", "-q", action="store_true", help="Study: do not print steps as they run")
 
     # ── completion  ────────────────────────────────────────────────────
     p_completion = sub.add_parser("completion", help="Print shell tab-completion activation script")
@@ -1226,6 +1609,182 @@ def main() -> None:
 
     # ── list-sources ─────────────────────────────────────────────────
     sub.add_parser("list-sources", help="List all available data sources")
+
+    # ── stations ─────────────────────────────────────────────────────
+    p_stations = sub.add_parser("stations", help="Search station catalogs across sources")
+    p_stations.add_argument(
+        "--source",
+        action="append",
+        choices=source_keys(),
+        help="Source to search (repeatable). Default: every source with a station catalog",
+    )
+    p_stations.add_argument(
+        "--bbox", default=None,
+        help="Bounding box west,south,east,north (WGS84). Write --bbox=-77,38,-76,39 when it starts with a minus",
+    )
+    p_stations.add_argument(
+        "--variable",
+        default=None,
+        choices=list(VARIABLES),
+        help="Only stations measuring this variable",
+    )
+    p_stations.add_argument("--max-items", type=int, default=None, help="Cap per source")
+    p_stations.add_argument("--api-key", default=None, help="API key for sources that take one")
+    p_stations.add_argument("--format", choices=["json", "csv", "geojson"], default="geojson")
+    p_stations.add_argument("--output", "-o", default=None, help="Output path (default: data/stations_<sources>.<ext>)")
+
+    # ── harvest ──────────────────────────────────────────────────────
+    p_harvest = sub.add_parser("harvest", help="Harvest catalogs into GeoParquet for the open archive (#188)")
+    p_harvest.add_argument("what", choices=["stations", "obs", "bundles"],
+                           help="stations: the catalog; obs: daily series per station; bundles: one Parquet per "
+                                "variable and source rolled up from obs/")
+    p_harvest.add_argument("--out", default="archive", help="Output folder (default: ./archive)")
+    p_harvest.add_argument("--source", action="append", choices=source_keys(), help="Restrict to a source (repeatable)")
+    p_harvest.add_argument("--max-items", type=int, default=None, help="stations: cap per source (for smoke tests)")
+    p_harvest.add_argument("--variable", default=None, dest="variable",
+                           help="obs: harvest only this variable (default: every harvestable variable per source)")
+    p_harvest.add_argument("--variables", action="append", dest="variable_list", metavar="VAR",
+                           help="bundles: restrict to these variables (repeatable)")
+    p_harvest.add_argument("--years", type=int, default=40, help="obs: how far back to ask (default 40)")
+    p_harvest.add_argument("--max-stations", type=int, default=100, help="obs: stations per source per run")
+    p_harvest.add_argument("--refresh-days", type=int, default=30, help="obs: re-harvest a station older than this")
+    p_harvest.add_argument("--station", action="append", help="obs: only these station ids (repeatable)")
+    p_harvest.add_argument("--sync-from", default=None, metavar="REPO_ID",
+                           help="obs: download the existing obs/ tree from this dataset first (incremental runs)")
+    p_harvest.add_argument("--api-key", default=None)
+    p_harvest.add_argument("--workers", type=int, default=4)
+    p_harvest.add_argument("--no-geojson", action="store_true", help="Skip stations.geojson")
+    p_harvest.add_argument("--publish", default=None, metavar="REPO_ID",
+                           help="Upload the folder to this Hugging Face dataset (needs HF_TOKEN)")
+
+    # ── ask ──────────────────────────────────────────────────────────
+    p_ask = sub.add_parser("ask", help="Ask a water question in plain language; get a cited answer from real data")
+    p_ask.add_argument("question")
+    p_ask.add_argument("--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"],
+                       default=None)
+    p_ask.add_argument("--model", default=None)
+    p_ask.add_argument("--api-key", default=None)
+    p_ask.add_argument("--base-url", default=None, help="Any OpenAI-compatible endpoint")
+    p_ask.add_argument("--max-steps", type=int, default=8, help="Tool-call rounds allowed (default 8)")
+    p_ask.add_argument("--out", "-o", default=None, help="Save the Markdown report here")
+    p_ask.add_argument("--quiet", "-q", action="store_true", help="Do not print tool calls as they happen")
+    p_ask.add_argument("--study", default=None,
+                       help="Write the steps behind the answer here, to re-run with `aquascope run`")
+
+
+    # ── ingest ───────────────────────────────────────────────────────
+    p_ingest = sub.add_parser("ingest", help="Map + QA any CSV/Excel export into a clean daily series with a report")
+    p_ingest.add_argument("file")
+    p_ingest.add_argument("--variable", default=None, choices=list(VARIABLES))
+    p_ingest.add_argument("--date-column", default=None)
+    p_ingest.add_argument("--value-column", default=None)
+    p_ingest.add_argument("--unit", default=None, help="Unit of the value column (cfs, m3/s, l/s, mm, cm, ft, in)")
+    p_ingest.add_argument("--station", default=None, help="Keep only this station id when the file holds several")
+    p_ingest.add_argument("--sheet", default=None, help="Excel sheet name or index")
+    p_ingest.add_argument("--describe", default=None, help="A sentence about the file (helps the LLM mapping)")
+    p_ingest.add_argument("--llm", action="store_true", help="Let a configured LLM propose the column mapping")
+    p_ingest.add_argument("--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"],
+                          default=None)
+    p_ingest.add_argument("--model", default=None)
+    p_ingest.add_argument("--api-key", default=None)
+    p_ingest.add_argument("--out", "-o", default=None, help="Output stem (default: <file>_clean)")
+
+    # ── mcp ──────────────────────────────────────────────────────────
+    # ── basins ───────────────────────────────────────────────────────
+    p_basins = sub.add_parser("basins", help="Catchments from BasinATLAS (HydroATLAS, CC BY 4.0) in the Archive")
+    basins_sub = p_basins.add_subparsers(dest="basins_cmd", required=True)
+    p_bat = basins_sub.add_parser("at", help="Describe the catchment upstream of a point")
+    p_bat.add_argument("lat", type=float)
+    p_bat.add_argument("lon", type=float)
+    p_bat.add_argument("--local", action="store_true", help="Only the level-12 sub-basin containing the point")
+    p_bat.add_argument("--json", action="store_true")
+    p_bsim = basins_sub.add_parser("similar", help="Gauged basins whose catchments most resemble a point's or a station's")
+    p_bsim.add_argument("lat", type=float, nargs="?", default=None)
+    p_bsim.add_argument("lon", type=float, nargs="?", default=None)
+    p_bsim.add_argument("--station", default=None, metavar="SOURCE/ID", help="Use a station's own catchment as the target")
+    p_bsim.add_argument("--k", type=int, default=10)
+    p_bsim.add_argument("--method", choices=["similarity", "proximity", "combined"], default="combined")
+    p_bsim.add_argument("--source", action="append", help="Restrict donors to these sources (repeatable)")
+    p_bsim.add_argument("--json", action="store_true")
+    p_bassign = basins_sub.add_parser("assign", help="Build basins/station_catchments.parquet (harvest workflow step)")
+    p_bassign.add_argument("--fgb", required=True, help="Local lev12.fgb")
+    p_bassign.add_argument("--attributes", required=True, help="Local lev12_attributes.parquet")
+    p_bassign.add_argument("--out", default="archive/basins/station_catchments.parquet")
+    p_breg = basins_sub.add_parser("regionalize", help="Estimate the flow signatures of an ungauged point from donors")
+    p_breg.add_argument("lat", type=float)
+    p_breg.add_argument("lon", type=float)
+    p_breg.add_argument("--k", type=int, default=10)
+    p_breg.add_argument("--method", choices=["similarity", "regression", "both"], default="similarity")
+    p_breg.add_argument("--json", action="store_true")
+    p_bsig = basins_sub.add_parser("signatures", help="Build basins/station_signatures.parquet from the discharge bundles")
+    p_bsig.add_argument("--archive", default="archive", help="Local archive folder holding obs/discharge/*.parquet")
+    p_bsig.add_argument("--catchments", default=None, help="Local station_catchments.parquet (default: from the Hub)")
+    p_bsig.add_argument("--out", default="archive/basins/station_signatures.parquet")
+    p_bsig.add_argument("--min-years", type=float, default=10.0)
+    p_bloo = basins_sub.add_parser("loo", help="Leave-one-out regionalisation skill -> basins/regionalization_skill.json")
+    p_bloo.add_argument("--signatures", default=None, help="Local station_signatures.parquet (default: from the Hub)")
+    p_bloo.add_argument("--catchments", default=None, help="Local station_catchments.parquet (default: from the Hub)")
+    p_bloo.add_argument("--out", default="archive/basins/regionalization_skill.json")
+    p_bloo.add_argument("--k", type=int, default=10)
+    p_bloo.add_argument("--max-stations", type=int, default=3000, help="Even stride sample of donors (0 = all)")
+    p_bup = basins_sub.add_parser("upstream", help="List the level-12 sub-basins upstream of a HYBAS_ID")
+    p_bup.add_argument("hybas_id", type=int)
+    p_bup.add_argument("--limit", type=int, default=200_000)
+    p_bbuild = basins_sub.add_parser("build", help="Build the basins/ files from the BasinATLAS FileGDB")
+    p_bbuild.add_argument("gdb", help="Path to BasinATLAS_v10.gdb")
+    p_bbuild.add_argument("--out", default="archive")
+    p_bbuild.add_argument("--max-features", type=int, default=None)
+    p_bbuild.add_argument("--fgb", action="store_true", help="Also write lev12.fgb from Python (needs memory)")
+
+    # ── gym (HydroGym) ───────────────────────────────────────────────
+    p_gym = sub.add_parser("gym", help="HydroGym: a gym-style calibration environment over real basins (#175)")
+    gym_sub = p_gym.add_subparsers(dest="gym_cmd", required=True)
+    p_gb = gym_sub.add_parser("basins", help="Suggest gauged basins from the Archive that make good tasks")
+    p_gb.add_argument("--n", type=int, default=10)
+    p_gb.add_argument("--source", action="append", help="Restrict to these sources (repeatable)")
+    p_gb.add_argument("--min-years", type=float, default=15.0)
+    p_gb.add_argument("--allow-snow", action="store_true", help="Keep snowy catchments (GR4J has no snow routine)")
+    p_gb.add_argument("--json", action="store_true")
+    for name, help_ in (("run", "Play one baseline agent on a basin"),
+                        ("leaderboard", "Play the baselines on one or more basins, one row per run")):
+        p_g = gym_sub.add_parser(name, help=help_)
+        p_g.add_argument("--basin", action="append", metavar="SOURCE/ID", help="Archive station (repeatable)")
+        p_g.add_argument("--synthetic", action="store_true", help="Use synthetic GR4J basins (no network)")
+        p_g.add_argument("--n-synthetic", type=int, default=1)
+        p_g.add_argument("--agent", action="append", choices=["random_search", "nelder_mead", "differential_evolution"],
+                         help="Baseline agent(s); default: differential_evolution for run, all three for leaderboard")
+        p_g.add_argument("--objective", choices=["nse", "kge", "log_nse"], default="nse")
+        p_g.add_argument("--steps", type=int, default=30, help="Step budget per episode")
+        p_g.add_argument("--seed", type=int, default=0)
+        p_g.add_argument("--seeds", type=int, default=1, help="leaderboard: number of seeds per agent and basin")
+        p_g.add_argument("--out", default=None, help="leaderboard: write the table as CSV")
+        p_g.add_argument("--json", action="store_true")
+
+    # ── caravan ──────────────────────────────────────────────────────
+    p_car = sub.add_parser("caravan", help="Caravan-format sub-datasets (forcing + mm/day streamflow + attributes) from the Archive")
+    car_sub = p_car.add_subparsers(dest="caravan_cmd", required=True)
+    p_cex = car_sub.add_parser("export", help="Export one source's discharge stations in the Caravan layout")
+    p_cex.add_argument("--source", required=True, choices=["usgs", "uk_ea", "hubeau_hydrometrie"])
+    p_cex.add_argument("--out", required=True, help="Output folder (Caravan tree is written inside it)")
+    p_cex.add_argument("--station", action="append", help="Only these station ids (repeatable)")
+    p_cex.add_argument("--max-stations", type=int, default=None, help="Cap (longest archived records first)")
+    p_cex.add_argument("--min-years", type=float, default=10.0, help="Minimum streamflow record length (default 10)")
+    p_cex.add_argument("--start", type=date.fromisoformat, default=None, help="Forcing start (default 1981-01-01)")
+    p_cex.add_argument("--end", type=date.fromisoformat, default=None, help="Forcing end (default last observation)")
+    p_cex.add_argument("--prefix", default=None, help="Sub-dataset prefix (default aquascope_<source>)")
+    p_cex.add_argument("--no-forcing", action="store_true", help="Streamflow and attributes only, no Open-Meteo calls")
+    p_cex.add_argument("--era5", action="store_true",
+                       help="Use plain ERA5 (25 km) instead of Open-Meteo's ERA5-Land + ERA5 blend")
+    p_cex.add_argument("--fetch-missing", action="store_true", help="Fetch stations the archive lacks from the agency")
+    p_cex.add_argument("--netcdf", action="store_true", help="Also write timeseries/netcdf (needs xarray + netCDF4)")
+    p_cex.add_argument("--pause", type=float, default=3.0, help="Seconds between Open-Meteo calls (default 3)")
+    p_cex.add_argument("--quiet", action="store_true")
+    p_cval = car_sub.add_parser("validate", help="Check a folder against the Caravan layout")
+    p_cval.add_argument("out")
+    p_cval.add_argument("--prefix", required=True)
+
+    p_mcp = sub.add_parser("mcp", help="Serve find_stations / get_timeseries / analyze_station over MCP (#113)")
+    p_mcp.add_argument("--transport", choices=["stdio", "sse", "streamable-http"], default="stdio")
 
     # ── solve ─────────────────────────────────────────────────────────
     p_solve = sub.add_parser("solve", help="Solve a water challenge from a natural-language description")
@@ -1409,9 +1968,17 @@ def main() -> None:
         "recommend": cmd_recommend,
         "eda": cmd_eda,
         "quality": cmd_quality,
-        "run": cmd_run_pipeline,
         "list-methods": cmd_list_methods,
         "list-sources": cmd_list_sources,
+        "stations": cmd_stations,
+        "harvest": cmd_harvest,
+        "mcp": cmd_mcp,
+        "basins": cmd_basins,
+        "gym": cmd_gym,
+        "caravan": cmd_caravan,
+        "ask": cmd_ask,
+        "run": cmd_run,
+        "ingest": cmd_ingest,
         "solve": cmd_solve,
         "forecast": cmd_forecast,
         "plot": cmd_plot,

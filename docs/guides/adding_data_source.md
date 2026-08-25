@@ -84,25 +84,71 @@ class YourSourceCollector(BaseCollector):
         return samples
 ```
 
-## Step 3: Register the Collector
+## Step 3: Register it once, in `aquascope/registry.py`
 
-Edit `aquascope/collectors/__init__.py`:
+The registry is the single source of truth. One entry there is what makes the
+source show up in `aquascope collect --source`, `aquascope list-sources`,
+`aquascope stations`, the dashboard Collect page, `aquascope.collect()`, the
+harvest job and the MCP server. Nothing else needs a per-source edit.
+
+Two things to add:
+
+1. Export the class from `aquascope/collectors/__init__.py` (add it to the
+   import list and `__all__`).
+2. Add a `SOURCES["your_source"]` entry and a `build_collector()` factory
+   line in `aquascope/registry.py`:
 
 ```python
-from aquascope.collectors.your_source import YourSourceCollector
-
-__all__ = [
-    # ... existing exports ...
-    "YourSourceCollector",
-]
+"your_source": _s(
+    key="your_source", label="Your Agency", region="Your Country",
+    description="What it serves, in one line",
+    agency="Your Agency full name", country="XXX",          # ISO 3166-1 alpha-3
+    homepage="https://...",
+    variables=("discharge", "water_level"),                # from schemas/station.py VARIABLES
+    supports_bbox=False, supports_station_lookup=False,   # flip when the collector supports them
+    output_model="StreamflowReading",
+    license="unknown", redistributable=False,              # only True after you have read the terms
+    attribution="Your Agency (licence name)",
+),
 ```
 
-## Step 4: Add CLI Support
+`redistributable=True` requires a real licence id in `license` (the drift-guard
+test enforces it), and it is what lets the archive mirror the observations.
+When you are not sure, leave it `False`; the source still works everywhere.
 
-Edit `aquascope/cli.py`, adding your source to:
-1. The `collector_map` dictionary in `cmd_collect()`
-2. The `--source` choices list
-3. The `source_info` dictionary in `cmd_list_sources()`
+### Optional: a station catalog
+
+If the API can list its stations, override `stations()` on the collector and
+set `supports_station_lookup=True` in the registry entry:
+
+```python
+from aquascope.schemas.station import Station, in_bbox
+
+def stations(self, *, bbox=None, variable=None, max_items=None) -> list[Station]:
+    rows = self.client.get_json("stations")
+    out = []
+    for r in rows:
+        if not in_bbox(r["lat"], r["lon"], bbox):
+            continue
+        out.append(Station(source="your_source", station_id=r["id"], name=r.get("name"),
+                           latitude=r["lat"], longitude=r["lon"], variables=("discharge",),
+                           url=f"https://.../{r['id']}"))
+        if max_items is not None and len(out) >= max_items:
+            break
+    return out
+```
+
+`aquascope/collectors/uk_ea.py`, `usgs.py`, `france_hubeau.py`, `pegelonline.py`,
+`ireland_opw.py` and `taiwan_cwa.py` are the reference implementations. A test
+in `tests/test_registry.py` asserts that the registry flag matches whether the
+method is really overridden.
+
+## Step 4: Dashboard form (only if the source needs parameters)
+
+The Collect page lists every registered source automatically. If yours needs
+user inputs (dates, a station id, a mode), add a branch to `_source_form()` in
+`aquascope/dashboard/views/collect.py` that fills `ctor` (constructor kwargs)
+or `fetch` (`collect()` kwargs). A source with no parameters needs nothing.
 
 ## Step 5: Write Tests
 
@@ -113,7 +159,8 @@ Create `tests/test_collectors/test_your_source.py` with:
 
 ## Step 6: Update Documentation
 
-- Add your source to the table in `README.md`
+- Add your source to the table in `docs/data_sources.md` (the README counts
+  are checked against that table by `tests/test_docs_counts.py`)
 - Update `docs/guides/architecture.md` if needed
 
 ## Guidelines

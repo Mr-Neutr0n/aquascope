@@ -1,0 +1,63 @@
+<!DOCTYPE qgis-layer-definition>
+<qlr>
+  <!--
+    AquaScope gauges: the world station catalog of the AquaScope Archive
+    (https://huggingface.co/datasets/Rekin226/aquascope-gauges), read in place
+    over HTTPS by GDAL, styled by source; plus the BasinATLAS level-6 sub-basin
+    outlines (HydroATLAS v1.0, CC BY 4.0). Drag this file into QGIS 3.28+ (Parquet
+    needs GDAL with the Arrow/Parquet driver; the official QGIS builds have it).
+    Per-source terms: see the dataset card. Every station has a `url` attribute
+    linking to the agency page.
+  -->
+  <layer-tree-group expanded="1" checked="Qt::Checked" name="AquaScope Archive">
+    <layer-tree-layer expanded="1" checked="Qt::Checked" id="aquascope_stations" name="Gauges (AquaScope catalog)"
+      source="/vsicurl/https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/stations.parquet|layername=stations" providerKey="ogr"/>
+    <layer-tree-layer expanded="0" checked="Qt::Unchecked" id="aquascope_basins_lev06" name="Sub-basins level 12 (BasinATLAS, CC BY 4.0)"
+      source="/vsicurl/https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/basins/lev12.fgb|layername=lev12" providerKey="ogr"/>
+  </layer-tree-group>
+  <maplayers>
+    <maplayer type="vector" geometry="Point" autoRefreshEnabled="0" refreshOnNotifyEnabled="0" hasScaleBasedVisibilityFlag="0">
+      <id>aquascope_stations</id>
+      <datasource>/vsicurl/https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/stations.parquet|layername=stations</datasource>
+      <layername>Gauges (AquaScope catalog)</layername>
+      <srs><spatialrefsys><authid>EPSG:4326</authid></spatialrefsys></srs>
+      <provider encoding="UTF-8">ogr</provider>
+      <renderer-v2 type="categorizedSymbol" attr="source" symbollevels="0" forceraster="0" enableorderby="0">
+        <categories>
+          <category render="true" symbol="0" value="usgs" label="USGS (US)"/>
+          <category render="true" symbol="1" value="uk_ea" label="Environment Agency (UK)"/>
+          <category render="true" symbol="2" value="hubeau_hydrometrie" label="Hub'Eau (FR)"/>
+          <category render="true" symbol="3" value="pegelonline" label="PEGELONLINE (DE)"/>
+          <category render="true" symbol="4" value="ireland_opw" label="OPW (IE)"/>
+          <category render="true" symbol="5" value="taiwan_cwa" label="CWA (TW)"/>
+          <category render="true" symbol="6" value="" label="other"/>
+        </categories>
+        <symbols>
+          <symbol type="marker" name="0" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="21,101,192,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+          <symbol type="marker" name="1" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="46,125,50,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+          <symbol type="marker" name="2" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="198,40,40,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+          <symbol type="marker" name="3" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="239,108,0,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+          <symbol type="marker" name="4" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="106,27,154,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+          <symbol type="marker" name="5" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="0,131,143,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+          <symbol type="marker" name="6" alpha="1"><layer class="SimpleMarker" enabled="1"><Option type="Map"><Option name="color" value="84,110,122,255" type="QString"/><Option name="size" value="1.8" type="QString"/><Option name="outline_color" value="255,255,255,255" type="QString"/><Option name="outline_width" value="0.2" type="QString"/></Option></layer></symbol>
+        </symbols>
+      </renderer-v2>
+      <mapTip>[% "name" %] ([% "source" %] [% "station_id" %])&lt;br&gt;[% "variables" %] · [% "period_start" %] to [% "period_end" %]&lt;br&gt;&lt;a href="[% "url" %]"&gt;agency page&lt;/a&gt;</mapTip>
+      <layerOpacity>1</layerOpacity>
+    </maplayer>
+    <maplayer type="vector" geometry="Polygon" autoRefreshEnabled="0" refreshOnNotifyEnabled="0" hasScaleBasedVisibilityFlag="1" minScale="20000000" maxScale="0">
+      <id>aquascope_basins_lev06</id>
+      <datasource>/vsicurl/https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/basins/lev12.fgb|layername=lev12</datasource>
+      <layername>Sub-basins level 12 (BasinATLAS, CC BY 4.0)</layername>
+      <srs><spatialrefsys><authid>EPSG:4326</authid></spatialrefsys></srs>
+      <provider encoding="UTF-8">ogr</provider>
+      <renderer-v2 type="singleSymbol" symbollevels="0" forceraster="0" enableorderby="0">
+        <symbols>
+          <symbol type="fill" name="0" alpha="1"><layer class="SimpleFill" enabled="1"><Option type="Map"><Option name="color" value="106,27,154,20" type="QString"/><Option name="outline_color" value="106,27,154,120" type="QString"/><Option name="outline_width" value="0.16" type="QString"/><Option name="style" value="solid" type="QString"/></Option></layer></symbol>
+        </symbols>
+      </renderer-v2>
+      <mapTip>HYBAS_ID [% "HYBAS_ID" %] · upstream [% "UP_AREA" %] km²</mapTip>
+      <layerOpacity>1</layerOpacity>
+    </maplayer>
+  </maplayers>
+</qlr>

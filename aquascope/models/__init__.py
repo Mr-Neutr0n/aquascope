@@ -11,13 +11,6 @@ from aquascope.models.bayesian import (
     effective_sample_size,
     gelman_rubin,
 )
-from aquascope.models.ensemble import (
-    AdaptiveEnsemble,
-    EnsembleResult,
-    StackingEnsemble,
-    WeightedEnsemble,
-    ensemble_cross_validate,
-)
 from aquascope.models.transfer import (
     DonorSelector,
     DonorSite,
@@ -28,6 +21,19 @@ from aquascope.models.transfer import (
 )
 
 MODEL_MAP: dict[str, type[BaseHydroModel]] = {}
+
+# The ensembles need scikit-learn (the ``ml`` extra); import them on first use so that
+# ``aquascope.models.rainfall_runoff`` (GR4J) and friends work on a bare install.
+_ENSEMBLE_NAMES = ("AdaptiveEnsemble", "EnsembleResult", "StackingEnsemble", "WeightedEnsemble",
+                   "ensemble_cross_validate")
+
+
+def __getattr__(name: str):  # PEP 562: lazy attributes
+    if name in _ENSEMBLE_NAMES:
+        from aquascope.models import ensemble
+
+        return getattr(ensemble, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _lazy_load() -> None:

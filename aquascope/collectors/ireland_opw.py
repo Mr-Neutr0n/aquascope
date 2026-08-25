@@ -40,6 +40,7 @@ from datetime import datetime
 from typing import Any
 
 from aquascope.collectors.base import BaseCollector
+from aquascope.schemas.station import Station, in_bbox
 from aquascope.schemas.water_data import DataSource, GeoLocation, WaterLevelReading
 from aquascope.utils.http_client import CachedHTTPClient, RateLimiter
 
@@ -80,6 +81,42 @@ class IrelandOPWCollector(BaseCollector):
         """Fetch the GeoJSON list of active OPW stations."""
         data = self.client.get_json(STATIONS_URL)
         return data.get("features", [])
+
+    def stations(
+        self,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        variable: str | None = None,
+        max_items: int | None = None,
+    ) -> list[Station]:
+        """OPW station catalog from the waterlevel.ie GeoJSON feed."""
+        if variable and variable != "water_level":
+            return []
+        stations: list[Station] = []
+        for feat in self.fetch_stations():
+            props = feat.get("properties") or {}
+            coords = (feat.get("geometry") or {}).get("coordinates") or [None, None]
+            ref = props.get("ref")
+            if not ref or coords[0] is None or coords[1] is None:
+                continue
+            lon, lat = float(coords[0]), float(coords[1])
+            if not in_bbox(lat, lon, bbox):
+                continue
+            stations.append(
+                Station(
+                    source="ireland_opw",
+                    station_id=str(ref),
+                    name=props.get("name"),
+                    latitude=lat,
+                    longitude=lon,
+                    variables=("water_level",),
+                    url=f"{OPW_BASE}/0001/{str(ref).lstrip('0')}/",
+                    country="IRL",
+                )
+            )
+            if max_items is not None and len(stations) >= max_items:
+                break
+        return stations
 
     def fetch_raw(
         self,

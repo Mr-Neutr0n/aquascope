@@ -1,0 +1,131 @@
+name: Showcase
+
+# Record the Analyst answering a handful of real questions, so the Explorer can
+# show what it does to someone who has no API key (#233). The model runs here,
+# once a week, with the maintainer's key; the page replays the trace and can
+# re-run the deterministic half live in the reader's browser.
+#
+# Needs one of GROQ_API_KEY / OPENAI_API_KEY / HF_TOKEN as a repository secret.
+# Without one the job says so and stops, rather than failing the repo.
+#
+# The result arrives as a pull request. A pull request opened with GITHUB_TOKEN
+# does not start a workflow run, so its required checks stay pending: close and
+# reopen it to run them, or set REPAIR_TOKEN (a fine-grained PAT with contents
+# and pull-requests write) as repair.yml already does.
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"        # Mondays, after the weekly harvest has settled
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma-separated example ids to rebuild (blank = all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: showcase
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install aquascope
+        # basins too: describe_catchment and regionalize_signatures read the
+        # BasinATLAS files through pyogrio, and without it two of the questions
+        # answer from a failed tool, which is exactly what the checks flag.
+        run: pip install -e ".[dev,basins]"
+
+      - name: Check a key is configured
+        id: key
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -n "$GROQ_API_KEY" ] || [ -n "$OPENAI_API_KEY" ]; then
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$HF_TOKEN" ]; then
+            # HF_TOKEN is here for the Archive, where a write token scoped to
+            # repositories is enough. Calling a model needs the separate "Make
+            # calls to Inference Providers" permission, so this may still 403.
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Only HF_TOKEN is set. It records the showcase only if it also has the 'Make calls to Inference Providers' permission."
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No LLM key secret is set, so the showcase cannot be recorded. Set GROQ_API_KEY (free tier) to enable it."
+          fi
+
+      # Start from whatever is already recorded, on main or on the open branch,
+      # so a run that runs out of daily budget tops up instead of starting over.
+      - name: Seed from the existing recordings
+        if: steps.key.outputs.have_key == 'true'
+        run: |
+          if git fetch --quiet origin showcase/recordings 2>/dev/null; then
+            git checkout FETCH_HEAD -- explorer/showcase 2>/dev/null || true
+          fi
+          ls -1 explorer/showcase 2>/dev/null | wc -l | xargs echo "recordings already present:"
+
+      - name: Record the answers
+        if: steps.key.outputs.have_key == 'true'
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          USGS_API_KEY: ${{ secrets.USGS_API_KEY }}
+        run: |
+          python -m aquascope.showcase --out explorer/showcase \
+            ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+
+      # A pull request, not a push to main. Two reasons: main is protected and
+      # rejects a direct push, and these files are prose a model wrote, about to
+      # be published under the project's name. Someone should read them first.
+      - name: Open a pull request with the recordings
+        if: steps.key.outputs.have_key == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REPAIR_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add explorer/showcase
+          if git diff --cached --quiet; then
+            echo "no change in the recorded answers"
+            exit 0
+          fi
+          BRANCH="showcase/recordings"
+          git checkout -b "$BRANCH"
+          # Two -m flags rather than one multi-line string: a body at column 0
+          # would end this block scalar and make the whole workflow unparseable.
+          git commit -m "showcase: re-record the Analyst's worked examples" \
+                     -m "Recorded by .github/workflows/showcase.yml so the Explorer can show what the Analyst does without an API key (#233)."
+          git push --force origin "$BRANCH"
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            echo "the open pull request now carries the new recordings"
+          else
+            # printf rather than a heredoc: YAML strips this block's indent, so a
+            # heredoc terminator written inside the `else` arrives indented and
+            # bash never finds it. No backticks or apostrophes in the text below
+            # either, since it is inside double quotes.
+            printf '%s\n' \
+              "Recorded by the showcase workflow (#233). Each file is one question, every tool call with its arguments, the answer, the deterministic checks and the study." \
+              "" \
+              "The prose was written by a model, so read it before merging: it appears on the Explorer Ask panel as a worked example. The tool results beside it are not a recording, and the page re-runs them live." \
+              "" \
+              "Merging publishes them: the push to main triggers the Explorer deploy." \
+              > /tmp/showcase-pr.md
+            gh pr create --base main --head "$BRANCH" \
+              --title "Showcase: re-record the Analyst worked examples" \
+              --body-file /tmp/showcase-pr.md \
+              --label no-changelog
+          fi

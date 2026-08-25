@@ -30,7 +30,7 @@ def _table_row_count() -> int:
 
 def _cli_command_count() -> int:
     text = (ROOT / "aquascope" / "cli.py").read_text(encoding="utf-8")
-    return len(re.findall(r"\.add_parser\(", text))
+    return len(re.findall(r"(?<![A-Za-z_])sub\.add_parser\(", text))  # top-level commands only, not sub-subcommands
 
 
 def test_docs_intro_count_matches_table():

@@ -8,6 +8,7 @@ on:
       - "mkdocs.yml"
       - "pyproject.toml"
       - "aquascope/**"
+      - "explorer/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -42,10 +43,16 @@ jobs:
           sudo apt-get install -y libcairo2-dev libfreetype-dev libffi-dev libjpeg-dev libpng-dev libz-dev pkg-config
 
       - name: Install package + docs extras
-        run: pip install -e ".[docs]"
+        run: pip install -e ".[docs]" build
 
       - name: Build site
         run: mkdocs build --strict
+
+      # Under /explorer/app/, not /explorer/: mkdocs renders docs/explorer.md to
+      # site/explorer/index.html, and copying the app on top of it made that page
+      # unreachable, so the nav entry opened the app instead of the documentation.
+      - name: Add the Explorer under /explorer/app/ (#189)
+        run: python explorer/build.py --out site/explorer/app --no-space-readme
 
       - uses: actions/upload-pages-artifact@v3
         with:

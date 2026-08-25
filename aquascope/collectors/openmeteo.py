@@ -61,6 +61,7 @@ class OpenMeteoCollector(BaseCollector):
         daily: list[str] | None = None,
         hourly: list[str] | None = None,
         forecast_days: int = 7,
+        models: str | None = None,
     ) -> dict:
         """Call the Open-Meteo API and return the raw JSON response.
 
@@ -76,11 +77,19 @@ class OpenMeteoCollector(BaseCollector):
             Hourly variables (e.g. ``["river_discharge"]``).
         forecast_days : int
             Number of forecast days (only for ``mode="forecast"``).
+        models : str | None
+            Weather-mode reanalysis to read through the ``/archive`` endpoint:
+            ``"best_match"`` (Open-Meteo's blend: ERA5-Land where available, ERA5
+            otherwise; the only choice that serves every daily variable),
+            ``"era5_land"``, ``"era5"``, ... Default (None) is ERA5 via ``/era5``.
         """
         params: dict = {"latitude": latitude, "longitude": longitude, "timezone": "auto"}
 
         if self.mode == "weather":
             url = f"{_ARCHIVE_URL}/era5"
+            if models:
+                url = f"{_ARCHIVE_URL}/archive"
+                params["models"] = models
             if not (start_date and end_date):
                 raise ValueError("start_date and end_date are required for weather mode")
             params["start_date"] = start_date

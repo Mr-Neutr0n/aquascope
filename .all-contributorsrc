@@ -146,7 +146,48 @@
       "contributions": [
         "code",
         "test",
+        "doc",
+        "bug"
+      ]
+    },
+    {
+      "login": "khyahahati",
+      "name": "Khyati Tiwari",
+      "avatar_url": "https://avatars.githubusercontent.com/u/132439126?v=4",
+      "profile": "https://github.com/khyahahati",
+      "contributions": [
+        "code",
+        "data"
+      ]
+    },
+    {
+      "login": "Prakshal0809",
+      "name": "PRAKSHAL BHAVINKUMAR BHANDARI",
+      "avatar_url": "https://avatars.githubusercontent.com/u/116380035?v=4",
+      "profile": "https://github.com/Prakshal0809",
+      "contributions": [
         "doc"
+      ]
+    },
+    {
+      "login": "Osheun",
+      "name": "Osheun",
+      "avatar_url": "https://avatars.githubusercontent.com/u/138526540?v=4",
+      "profile": "https://github.com/Osheun",
+      "contributions": [
+        "code",
+        "test",
+        "doc"
+      ]
+    },
+    {
+      "login": "dchaudhari7177",
+      "name": "Dipak Chaudhari",
+      "avatar_url": "https://avatars.githubusercontent.com/u/111210939?v=4",
+      "profile": "https://dipakchaudhari.me",
+      "contributions": [
+        "code",
+        "test"
       ]
     }
   ],

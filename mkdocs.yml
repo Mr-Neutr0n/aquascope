@@ -108,6 +108,13 @@ nav:
     - Methodology matrix: methodology_matrix.md
     - Theory: theory.md
     - Data sources: data_sources.md
+    - The Archive (open gauge catalog): archive.md
+    - Caravan export (large-sample datasets): caravan.md
+    - Use the Archive from R, QGIS, DuckDB: readers.md
+    - The Explorer (click any gauge): explorer.md
+    - MCP server (tools for assistants): mcp.md
+    - The Analyst (ask, ingest): analyst.md
+    - HydroGym (an environment for hydrologic agents): gym.md
     - Use cases: use_cases.md
   - Examples:
     - Potomac flood frequency: examples/potomac_flood_frequency.md

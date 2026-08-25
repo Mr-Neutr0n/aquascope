@@ -9,77 +9,67 @@ import pandas as pd
 import streamlit as st
 
 from aquascope.dashboard import _insights, _state
+from aquascope.registry import SOURCES as _REGISTRY
 
 logger = logging.getLogger(__name__)
 
 # key -> (label, region, one-line description)
+# Display metadata comes straight from the shared registry (#163, #187), so a
+# source registered once shows up here with the same label, region and terms.
 SOURCES: dict[str, tuple[str, str, str]] = {
-    "usgs": (
-        "USGS Water Services",
-        "United States",
-        "Real-time discharge, gauge height, temperature from thousands of US gauges",
-    ),
-    "grdc": ("GRDC river discharge", "Global", "In-situ gauges (Zenodo subset) + RSEG satellite discharge estimates"),
-    "openmeteo": ("Open-Meteo", "Global", "Weather history, forecasts and GloFAS flood discharge for any coordinate"),
-    "sdg6": ("UN SDG 6 indicators", "Global", "Country-level water & sanitation indicators (water stress, IWRM, …)"),
-    "gemstat": (
-        "GEMStat water quality",
-        "Global",
-        "UNEP global surface & groundwater quality archive (~200 MB, cached locally)",
-    ),
-    "aquastat": ("FAO AQUASTAT", "Global", "National water resources and agricultural water-use statistics"),
-    "wapor": ("FAO WaPOR", "Africa & Near East", "Remote-sensing evapotranspiration and biomass productivity rasters"),
-    "copernicus": ("Copernicus CDS", "Global", "ERA5 / GloFAS climate reanalysis (requires free CDS key)"),
-    "wqp": ("Water Quality Portal", "United States", "EPA/USGS harmonised water-quality samples by state"),
-    "hubeau_hydrometrie": (
-        "Hub'Eau hydrométrie",
-        "France",
-        "Real-time water level & discharge from French national gauges",
-    ),
-    "eu_wfd": (
-        "EU Water Framework Directive",
-        "Europe",
-        "EEA DiscoData ecological/chemical status of European water bodies",
-    ),
-    "taiwan_cwa": (
-        "Taiwan CWA climate",
-        "Taiwan",
-        "Daily station climate: rainfall, temperature, humidity, radiation, wind (CODIS archive, decades deep)",
-    ),
-    "taiwan_moenv": ("Taiwan MOENV", "Taiwan", "River water-quality monitoring (requires free MOENV key)"),
-    "taiwan_wra_level": ("Taiwan WRA water level", "Taiwan", "Real-time river stage snapshot across all WRA stations"),
-    "taiwan_wra_reservoir": ("Taiwan WRA reservoirs", "Taiwan", "Daily reservoir storage and operations"),
-    "taiwan_wra_fhy": (
-        "Taiwan WRA FHY real-time",
-        "Taiwan",
-        "Real-time water level / rainfall / discharge (FHY portal)",
-    ),
-    "taiwan_wra_iot": ("Taiwan WRA IoT", "Taiwan", "Real-time groundwater level and rainfall accumulation"),
-    "taiwan_datagov": ("Taiwan data.gov.tw", "Taiwan", "Open-government real-time river & groundwater levels"),
-    "taiwan_civil_iot": ("Taiwan Civil IoT", "Taiwan", "SensorThings water observations (flood sensors etc.)"),
-    "japan_mlit": ("Japan MLIT", "Japan", "Water level, discharge, quality and rainfall by prefecture"),
-    "korea_wamis": ("Korea WAMIS", "South Korea", "Water level, discharge, quality and dam storage by basin"),
-    "india_wris": ("India WRIS", "India", "River water level by state / district / agency"),
-    "noaa_nwps": ("NOAA NWPS", "United States", "River stage and discharge forecasts across US stream gauges"),
-    "ireland_opw": ("Ireland OPW", "Ireland", "Real-time river & lake water levels from waterlevel.ie"),
-    "pegelonline": (
-        "PEGELONLINE",
-        "Germany",
-        "Real-time river stage and discharge from German federal waterways (WSV)",
-    ),
-    "camels_cl": ("CAMELS-CL", "Chile", "Daily observed streamflow & catchment attributes for 516 Chilean catchments"),
-    "camels_br": ("CAMELS-BR", "Brazil", "Daily observed streamflow & catchment attributes for Brazilian catchments"),
-    "uk_ea": (
-        "UK Environment Agency",
-        "United Kingdom",
-        "Real-time river level, flow, rainfall, and groundwater observations from UK EA telemetry",
-    ),
+    key: (meta.label, meta.region, meta.description) for key, meta in _REGISTRY.items()
 }
 
 _API_KEY_SOURCES: dict[str, tuple[str, str]] = {
-    "taiwan_moenv": ("Taiwan MOENV", "https://data.moenv.gov.tw/en/apikey"),
-    "copernicus": ("Copernicus CDS", "https://cds.climate.copernicus.eu/how-to-api"),
+    key: (meta.label, meta.api_key_signup_url or "")
+    for key, meta in _REGISTRY.items()
+    if meta.requires_api_key
 }
+
+# Fetch arguments a source cannot run without, as source_key -> {kwarg: label}.
+#
+# The forms below only write a kwarg when the user typed something, so leaving a
+# required field blank produced no kwarg at all and the collector's own guard
+# fired -- the user saw a raw `ValueError: PEGELONLINE station_id must not be
+# empty.` (#174). The collectors are right to guard; the dashboard was wrong to
+# let an invalid submission through in the first place.
+#
+# Each entry names a field the collector raises on, so adding a source here is
+# how a new required field gets a friendly message instead of a traceback.
+_REQUIRED_FETCH_FIELDS: dict[str, dict[str, str]] = {
+    "pegelonline": {"station_id": "Station UUID"},
+    "bom": {"station_id": "AWRC station number"},
+}
+
+# Sources needing at least one of several fields, rather than all of them.
+# NOAA-NWPS raises "One of 'lid' or 'bbox' is required." when the form is
+# submitted with the LID box cleared and no bounding box typed.
+_REQUIRED_ONE_OF_FETCH_FIELDS: dict[str, tuple[dict[str, str], ...]] = {
+    "noaa_nwps": ({"lid": "Station LID", "bbox": "Bounding box"},),
+}
+
+
+def missing_required_fields(source_key: str, fetch: dict) -> list[str]:
+    """Labels of required fetch arguments this submission does not supply.
+
+    Pure and Streamlit-free so it can be tested without rendering a page.
+
+    A field counts as supplied when it is present *and* truthy: the forms strip
+    whitespace before writing, so an empty string can only arrive from a caller
+    that has not, and an empty tuple is not a bounding box.
+    """
+    supplied = {name for name, value in fetch.items() if value or value == 0}
+
+    missing = [
+        label for name, label in _REQUIRED_FETCH_FIELDS.get(source_key, {}).items() if name not in supplied
+    ]
+
+    for group in _REQUIRED_ONE_OF_FETCH_FIELDS.get(source_key, ()):
+        if not supplied & set(group):
+            missing.append(" or ".join(group.values()))
+
+    return missing
+
 
 _REGION_ORDER = [
     "Global",
@@ -164,6 +154,18 @@ def _render_api_tab() -> None:
 
     if st.button("🚀 Collect data", type="primary", key="collect_btn"):
         label = SOURCES[source_key][0]
+
+        # Check before the spinner: a predictable empty field should not look
+        # like a network round trip that then failed.
+        missing = missing_required_fields(source_key, fetch_kwargs)
+        if missing:
+            them = "it" if len(missing) == 1 else "them"
+            st.warning(
+                f"{label} needs {_join_labels(missing)} before it can collect. "
+                f"Fill {them} in above and press Collect again."
+            )
+            return
+
         with st.spinner(f"Collecting from {label}…"):
             try:
                 records = _run_collector(source_key, api_key, ctor_kwargs, fetch_kwargs)
@@ -189,6 +191,14 @@ def _render_api_tab() -> None:
         )
 
 
+def _join_labels(labels: list[str]) -> str:
+    """"a", "a and b", "a, b and c" -- readable in a sentence."""
+    if len(labels) == 1:
+        return f"**{labels[0]}**"
+    bold = [f"**{label}**" for label in labels]
+    return f"{', '.join(bold[:-1])} and {bold[-1]}"
+
+
 def _source_form(source_key: str, ctor: dict, fetch: dict) -> None:  # noqa: C901, PLR0915 — one branch per source
     """Render source-specific parameter widgets, filling ctor/fetch kwargs."""
     if source_key == "taiwan_wra_level":
@@ -196,6 +206,16 @@ def _source_form(source_key: str, ctor: dict, fetch: dict) -> None:  # noqa: C90
 
     elif source_key == "taiwan_wra_reservoir":
         st.info("Daily snapshot — returns the most recent day's reservoir data.")
+
+    elif source_key == "taiwan_wra_groundwater":
+        st.info("Annual groundwater levels for the WRA well network (1992 to present), joined with well metadata.")
+
+    elif source_key == "taiwan_wra_groundwater_daily":
+        st.info("Groundwater levels per WRA groundwater zone (HydroInfo portal). Large pulls: pick a zone.")
+        zone = st.text_input("Zone name or code (optional, e.g. 濁水溪沖積扇)", value="")
+        if zone.strip():
+            ctor["zones"] = [zone.strip()]
+        ctor["aggregate"] = st.selectbox("Aggregate", ["monthly", "daily"])
 
     elif source_key == "taiwan_wra_fhy":
         ctor["data_type"] = st.selectbox(
@@ -660,6 +680,31 @@ def _source_form(source_key: str, ctor: dict, fetch: dict) -> None:  # noqa: C90
         if ed:
             fetch["end"] = str(ed)
 
+    elif source_key == "bom":
+        st.caption(
+            "BOM Water Data Online (Australia) — not every station has a populated discharge series; "
+            "check Water Course Level if discharge comes back empty."
+        )
+        station = st.text_input("AWRC station number", placeholder="e.g. 410001")
+        if station.strip():
+            fetch["station_id"] = station.strip()
+        fetch["parameter_type"] = st.selectbox(
+            "Parameter type",
+            [
+                "Water Course Discharge",
+                "Water Course Level",
+                "Storage Level",
+                "Storage Volume",
+                "Ground Water Level",
+                "Rainfall",
+                "Water Temperature",
+                "Electrical Conductivity At 25C",
+                "Turbidity",
+                "pH",
+            ],
+        )
+        fetch["days"] = st.slider("Days of history", 1, 90, 30, key="bom_days")
+
     elif source_key == "uk_ea":
         st.caption("UK Environment Agency — real-time river level, flow, rainfall, and groundwater telemetry.")
         fetch["observed_property"] = st.selectbox(
@@ -709,43 +754,11 @@ def _records_to_df(records: list) -> pd.DataFrame:
     return df
 
 
-_FACTORIES = {
-    "usgs": lambda api_key, ctor, c: c.USGSCollector(api_key=api_key or "DEMO_KEY"),
-    "grdc": lambda api_key, ctor, c: c.GRDCCollector(),
-    "openmeteo": lambda api_key, ctor, c: c.OpenMeteoCollector(mode=ctor.get("mode", "weather")),
-    "sdg6": lambda api_key, ctor, c: c.SDG6Collector(),
-    "gemstat": lambda api_key, ctor, c: c.GEMStatCollector(),
-    "aquastat": lambda api_key, ctor, c: c.AquastatCollector(),
-    "wapor": lambda api_key, ctor, c: c.WaPORCollector(),
-    "copernicus": lambda api_key, ctor, c: c.CopernicusCollector(),
-    "wqp": lambda api_key, ctor, c: c.WQPCollector(),
-    "hubeau_hydrometrie": lambda api_key, ctor, c: c.HubeauHydrometrieCollector(),
-    "eu_wfd": lambda api_key, ctor, c: c.EUWFDCollector(),
-    "taiwan_moenv": lambda api_key, ctor, c: c.TaiwanMOENVCollector(api_key=api_key or ""),
-    "taiwan_cwa": lambda api_key, ctor, c: c.TaiwanCWACollector(),
-    "taiwan_wra_level": lambda api_key, ctor, c: c.TaiwanWRAWaterLevelCollector(),
-    "taiwan_wra_reservoir": lambda api_key, ctor, c: c.TaiwanWRAReservoirCollector(),
-    "taiwan_wra_fhy": lambda api_key, ctor, c: c.TaiwanWRAFhyCollector(data_type=ctor.get("data_type", "water")),
-    "taiwan_wra_iot": lambda api_key, ctor, c: c.TaiwanWRAIoTCollector(data_type=ctor.get("data_type", "groundwater")),
-    "taiwan_datagov": lambda api_key, ctor, c: c.TaiwanDataGovCollector(dataset_id=ctor.get("dataset_id", "25768")),
-    "taiwan_civil_iot": lambda api_key, ctor, c: c.TaiwanCivilIoTCollector(),
-    "japan_mlit": lambda api_key, ctor, c: c.JapanMLITCollector(),
-    "korea_wamis": lambda api_key, ctor, c: c.KoreaWAMISCollector(),
-    "india_wris": lambda api_key, ctor, c: c.IndiaWRISCollector(),
-    "noaa_nwps": lambda api_key, ctor, c: c.NOAANWPSCollector(),
-    "ireland_opw": lambda api_key, ctor, c: c.IrelandOPWCollector(),
-    "pegelonline": lambda api_key, ctor, c: c.PegelonlineCollector(),
-    "camels_cl": lambda api_key, ctor, c: c.CAMELSCLCollector(),
-    "camels_br": lambda api_key, ctor, c: c.CAMELSBRCollector(),
-    "uk_ea": lambda api_key, ctor, c: c.UKEACollector(),
-}
-
-
 def _run_collector(source_key: str, api_key: str, ctor: dict, fetch: dict):
-    """Instantiate the right collector and fetch — covers every source in ``SOURCES``."""
-    from aquascope import collectors as c
+    """Instantiate the right collector (via the shared registry) and fetch."""
+    from aquascope.registry import build_collector
 
-    collector = _FACTORIES[source_key](api_key, ctor, c)
+    collector = build_collector(source_key, api_key=api_key, **ctor)
     kwargs = dict(fetch)
     if api_key and source_key == "copernicus":
         kwargs["api_key"] = api_key

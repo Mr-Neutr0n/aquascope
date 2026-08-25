@@ -1,0 +1,179 @@
+name: Build basins (BasinATLAS)
+
+# Catchments for the Archive (#189 Explorer Phase 2, #100 CAMELS-TW attributes).
+# Downloads BasinATLAS v1.0 (HydroATLAS, CC BY 4.0, Linke et al. 2019) from
+# figshare, and turns the level-12 sub-basins into:
+#   basins/lev12_topology.parquet   routing graph + representative points (small)
+#   basins/lev12_attributes.parquet every BasinATLAS attribute per sub-basin
+#   basins/lev12.fgb                simplified polygons, spatially indexed (point lookups over HTTPS)
+#   basins/lev12.pmtiles            vector tiles for the Explorer (zoom 5-10)
+#   basins/lev06.pmtiles            coarse level-6 tiles for low zooms
+# then publishes them to the public Hugging Face dataset. Manual, run when
+# BasinATLAS changes (it does not: v1.0 is from 2019) or the layout does.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the Hugging Face dataset"
+        type: boolean
+        default: true
+      max_features:
+        description: "Cap the number of level-12 sub-basins (smoke tests; empty = all ~1.0 M)"
+        type: string
+        default: ""
+      skip_tiles:
+        description: "Skip the PMTiles step"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: basins
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET: Rekin226/aquascope-gauges
+      # figshare's own downloader answers 202/403 for this 2.7 GB file for long stretches (cold storage);
+      # the public S3 object behind it serves range requests directly. Same bytes, same md5.
+      S3_URL: https://s3-eu-west-1.amazonaws.com/pfigshare-u-files/20082137/BasinATLAS_Data_v10.gdb.zip
+      FIGSHARE_URL: https://ndownloader.figshare.com/files/20082137
+      FIGSHARE_MD5: 69af94baee68da5a3f80f09e7b85bd04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Free disk space (the runner has ~14 GB free; the build needs ~10 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+
+      # GDAL (ogr2ogr with the OpenFileGDB and FlatGeobuf drivers) and tippecanoe
+      # come prebuilt from conda-forge: a minute, versus 20+ minutes compiling
+      # tippecanoe on the runner.
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: geo
+          create-args: >-
+            gdal>=3.8
+            tippecanoe
+          cache-environment: true
+          init-shell: none
+
+      - name: Check GDAL and tippecanoe (kept off PATH so the conda python does not shadow setup-python)
+        run: |
+          echo "GEO_BIN=$MAMBA_ROOT_PREFIX/envs/geo/bin" >> "$GITHUB_ENV"
+          "$MAMBA_ROOT_PREFIX/envs/geo/bin/ogr2ogr" --version
+          "$MAMBA_ROOT_PREFIX/envs/geo/bin/tippecanoe" --version
+
+      - name: Install aquascope with the archive and basins extras
+        run: python -m pip install -q ".[archive,basins]"
+
+      - name: Download BasinATLAS v1.0 (S3 object behind figshare first, figshare downloader as fallback)
+        run: |
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+          if curl -sI "$S3_URL" --max-time 60 | grep -q "200 OK"; then
+            echo "downloading from S3"
+            curl -L "$S3_URL" -o BasinATLAS.gdb.zip --retry 8 --retry-delay 20 -C - -sS
+          else
+            for i in $(seq 1 30); do
+              code=$(curl -sIL "$FIGSHARE_URL" -A "$UA" --max-time 60 -o /dev/null -w "%{http_code}")
+              echo "figshare attempt $i: HTTP $code"
+              if [ "$code" = "200" ]; then
+                curl -L "$FIGSHARE_URL" -A "$UA" -o BasinATLAS.gdb.zip --retry 5 --retry-delay 30 -C - -sS
+                break
+              fi
+              sleep 90
+            done
+          fi
+          test -s BasinATLAS.gdb.zip || { echo "neither S3 nor figshare served the file"; exit 1; }
+          echo "$FIGSHARE_MD5  BasinATLAS.gdb.zip" | md5sum -c -
+          unzip -q BasinATLAS.gdb.zip
+          rm BasinATLAS.gdb.zip
+          GDB=$(find . -maxdepth 2 -name "BasinATLAS_v10.gdb" -type d | head -1)
+          echo "GDB=$GDB" >> "$GITHUB_ENV"
+          "$GEO_BIN/ogrinfo" -so "$GDB" BasinATLAS_v10_lev12 | head -20
+          df -h / | tail -1
+
+      - name: Topology + attributes parquet (streamed, batches of 50k)
+        run: |
+          python - <<'EOF'
+          import logging, os
+          logging.basicConfig(level=logging.INFO, format="%(message)s")
+          from aquascope.archive.basins import build_basins
+          mx = os.environ.get("MAX_FEATURES") or None
+          r = build_basins(os.environ["GDB"], "archive", max_features=int(mx) if mx else None)
+          print(r.to_dict())
+          EOF
+        env:
+          MAX_FEATURES: ${{ inputs.max_features }}
+
+      - name: FlatGeobuf (simplified polygons with a spatial index; ogr2ogr streams it)
+        env:
+          MAX_FEATURES: ${{ inputs.max_features }}
+        run: |
+          LIMIT=""
+          if [ -n "$MAX_FEATURES" ]; then LIMIT="-limit $MAX_FEATURES"; fi
+          "$GEO_BIN/ogr2ogr" -f FlatGeobuf archive/basins/lev12.fgb "$GDB" BasinATLAS_v10_lev12 \
+            -select HYBAS_ID,NEXT_DOWN,MAIN_BAS,SUB_AREA,UP_AREA,PFAF_ID \
+            -simplify 0.002 -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=YES -nln lev12 $LIMIT
+          ls -la archive/basins/
+
+      - name: PMTiles (level 12 for zoom 5-10, level 6 for zoom 0-8)
+        if: ${{ !inputs.skip_tiles }}
+        env:
+          MAX_FEATURES: ${{ inputs.max_features }}
+        run: |
+          LIMIT=""
+          if [ -n "$MAX_FEATURES" ]; then LIMIT="-limit $MAX_FEATURES"; fi
+          "$GEO_BIN/ogr2ogr" -f GeoJSONSeq /vsistdout/ "$GDB" BasinATLAS_v10_lev12 \
+            -select HYBAS_ID,NEXT_DOWN,MAIN_BAS,SUB_AREA,UP_AREA,PFAF_ID $LIMIT \
+          | "$GEO_BIN/tippecanoe" -o archive/basins/lev12.pmtiles -l basins -n "BasinATLAS level 12" \
+              -A "HydroATLAS v1.0 (Linke et al. 2019), CC BY 4.0" \
+              -Z5 -z10 --drop-densest-as-needed --coalesce-densest-as-needed --extend-zooms-if-still-dropping \
+              --detect-shared-borders --simplification=10 --force -P
+          "$GEO_BIN/ogr2ogr" -f GeoJSONSeq /vsistdout/ "$GDB" BasinATLAS_v10_lev06 \
+            -select HYBAS_ID,NEXT_DOWN,MAIN_BAS,SUB_AREA,UP_AREA,PFAF_ID \
+          | "$GEO_BIN/tippecanoe" -o archive/basins/lev06.pmtiles -l basins6 -n "BasinATLAS level 6" \
+              -A "HydroATLAS v1.0 (Linke et al. 2019), CC BY 4.0" \
+              -Z0 -z8 --drop-densest-as-needed --detect-shared-borders --simplification=8 --force -P
+          ls -la archive/basins/
+          rm -rf "$GDB"
+          df -h / | tail -1
+
+      - name: Publish to the Hugging Face dataset (basins/ folder)
+        if: env.HF_TOKEN != '' && inputs.publish == true
+        run: |
+          python - <<'EOF'
+          import os
+          from aquascope.archive import publish_folder
+          print(publish_folder("archive", os.environ["HF_DATASET"], commit_message="basins: BasinATLAS v1.0 level 12 (CC BY 4.0)"))
+          EOF
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## Basins build" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f archive/basins/build.json ]; then cat archive/basins/build.json >> "$GITHUB_STEP_SUMMARY"; fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          ls -la archive/basins/ >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload the build as an artifact (whole folder for capped smoke runs, build.json otherwise)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basins-build-${{ github.run_id }}
+          path: ${{ inputs.max_features != '' && 'archive/basins/' || 'archive/basins/build.json' }}
+          if-no-files-found: ignore
+          retention-days: 7

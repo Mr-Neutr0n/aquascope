@@ -1,0 +1,104 @@
+name: Repair failing collectors
+
+# The self-healing half of the harvest. After the scheduled harvest, take its
+# health.json, and for every source that failed for a reason that can be a code
+# cause (404, changed format, unclassified), let a model propose a minimal
+# patch over the evidence (source, tests, live probes), verify it (lint, the
+# collector's tests, a live smoke call) and open a pull request for review.
+# Anything that does not verify becomes a comment on the collector-health
+# issue with the diagnosis and the rejected diff. Nothing is merged here.
+#
+# Needs an LLM key as a repository secret: OPENAI_API_KEY, GROQ_API_KEY,
+# HF_TOKEN (with inference permission) or AQUASCOPE_LLM_API_KEY +
+# AQUASCOPE_LLM_BASE_URL + AQUASCOPE_LLM_MODEL. Without one the job exits
+# quietly. GITHUB_TOKEN-opened PRs do not trigger CI: push an empty commit or
+# close/reopen the PR to run it, or set REPAIR_TOKEN (a fine-grained PAT with
+# contents + pull-requests write) and the PR gets CI like any other.
+
+on:
+  workflow_run:
+    workflows: ["Harvest station catalogs"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      health_run_id:
+        description: "Harvest run id whose health.json to use (default: latest scheduled run)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Diagnose and propose only; no branch, PR or comment"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule'
+    env:
+      GH_TOKEN: ${{ secrets.REPAIR_TOKEN || secrets.GITHUB_TOKEN }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      AQUASCOPE_LLM_API_KEY: ${{ secrets.AQUASCOPE_LLM_API_KEY }}
+      AQUASCOPE_LLM_BASE_URL: ${{ vars.AQUASCOPE_LLM_BASE_URL }}
+      AQUASCOPE_LLM_MODEL: ${{ vars.AQUASCOPE_LLM_MODEL }}
+      USGS_API_KEY: ${{ secrets.USGS_API_KEY }}
+    steps:
+      - name: Is a model configured?
+        id: gate
+        run: |
+          if [ -z "$OPENAI_API_KEY$GROQ_API_KEY$AQUASCOPE_LLM_API_KEY" ]; then
+            echo "no LLM key configured (OPENAI_API_KEY / GROQ_API_KEY / AQUASCOPE_LLM_API_KEY); nothing to do"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.go == 'true'
+        with:
+          token: ${{ secrets.REPAIR_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.go == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install aquascope (dev + archive)
+        if: steps.gate.outputs.go == 'true'
+        run: python -m pip install -q ".[dev,archive]"
+
+      - name: Fetch the harvest's health.json
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          RUN_ID="${{ inputs.health_run_id }}"
+          if [ -z "$RUN_ID" ]; then RUN_ID="${{ github.event.workflow_run.id }}"; fi
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=harvest.yml --event schedule --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          echo "harvest run $RUN_ID"
+          mkdir -p archive
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "harvest-$RUN_ID" --dir archive_dl || true
+          if [ -f archive_dl/health.json ]; then cp archive_dl/health.json archive/health.json; fi
+          test -f archive/health.json || { echo "no health.json in that run's artifact"; exit 0; }
+          python -c "import json; h=json.load(open('archive/health.json')); print(h['run_at'], [s['source'] for s in h['sources'] if not s['ok']] or 'all healthy')"
+
+      - name: Repair (propose, verify, open PRs or comment)
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          DRY=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then DRY="--dry-run"; fi
+          python .github/scripts/harvest_repair.py archive/health.json --repo "$GITHUB_REPOSITORY" $DRY \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
