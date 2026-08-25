@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock
 
+from aquascope.collectors.bom import PARAMETER_VARIABLE_MAP, BOMCollector
 from aquascope.collectors.france_hubeau import HubeauHydrometrieCollector
 from aquascope.collectors.ireland_opw import IrelandOPWCollector
 from aquascope.collectors.pegelonline import PegelonlineCollector
@@ -383,3 +384,161 @@ class TestTaiwanCWAStations:
         assert [s.station_id for s in collector.stations(bbox=(121.5, 25.0, 121.6, 25.1))] == ["466920"]
         assert collector.stations(variable="discharge") == []
         assert len(collector.stations(max_items=1)) == 1
+
+
+# ─── BOM (Australia) ────────────────────────────────────────────────────────
+#
+# BOM's KiWIS instance only fills in station_latitude/station_longitude/
+# parametertype_name when getStationList is filtered by a single
+# parametertype_name (confirmed live 2026-08-25); an unfiltered request
+# returns those fields blank for every row. So stations() issues one
+# request per BOM parameter type and merges by station_no -- these mocks
+# key a payload per parametertype_name, shaped like the live responses.
+
+_BOM_HEADER = ["station_no", "station_name", "station_latitude", "station_longitude", "parametertype_name"]
+BOM_NO_MATCHES = ["No matches."]
+
+BOM_BY_PARAMETER_TYPE = {
+    "Water Course Discharge": [
+        _BOM_HEADER,
+        ["410001", "M/BIDGEE R @ WAGGA", "-35.1082", "147.3598", "Water Course Discharge"],
+    ],
+    "Water Course Level": [
+        _BOM_HEADER,
+        ["410001", "M/BIDGEE R @ WAGGA", "-35.1082", "147.3598", "Water Course Level"],
+    ],
+    "Storage Level": [
+        _BOM_HEADER,
+        ["410130", "BURRINJUCK DAM", "-35.0", "148.6", "Storage Level"],
+    ],
+    "Storage Volume": [
+        _BOM_HEADER,
+        ["410130", "BURRINJUCK DAM", "-35.0", "148.6", "Storage Volume"],
+    ],
+    "Rainfall": [
+        _BOM_HEADER,
+        # KiWIS sometimes still returns blank coordinates for a given row
+        # even inside a filtered response -- must be dropped, not raise.
+        ["9999999", "NO COORDS", "", "", "Rainfall"],
+    ],
+    "Ground Water Level": [
+        _BOM_HEADER,
+        # Real "unset location" garbage seen live from BOM's API 2026-08-25
+        # -- clusters around lat=-85.5 regardless of the station's actual
+        # location. Must be dropped, not returned as a real station.
+        ["GW041027", "MAULES CK Thornfield", "-85.5275", "56.7670", "Ground Water Level"],
+        # A legitimate external territory station (Christmas Island) sits
+        # well outside the mainland+Tasmania bbox but must survive the
+        # Australia-wide sanity filter.
+        ["CHRISTMAS01", "Christmas Island Bore", "-10.4900", "105.6300", "Ground Water Level"],
+    ],
+}
+
+
+def _bom_client(by_parameter_type: dict = BOM_BY_PARAMETER_TYPE) -> MagicMock:
+    """MagicMock client whose ``getStationList`` response depends on the
+    single ``parametertype_name`` in the call's params, defaulting to
+    ``"No matches."`` for any type not given an explicit payload."""
+    client = MagicMock()
+
+    def get_json(url, params=None, **kw):
+        return by_parameter_type.get(params["parametertype_name"], BOM_NO_MATCHES)
+
+    client.get_json.side_effect = get_json
+    return client
+
+
+class TestBOMStations:
+    def test_groups_parameter_types_per_station(self):
+        client = _bom_client()
+        stations = BOMCollector(client=client).stations()
+        assert [s.station_id for s in stations] == ["410001", "410130", "CHRISTMAS01"]
+
+        wagga = stations[0]
+        assert isinstance(wagga, Station)
+        assert wagga.name == "M/BIDGEE R @ WAGGA"
+        assert (wagga.latitude, wagga.longitude) == (-35.1082, 147.3598)
+        assert wagga.variables == ("discharge", "water_level")
+        assert wagga.country == "AUS"
+        assert wagga.url.endswith("/410001")
+
+        dam = stations[1]
+        assert dam.variables == ("reservoir_storage",)
+
+        # row with blank coordinates is dropped rather than raising
+        assert "9999999" not in [s.station_id for s in stations]
+        # row with implausible (sentinel) coordinates is dropped too
+        assert "GW041027" not in [s.station_id for s in stations]
+
+        # one getStationList call per BOM parameter type, each filtered
+        assert client.get_json.call_count == len(PARAMETER_VARIABLE_MAP)
+        requested_types = {c.kwargs["params"]["parametertype_name"] for c in client.get_json.call_args_list}
+        assert requested_types == set(PARAMETER_VARIABLE_MAP)
+
+    def test_drops_implausible_coordinates_but_keeps_external_territories(self, caplog):
+        client = _bom_client()
+        stations = BOMCollector(client=client).stations(variable="groundwater_level")
+        station_ids = [s.station_id for s in stations]
+
+        # the -85.5-latitude sentinel is dropped...
+        assert "GW041027" not in station_ids
+        # ...but a real external-territory station (outside the mainland
+        # bbox, inside the Australia-wide sanity bbox) is kept.
+        assert "CHRISTMAS01" in station_ids
+        christmas = next(s for s in stations if s.station_id == "CHRISTMAS01")
+        assert (christmas.latitude, christmas.longitude) == (-10.49, 105.63)
+
+    def test_variable_filter_narrows_requests_and_result(self):
+        client = _bom_client()
+        collector = BOMCollector(client=client)
+        stations = collector.stations(variable="reservoir_storage")
+        assert [s.station_id for s in stations] == ["410130"]
+
+        # only the three reservoir_storage parameter types are requested,
+        # each in its own call (not comma-joined into one)
+        requested_types = {c.kwargs["params"]["parametertype_name"] for c in client.get_json.call_args_list}
+        assert requested_types == {"Storage Level", "Storage Percentage Full", "Storage Volume"}
+        assert client.get_json.call_count == 3
+
+    def test_unknown_variable_returns_empty_without_calls(self):
+        client = _bom_client()
+        collector = BOMCollector(client=client)
+        assert collector.stations(variable="climate") == []
+        client.get_json.assert_not_called()
+
+    def test_bbox_forwarded_and_rechecked(self):
+        client = _bom_client()
+        collector = BOMCollector(client=client)
+        stations = collector.stations(bbox=(147.0, -35.2, 148.0, -35.0))
+        # 410130 sits at lon 148.6, outside the bbox's east=148.0 -- dropped
+        # client-side even though the mock doesn't filter server-side.
+        assert [s.station_id for s in stations] == ["410001"]
+        for call in client.get_json.call_args_list:
+            assert call.kwargs["params"]["bbox"] == "147.0,-35.2,148.0,-35.0"
+
+    def test_max_items_caps_result(self):
+        client = _bom_client()
+        stations = BOMCollector(client=client).stations(max_items=1)
+        assert len(stations) == 1
+
+    def test_no_matches_returns_empty(self):
+        client = _bom_client(by_parameter_type={})
+        assert BOMCollector(client=client).stations() == []
+
+    def test_one_parameter_type_failing_does_not_fail_the_whole_catalog(self):
+        client = MagicMock()
+
+        def get_json(url, params=None, **kw):
+            if params["parametertype_name"] == "Water Course Discharge":
+                raise RuntimeError("boom")
+            return BOM_BY_PARAMETER_TYPE.get(params["parametertype_name"], BOM_NO_MATCHES)
+
+        client.get_json.side_effect = get_json
+        stations = BOMCollector(client=client).stations()
+        # the failing type is skipped, but stations from other types still come back
+        assert "410130" in [s.station_id for s in stations]
+
+    def test_request_failure_returns_empty(self):
+        client = MagicMock()
+        client.get_json.side_effect = RuntimeError("boom")
+        assert BOMCollector(client=client).stations() == []

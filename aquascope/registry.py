@@ -333,6 +333,7 @@ SOURCES: dict[str, SourceMeta] = {
         output_model="StreamflowReading | WaterLevelReading | WaterQualitySample",
         license="unknown", redistributable=False,
         attribution="Bureau of Meteorology, Water Data Online (KISTERS KiWIS); terms to verify before mirroring",
+        supports_station_lookup=True,
     ),
     # ── Global ──────────────────────────────────────────────────────────
     "grdc": _s(
