@@ -56,6 +56,7 @@ All notable changes to AquaScope are documented here.
 - Explorer: the "Monthly climate" chart on the click-anywhere card drew eight bars instead of twelve. Plotly merges categorical x values with the same label, and the one-letter month labels repeated (M, J, A), so May, June, July and August were folded into March, January and April. Months are now labelled Jan..Dec.
 - USGS keyed path: `stateCd` / `countyCd` are translated to the ANSI codes the OGC API expects (`MD` to `24`, `24033` to `033` with the implied state `24` if `state_code` is not in the parameter list). Comma-separated `stateCd` / `countyCd` / `huc` values trigger a warning since the OGC API takes single values for these fields - we choose to pass the first value of the comma-separated list as the parameter in these instances rather than returning nothing. (#160)
 - Explorer: `fmt(x, digits)` ignored `digits` below 10, so catchment areas and populations printed three decimals ("303.412 km²"); the trend sentence read "a increasing trend"; and a slow network was reported as "WebGL is off" (WebGL is now tested directly, and a slow style load says so). (#231)
+- CI: Dynamically resolve the Pyodide runtime version from explorer/config.js for the WASM smoke test workflow and cache keys, and update smoke verification to test aquascope.explore import and pyodide_http.patch_all() instead of dashboard app imports. (#268)
 
 ## [0.12.0] - 2026-08-18
 
