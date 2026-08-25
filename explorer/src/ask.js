@@ -184,6 +184,47 @@ function currentTier() {
   return el ? el.value : "key";
 }
 
+/**
+ * Show the half of the drawer the chosen tier can actually use.
+ *
+ * The drawer used to open on the credentials form with "Your key" preselected,
+ * so the first thing a visitor met was the one thing they could not do, and the
+ * eight recorded examples that need no key at all sat about 700 px below it
+ * (#271). The recorded runs lead now; asking your own question is a tier you
+ * choose.
+ */
+function applyTier() {
+  const tier = currentTier();
+  const showcase = tier === "showcase";
+  $("ask-settings").hidden = tier !== "key";
+  $("ask-showcase").hidden = showcase ? !hasRecordedExamples() : true;
+  $("ask-compose").hidden = showcase;
+  $("ask-compose-note").hidden = !showcase;
+  $("ask-run").hidden = showcase;
+  askStatus(tier === "local"
+    ? "Nothing leaves this tab: the model runs here, and so do the tools."
+    : "");
+}
+
+// Whether CI has published any examples: with none, the tier is an empty box.
+function hasRecordedExamples() {
+  const box = $("ask-showcase");
+  return Boolean(box && box.querySelector(".showcase-chip"));
+}
+
+/**
+ * Bring an answer into view and let a screen reader announce it.
+ *
+ * A replayed example landed in `#ask-result` far enough down the drawer that on
+ * a normal viewport nothing visibly happened, which reads as a failed click.
+ */
+export function revealResult() {
+  const out = $("ask-result");
+  if (!out || out.hidden) return;
+  try { out.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { out.scrollIntoView(); }
+  out.focus({ preventScroll: true });
+}
+
 // The device tier: a small model here, a reduced tool set, tools run in the
 // worker exactly as they do for the full loop.
 async function runLocally(question) {
@@ -206,6 +247,7 @@ async function runLocally(question) {
     state.ask.markdown = `# ${question}\n\n${res.answer}\n`;
     $("ask-result").innerHTML = localAnswerHtml(res);
     $("ask-result").hidden = false;
+    revealResult();
     $("ask-copy").hidden = false;
     $("ask-download").hidden = false;
     $("ask-study").hidden = true;
@@ -294,6 +336,7 @@ function renderAsk(res) {
   const out = $("ask-result");
   out.innerHTML = mdToHtml(res.markdown);
   out.hidden = false;
+  revealResult();
   $("ask-copy").hidden = false;
   $("ask-download").hidden = false;
   renderChecks(res.checks || [], res.verified);
@@ -432,14 +475,9 @@ export async function initAsk() {
   const localRadio = document.querySelector('input[name="ask-tier"][value="local"]');
   localRadio.disabled = !possible;
   for (const r of document.querySelectorAll('input[name="ask-tier"]')) {
-    r.addEventListener("change", () => {
-      const local = currentTier() === "local";
-      $("ask-settings").hidden = local;
-      askStatus(local
-        ? "Nothing leaves this tab: the model runs here, and so do the tools."
-        : "");
-    });
+    r.addEventListener("change", applyTier);
   }
+  applyTier();
   actions.openAsk = openAsk;
 
   // Last, because it is the only part that waits on the network: the provider
@@ -466,7 +504,12 @@ export async function initAsk() {
   if (saved.base_url && provider.value === "custom") base.value = saved.base_url;
   if (saved.key) $("ask-key").value = saved.key;
   $("ask-remember").checked = Boolean(saved.remember);
-  $("ask-settings").open = !saved.key;
+  // Collapsed unless there is already a key to look at (#271).
+  $("ask-settings").open = Boolean(saved.key);
+  if (saved.key) {
+    const keyTier = document.querySelector('input[name="ask-tier"][value="key"]');
+    if (keyTier) { keyTier.checked = true; applyTier(); }
+  }
   updateForgetButton();
   provider.addEventListener("change", () => applyProvider(false));
   for (const el of [provider, model, base, $("ask-key"), $("ask-remember")]) el.addEventListener("change", saveAskSettings);

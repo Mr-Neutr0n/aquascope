@@ -7,7 +7,7 @@ import { CONFIG } from "../config.js?v=__BUILD__";
 import {
   $, VAR_LABEL, actions, article, copyText, downloadBlob, escapeHtml, fmt, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
-import { addTableDownload, plot } from "./charts.js?v=__BUILD__";
+import { addTableDownload, emphasisColor, plot, surfaceColor } from "./charts.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment, stationArea } from "./basins.js?v=__BUILD__";
 import { flyToStation, highlightStation, clearPointMarker } from "./map.js?v=__BUILD__";
 import { GR4J_METHODS, addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
@@ -123,7 +123,11 @@ function render(res, r) {
   if (res.annual_max && res.annual_max.year.length > 1) {
     traces.push({
       x: res.annual_max.year.map((y) => `${y}-07-01`), y: res.annual_max.v, mode: "markers",
-      marker: { color: "#e53935", size: 6 }, name: "annual max",
+      // Ink with a ring punched out of the card, not a second hue: these mark
+      // the same series, and they have to read beside any of the six agency
+      // colours (red markers on the UK's green line are ΔE 5.5 under protanopia).
+      marker: { color: emphasisColor(), size: 6, line: { color: surfaceColor(), width: 1.5 } },
+      name: "annual max",
       hovertemplate: "%{x|%Y} annual max<br>%{y:.3~f} " + unit + "<extra></extra>",
     });
   }
@@ -348,12 +352,12 @@ async function runGr4j() {
       },
       {
         x: days.slice(from), y: Array.from(fit.sim.slice(from), toUnit), mode: "lines",
-        line: { width: 1, color: "#e53935" }, name: "GR4J",
+        line: { width: 1.4, color: emphasisColor(), dash: "dot" }, name: "GR4J",
         hovertemplate: "%{x}<br>sim %{y:.3~f} " + res.unit + "<extra></extra>",
       },
     ], {
       yaxis: { title: { text: res.unit }, rangemode: "tozero" }, legend: { orientation: "h", y: 1.15 },
-      shapes: calEnd > from ? [{ type: "line", x0: days[calEnd], x1: days[calEnd], y0: 0, y1: 1, yref: "paper", line: { color: "#999", dash: "dot" } }] : [],
+      shapes: calEnd > from ? [{ type: "line", x0: days[calEnd], x1: days[calEnd], y0: 0, y1: 1, yref: "paper", line: { color: emphasisColor(), dash: "dot", width: 1 } }] : [],
     }, `${r.source}-${r.station_id}-gr4j`);
     $("gr4j-foot").textContent =
       `Last six years shown (dotted line: start of the validation period). Area ${area.area.toLocaleString(undefined, { maximumFractionDigits: 0 })} km² ` +

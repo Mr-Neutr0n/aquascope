@@ -29,15 +29,30 @@ export const stationKey = (r) => `${r.source}/${r.station_id}`;
 export const dbg = (globalThis.__aq = { log: [], state: null, map: null });
 export const trace = (msg) => { dbg.log.push(`${new Date().toISOString().slice(11, 19)} ${msg}`); };
 
+// How the map looks before anyone touches it. Named here rather than spread
+// through the modules because the URL writer needs it too: a shared link only
+// carries what differs from these, and it has to be able to say "globe off",
+// which it cannot do by leaving the parameter out.
+export const LAYER_DEFAULTS = {
+  basemap: "light",
+  terrain: false,
+  // Relief under the basemap: the light style on its own is near-white land on
+  // pale water, which reads as an empty page rather than as a map.
+  hillshade: true,
+  // Sparse worldwide coverage, so the world view is a globe (#281).
+  globe: true,
+  gaugeStyle: "source",
+  heat: false,
+};
+
 export const state = {
   stations: [], byKey: new Map(), hidden: new Set(),
   selected: null, result: null, point: null,
   workerReady: false, booting: true, pending: new Map(), reqId: 0,
   mapOk: false, marker: null, basinsOn: false,
   // layers (#232)
-  basemap: "light", overlays: new Set(), opacity: {}, date: null,
-  terrain: false, hillshade: false, globe: false,
-  gaugeStyle: "source", heat: false,
+  overlays: new Set(), opacity: {}, date: null,
+  ...LAYER_DEFAULTS,
   ask: { running: false, catalogSent: false, markdown: null, run: 0 },
 };
 dbg.state = state;

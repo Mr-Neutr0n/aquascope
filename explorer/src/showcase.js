@@ -55,6 +55,10 @@ export async function renderList() {
     b.addEventListener("click", () => open(ex.id));
     list.appendChild(b);
   }
+  // The tier decides whether this box is on screen, and it could not know
+  // whether there were any examples until now.
+  const checked = document.querySelector('input[name="ask-tier"]:checked');
+  if (checked) checked.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function toolLine(call_) {
@@ -92,6 +96,10 @@ export async function open(id) {
     $("ask-study").hidden = !entry.study;
     $("ask-rerun").hidden = false;
     renderChecksFromEntry(entry);
+    // Without this the replay lands below the fold and the click reads as a
+    // no-op (#271).
+    const { revealResult } = await import("./ask.js?v=__BUILD__");
+    revealResult();
   } catch (err) {
     setStatusEl(status, `Could not load that example: ${err.message}`, "error");
   }

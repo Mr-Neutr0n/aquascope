@@ -17,12 +17,34 @@ import { writeUrl } from "./url.js?v=__BUILD__";
 const anyTimeLayer = () =>
   [...state.overlays].some((id) => (overlayById(id) || {}).time) || Boolean(basemapById(state.basemap).time);
 
-function radioRow(name, value, label, checked, title) {
+// A tiny swatch standing in for each basemap, so eight radio rows become two
+// columns of chips you can pick from at a glance.
+const BASEMAP_SWATCH = {
+  light: "linear-gradient(135deg,#fbfbfb,#e7edf2)",
+  dark: "linear-gradient(135deg,#3b444d,#12181e)",
+  streets: "linear-gradient(135deg,#f7f3ea,#d9e6cf)",
+  satellite: "linear-gradient(135deg,#2e5f3a,#123049)",
+  "satellite-recent": "linear-gradient(135deg,#3a7a45,#0f2b41)",
+  terrain: "linear-gradient(135deg,#e6ddc6,#a3b58c)",
+  daily: "linear-gradient(135deg,#5d7fa8,#1b2a3d)",
+  usgs: "linear-gradient(135deg,#6b7f52,#2b3d2a)",
+};
+
+// The space behind the globe follows the basemap: a soft sky under the paper
+// styles, deep space under the imagery ones (see body[data-basemap] in the CSS).
+function reflectBasemap() {
+  document.body.dataset.basemap = state.basemap;
+}
+
+function basemapChip(b) {
   const row = document.createElement("label");
-  row.className = "rail-row";
-  row.title = title || "";
-  row.innerHTML = `<input type="radio" name="${name}" value="${escapeHtml(value)}" ${checked ? "checked" : ""}>` +
-    `<span class="rail-label">${escapeHtml(label)}</span>`;
+  row.className = "basemap-chip";
+  row.title = `${b.attribution} · ${b.licence}`;
+  const nc = /non-commercial/i.test(b.licence) ? ' <span class="tag">NC</span>' : "";
+  row.innerHTML =
+    `<input type="radio" name="basemap" value="${escapeHtml(b.id)}" ${b.id === state.basemap ? "checked" : ""}>` +
+    `<span class="sw-thumb" style="background:${BASEMAP_SWATCH[b.id] || "var(--bg-sunken)"}" aria-hidden="true"></span>` +
+    `<span class="rail-label">${escapeHtml(b.label)}${nc}</span>`;
   return row;
 }
 
@@ -30,12 +52,10 @@ function buildBasemaps() {
   const box = $("rail-basemaps");
   box.innerHTML = "";
   for (const b of BASEMAPS) {
-    const row = radioRow("basemap", b.id, b.label, b.id === state.basemap, `${b.attribution} · ${b.licence}`);
-    if (/non-commercial/i.test(b.licence)) {
-      row.querySelector(".rail-label").insertAdjacentHTML("beforeend", ' <span class="tag">NC</span>');
-    }
+    const row = basemapChip(b);
     row.querySelector("input").addEventListener("change", () => {
       state.basemap = b.id;
+      reflectBasemap();
       setBasemap(b.id, { date: state.date });
       renderCredits();
       syncDateRow();
@@ -43,6 +63,7 @@ function buildBasemaps() {
     });
     box.appendChild(row);
   }
+  reflectBasemap();
 }
 
 function buildTerrain() {
@@ -51,10 +72,8 @@ function buildTerrain() {
   const rows = [
     ["terrain", "3D terrain", state.terrain, (on) => { state.terrain = on; setTerrain(on); renderCredits(); }],
     ["hillshade", "Hillshade", state.hillshade, (on) => { state.hillshade = on; setHillshade(on); renderCredits(); }],
-    ["globe", "Globe", state.globe, (on) => { state.globe = setGlobe(on) ? on : false; }],
   ];
   for (const [id, label, checked, apply] of rows) {
-    if (id === "globe" && !globeSupported()) continue;
     const row = document.createElement("label");
     row.className = "rail-row";
     row.innerHTML = `<input type="checkbox" id="toggle-${id}" ${checked ? "checked" : ""}><span class="rail-label">${label}</span>`;
@@ -242,9 +261,33 @@ export function renderCredits() {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 
+// The projection button in the map's own tool stack. Globe is a property of
+// the view, not a layer, so it belongs next to zoom rather than in a list of
+// checkboxes three groups down.
+function syncGlobeButton() {
+  const btn = $("btn-globe");
+  if (!btn) return;
+  btn.hidden = !globeSupported();
+  btn.setAttribute("aria-pressed", state.globe ? "true" : "false");
+  btn.title = state.globe ? "Switch to a flat map" : "Switch to the globe";
+}
+
+function buildGlobeButton() {
+  const btn = $("btn-globe");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const want = !state.globe;
+    state.globe = setGlobe(want) ? want : false;
+    syncGlobeButton();
+    writeUrl();
+  });
+  syncGlobeButton();
+}
+
 export function initLayerUI() {
   if (!state.date) state.date = defaultDate();
   buildBasemaps();
+  buildGlobeButton();
   buildTerrain();
   buildOverlays();
   buildDate();
@@ -279,6 +322,7 @@ export function syncRailControls() {
   for (const input of document.querySelectorAll('#rail-basemaps input[type=radio]')) {
     input.checked = input.value === state.basemap;
   }
+  reflectBasemap();
   for (const o of OVERLAYS) {
     const el = $(`ov-${o.id}`);
     if (!el) continue;
@@ -288,10 +332,11 @@ export function syncRailControls() {
     const range = controls.querySelector("input[type=range]");
     if (range) range.value = state.opacity[o.id] ?? o.opacity ?? 0.8;
   }
-  for (const [id, val] of [["terrain", state.terrain], ["hillshade", state.hillshade], ["globe", state.globe]]) {
+  for (const [id, val] of [["terrain", state.terrain], ["hillshade", state.hillshade]]) {
     const el = $(`toggle-${id}`);
     if (el) el.checked = Boolean(val);
   }
+  syncGlobeButton();
   const gs = $("gauge-style");
   if (gs) gs.value = state.gaugeStyle;
   const heat = $("toggle-heat");

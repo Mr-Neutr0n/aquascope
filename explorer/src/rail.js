@@ -39,9 +39,12 @@ export function buildRail() {
 }
 
 export function updateCount() {
+  const total = state.stations.length;
   const visible = state.stations.filter((r) => !state.hidden.has(r.source)).length;
   const el = $("count");
-  el.textContent = `${visible.toLocaleString()} of ${state.stations.length.toLocaleString()} gauges shown`;
+  el.textContent = visible === total
+    ? `${total.toLocaleString()} shown`
+    : `${visible.toLocaleString()} of ${total.toLocaleString()} shown`;
 }
 
 // Reflect a filter that arrived from the URL back into the checkboxes.
