@@ -64,7 +64,13 @@ jobs:
           # themselves) are never credited on the board, so ignore them.
           # The CLI prints the missing logins comma-separated on one line, so
           # split them first or a bot name hides behind a human one.
+          # Keep only the indented lines belonging to the "Missing contributors"
+          # section: the CLI may print an "Unknown contributors" section after it
+          # (a login in .all-contributorsrc that the contributors API does not
+          # list yet, which happens for hours after a first PR merges), and an
+          # open-ended range would read that section as missing names too.
           missing=$(echo "$out" | sed -n '/Missing contributors/,$p' | tail -n +2 \
+            | sed -n '/^[[:space:]]/p' \
             | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '\[bot\]$' | grep -v '^$' || true)
           if [ -n "$missing" ]; then
             echo "::error::The contributors board is missing: $missing. Comment '@all-contributors please add @<username> for <contribution>' on their merged PR (needs the all-contributors GitHub App), or run 'npx all-contributors-cli add <username> <contribution>' locally."
