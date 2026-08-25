@@ -156,7 +156,11 @@ header#top {
 .search-results .hit { padding: .4rem .55rem; cursor: pointer; font-size: .85rem; display: flex; gap: .5rem; align-items: center; border-radius: var(--radius-xs); }
 .search-results .hit:hover, .search-results .hit.active { background: var(--blue-soft); }
 .search-results .hit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-results .hit-id { margin-left: auto; white-space: nowrap; font-size: .76rem; color: var(--muted); }
+/* The Environment Agency's ids are UUIDs, and at full length they took half
+   the row and pushed the station name into an ellipsis. The name is the part
+   worth reading; the first characters of the id are enough to tell two apart. */
+.search-results .hit-id { margin-left: auto; white-space: nowrap; font-size: .76rem; color: var(--muted);
+  max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
 .search-results .hit i, .chip i, .rail-row i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 .search-results .hit-head { padding: .45rem .55rem .2rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 640; }
 .search-results .hit .pin { width: 10px; height: 10px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: #4b5f6d; display: inline-block; flex: none; }
