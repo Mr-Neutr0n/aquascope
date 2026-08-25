@@ -8,6 +8,7 @@
 // question carries what you are looking at, the run can be stopped, and the
 // key defaults to this tab only.
 
+import { CONFIG } from "../config.js?v=__BUILD__";
 import {
   $, actions, copyText, downloadBlob, escapeHtml, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
@@ -15,17 +16,33 @@ import { closeDrawer, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=_
 import { Cancelled, callCancelable, call, onAskProgress } from "./worker-client.js?v=__BUILD__";
 import { map } from "./map.js?v=__BUILD__";
 import { visibleLayerSummary } from "./layer-ui.js?v=__BUILD__";
+import { initShowcase } from "./showcase.js?v=__BUILD__";
+import { askLocally, describeLocal, localAnswerHtml, localModelPossible } from "./local-model.js?v=__BUILD__";
 
-// Defaults per provider. Groq retired llama-3.3-70b-versatile on 2026-08-16;
-// gpt-oss-120b is its production tool-calling model.
-const ASK_PROVIDERS = {
-  groq: { base_url: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b" },
-  huggingface: { base_url: "https://router.huggingface.co/v1", model: "Qwen/Qwen2.5-72B-Instruct" },
-  openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  mistral: { base_url: "https://api.mistral.ai/v1", model: "mistral-small-latest" },
-  openrouter: { base_url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
-  custom: { base_url: "", model: "" },
+// Providers come from the package's registry (aquascope/ai_engine/providers.py),
+// written to explorer/providers.json by `python -m aquascope.ai_engine.providers`.
+// The page used to keep its own copy, which drifted from the Python one until a
+// retired Groq model broke both. This small fallback only covers the case where
+// the JSON did not load at all.
+let ASK_PROVIDERS = {
+  groq: { label: "Groq (free tier, fast)", base_url: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b" },
+  custom: { label: "Custom OpenAI-compatible endpoint", base_url: "", model: "" },
 };
+
+async function loadProviders() {
+  try {
+    const res = await fetch(`./providers.json?v=${CONFIG.build}`);
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    const next = {};
+    for (const p of data.providers || []) {
+      next[p.id] = { label: p.label, base_url: p.base_url || "", model: p.model || "", models: p.models || [], free: p.free, signup: p.signup, note: p.note };
+    }
+    if (Object.keys(next).length) ASK_PROVIDERS = next;
+  } catch (err) {
+    console.info("provider registry unavailable, using the built-in defaults:", err && err.message);
+  }
+}
 
 const ASK_EXAMPLES = [
   "What is the 100-year flood of the Thames at Kingston, and how sure can we be?",
@@ -140,7 +157,13 @@ function askLog(text) {
   log.hidden = false;
   const li = document.createElement("li");
   const m = String(text).match(/^tool (\w+)\((.*)\)$/);
-  li.innerHTML = m ? `<code>${escapeHtml(m[1])}</code>(${escapeHtml(m[2]).slice(0, 160)})` : escapeHtml(text);
+  if (m && m[1] === "run_python") {
+    // Show the code it wrote: this is the step a reader most wants to see.
+    const code = (m[2].match(/code='([\s\S]*)'$/) || [])[1] || m[2];
+    li.innerHTML = `<code>run_python</code><pre class="ask-code">${escapeHtml(code.slice(0, 800))}</pre>`;
+  } else {
+    li.innerHTML = m ? `<code>${escapeHtml(m[1])}</code>(${escapeHtml(m[2]).slice(0, 160)})` : escapeHtml(text);
+  }
   log.appendChild(li);
   log.scrollTop = log.scrollHeight;
 }
@@ -156,13 +179,65 @@ async function ensureCatalogInWorker() {
   state.ask.catalogSent = true;
 }
 
+function currentTier() {
+  const el = document.querySelector('input[name="ask-tier"]:checked');
+  return el ? el.value : "key";
+}
+
+// The device tier: a small model here, a reduced tool set, tools run in the
+// worker exactly as they do for the full loop.
+async function runLocally(question) {
+  const ctx = $("ask-use-context").checked ? contextLine() : "";
+  state.ask.running = true;
+  $("ask-run").disabled = true;
+  $("ask-run").textContent = "Working…";
+  $("ask-log").innerHTML = "";
+  $("ask-log").hidden = false;
+  $("ask-result").hidden = true;
+  $("ask-checks").hidden = true;
+  askStatus("Starting the model on your device…");
+  try {
+    const res = await askLocally(question, {
+      callTool: (name, args) => call("tool", { name, arguments: args }),
+      onEvent: (m) => (m.startsWith("tool ") ? askLog(m) : askStatus(m)),
+      context: ctx,
+    });
+    askStatus("");
+    state.ask.markdown = `# ${question}\n\n${res.answer}\n`;
+    $("ask-result").innerHTML = localAnswerHtml(res);
+    $("ask-result").hidden = false;
+    $("ask-copy").hidden = false;
+    $("ask-download").hidden = false;
+    $("ask-study").hidden = true;
+    $("ask-rerun").hidden = true;
+  } catch (err) {
+    askStatus(`The on-device model could not run: ${err.message}`, "error");
+  } finally {
+    state.ask.running = false;
+    $("ask-run").disabled = false;
+    $("ask-run").textContent = "Ask";
+  }
+}
+
 async function runAsk() {
   if (state.ask.running) return;
   const question = $("ask-question").value.trim();
+  if (currentTier() === "local") {
+    if (!question) { askStatus("Type a question first.", "warn"); return; }
+    await runLocally(question);
+    return;
+  }
   const provider = $("ask-provider").value;
+  const chosen = ASK_PROVIDERS[provider];
+  if (!chosen) {
+    // The picker fills from providers.json a moment after load. Running before
+    // that used to throw on an undefined provider with nothing on screen.
+    askStatus("Still loading the provider list, try again in a second.", "warn");
+    return;
+  }
   const key = $("ask-key").value.trim();
-  const model = $("ask-model").value.trim() || ASK_PROVIDERS[provider].model;
-  const base_url = provider === "custom" ? $("ask-base-url").value.trim() : ASK_PROVIDERS[provider].base_url;
+  const model = $("ask-model").value.trim() || chosen.model;
+  const base_url = provider === "custom" ? $("ask-base-url").value.trim() : chosen.base_url;
   if (!question) { askStatus("Type a question first.", "warn"); return; }
   if (!key && provider !== "custom") {
     askStatus("Paste an API key (Groq and Hugging Face give free ones).", "warn");
@@ -221,6 +296,9 @@ function renderAsk(res) {
   out.hidden = false;
   $("ask-copy").hidden = false;
   $("ask-download").hidden = false;
+  renderChecks(res.checks || [], res.verified);
+  state.ask.study = res.study || "";
+  $("ask-study").hidden = !state.ask.study;
   // chips for every station the tools touched: click to open it on the map
   const chips = [];
   for (const d of res.data_used || []) {
@@ -247,6 +325,21 @@ function renderAsk(res) {
     for (const c of chips) box.appendChild(c);
   }
   box.hidden = chips.length === 0;
+}
+
+// What the answer did and did not establish, from the deterministic checks in
+// aquascope.ai_engine.verify (not a model grading a model).
+function renderChecks(checks, verified) {
+  const box = $("ask-checks");
+  if (!checks.length) { box.hidden = true; return; }
+  const unmet = checks.filter((c) => !c.passed);
+  box.hidden = false;
+  box.className = `ask-checks ${unmet.length ? "warn" : "ok"}`;
+  box.innerHTML = unmet.length
+    ? `<strong>${unmet.length} of ${checks.length} checks not met</strong><ul>` +
+      unmet.map((c) => `<li>${escapeHtml(c.detail || c.name)}</li>`).join("") + "</ul>"
+    : `<strong>All ${checks.length} checks passed</strong>: every number in the answer appears in a tool result, ` +
+      `the record is named, and units and uncertainty are quoted.`;
 }
 
 // A small Markdown renderer for the analyst's reports (headings, lists,
@@ -302,27 +395,12 @@ export function mdToHtml(md) {
   return html.join("\n").replace(/<p>(Produced by aquascope[^<]*)<\/p>/, '<p class="foot">$1</p>');
 }
 
-export function initAsk() {
-  const provider = $("ask-provider"), model = $("ask-model"), baseRow = $("ask-base-url-row"), base = $("ask-base-url");
-  const saved = askSettings();
-  if (saved.provider && ASK_PROVIDERS[saved.provider]) provider.value = saved.provider;
-  const applyProvider = (keepModel) => {
-    const p = ASK_PROVIDERS[provider.value];
-    baseRow.hidden = provider.value !== "custom";
-    if (!keepModel) model.value = p.model;
-    if (provider.value !== "custom") base.value = p.base_url;
-    model.placeholder = p.model || "model id";
-  };
-  applyProvider(Boolean(saved.model));
-  if (saved.model) model.value = saved.model;
-  if (saved.base_url && provider.value === "custom") base.value = saved.base_url;
-  if (saved.key) $("ask-key").value = saved.key;
-  $("ask-remember").checked = Boolean(saved.remember);
-  $("ask-settings").open = !saved.key;
-  updateForgetButton();
-  provider.addEventListener("change", () => applyProvider(false));
-  for (const el of [provider, model, base, $("ask-key"), $("ask-remember")]) el.addEventListener("change", saveAskSettings);
-  $("ask-forget").addEventListener("click", forgetKey);
+export async function initAsk() {
+  // Wire the button that opens the drawer before anything is awaited. This used
+  // to sit after `await loadProviders()`, so between load and that fetch coming
+  // back, clicking Ask did nothing at all and said nothing about why. The
+  // picker below fills in a moment later; the drawer does not need it to open.
+  $("btn-ask").addEventListener("click", () => { if (drawerOpen()) closeDrawer(); else openAsk(); });
 
   const ex = $("ask-examples");
   for (const q of ASK_EXAMPLES) {
@@ -334,7 +412,6 @@ export function initAsk() {
     ex.appendChild(b);
   }
 
-  $("btn-ask").addEventListener("click", () => { if (drawerOpen()) closeDrawer(); else openAsk(); });
   $("ask-run").addEventListener("click", runAsk);
   $("ask-stop").addEventListener("click", () => { if (cancelAsk) cancelAsk(); });
   $("ask-question").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") runAsk(); });
@@ -343,6 +420,55 @@ export function initAsk() {
   $("ask-download").addEventListener("click", () => {
     if (state.ask.markdown) downloadBlob("aquascope-answer.md", state.ask.markdown, "text/markdown");
   });
+  $("ask-study").addEventListener("click", () => {
+    if (state.ask.study) downloadBlob("study.yaml", state.ask.study, "text/yaml");
+  });
   onAskProgress(askLog);
+  initShowcase();
+
+  // The device tier is offered only where it can actually run.
+  const possible = localModelPossible();
+  $("ask-local-note").textContent = describeLocal();
+  const localRadio = document.querySelector('input[name="ask-tier"][value="local"]');
+  localRadio.disabled = !possible;
+  for (const r of document.querySelectorAll('input[name="ask-tier"]')) {
+    r.addEventListener("change", () => {
+      const local = currentTier() === "local";
+      $("ask-settings").hidden = local;
+      askStatus(local
+        ? "Nothing leaves this tab: the model runs here, and so do the tools."
+        : "");
+    });
+  }
   actions.openAsk = openAsk;
+
+  // Last, because it is the only part that waits on the network: the provider
+  // list. Everything above works without it.
+  await loadProviders();
+  const provider = $("ask-provider"), model = $("ask-model"), baseRow = $("ask-base-url-row"), base = $("ask-base-url");
+  provider.innerHTML = Object.entries(ASK_PROVIDERS)
+    .map(([id, p]) => `<option value="${id}">${escapeHtml(p.label || id)}</option>`).join("");
+  const saved = askSettings();
+  if (saved.provider && ASK_PROVIDERS[saved.provider]) provider.value = saved.provider;
+  const applyProvider = (keepModel) => {
+    const p = ASK_PROVIDERS[provider.value];
+    baseRow.hidden = provider.value !== "custom";
+    if (!keepModel) model.value = p.model;
+    if (provider.value !== "custom") base.value = p.base_url;
+    model.placeholder = p.model || "model id";
+    const note = $("ask-provider-note");
+    const bits = [p.free, p.note].filter(Boolean);
+    note.textContent = bits.join(" ");
+    note.hidden = !bits.length;
+  };
+  applyProvider(Boolean(saved.model));
+  if (saved.model) model.value = saved.model;
+  if (saved.base_url && provider.value === "custom") base.value = saved.base_url;
+  if (saved.key) $("ask-key").value = saved.key;
+  $("ask-remember").checked = Boolean(saved.remember);
+  $("ask-settings").open = !saved.key;
+  updateForgetButton();
+  provider.addEventListener("change", () => applyProvider(false));
+  for (const el of [provider, model, base, $("ask-key"), $("ask-remember")]) el.addEventListener("change", saveAskSettings);
+  $("ask-forget").addEventListener("click", forgetKey);
 }

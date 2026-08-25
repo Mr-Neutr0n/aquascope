@@ -112,6 +112,50 @@ def test_build_copies_the_modules_and_nothing_ships_with_a_build_token(tmp_path:
     assert json.loads((out / "wheels.json").read_text(encoding="utf-8"))["build"] == "abc1234"
 
 
+def test_the_social_card_exists_is_declared_and_ships(tmp_path: Path) -> None:
+    """A link to the Explorer previewed as a blank rectangle: og:image was never set (#231)."""
+    card = EXPLORER / "og.png"
+    assert card.exists(), "explorer/og.png is missing; regenerate it with make_og_image.py"
+    assert card.stat().st_size > 10_000, "the card looks empty"
+    assert card.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n", "og:image has to be a real PNG (SVG is not accepted)"
+
+    page = (EXPLORER / "index.html").read_text(encoding="utf-8")
+    for tag in ('property="og:image"', 'name="twitter:image"', 'property="og:image:alt"',
+                'property="og:url"'):
+        assert tag in page, f"index.html is missing {tag}"
+    assert 'content="https://' in page.split('property="og:image"')[1][:80], (
+        "og:image must be an absolute URL: scrapers do not resolve relative ones"
+    )
+
+    build = _build_module()
+    assert Path("og.png") in build.binary_files(), "the card has to be copied into the built site"
+
+    wheel = tmp_path / "aquascope-0.0.0-py3-none-any.whl"
+    wheel.write_bytes(b"not a real wheel")
+    out = tmp_path / "site"
+    build.assemble(out, wheel, "abc1234", space_readme=False)
+    assert (out / "og.png").read_bytes() == card.read_bytes(), "the card must survive the copy unchanged"
+
+
+def test_the_recorded_showcase_traces_are_part_of_the_build(tmp_path: Path, monkeypatch) -> None:
+    """The traces the page replays live in explorer/showcase/, so they have to ship.
+
+    Without the glob they simply would not be copied, and the panel would be
+    empty in production while being full locally.
+    """
+    build = _build_module()
+    src = tmp_path / "explorer"
+    (src / "showcase").mkdir(parents=True)
+    (src / "index.html").write_text("<!-- page -->", encoding="utf-8")
+    (src / "showcase" / "index.json").write_text('{"examples": []}', encoding="utf-8")
+    (src / "showcase" / "kingston.json").write_text('{"id": "kingston"}', encoding="utf-8")
+    monkeypatch.setattr(build, "SRC", src)
+
+    files = build.text_files()
+    assert Path("showcase/index.json") in files
+    assert Path("showcase/kingston.json") in files
+
+
 pytestmark_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
@@ -275,3 +319,237 @@ def test_record_length_comes_from_the_catalog_period() -> None:
     assert abs(data["years"] - 20) < 0.1
     assert abs(data["openEnded"] - 10) < 0.1, "an open-ended record runs to today"
     assert data["color"] != data["noColor"], "a station with no period is not coloured like one with 30 years"
+
+
+# ── the provider registry ───────────────────────────────────────────────────
+
+
+def test_explorer_provider_json_matches_the_python_registry() -> None:
+    """explorer/providers.json is generated; regenerate it when the registry changes."""
+    from aquascope.ai_engine.providers import as_json  # noqa: PLC0415
+
+    shipped = (EXPLORER / "providers.json").read_text(encoding="utf-8")
+    assert shipped == as_json(), (
+        "explorer/providers.json is stale: run `python -m aquascope.ai_engine.providers`"
+    )
+
+
+def test_the_page_has_no_second_provider_list() -> None:
+    """The model ids live in one place; the page keeps only a tiny offline fallback."""
+    ask = (EXPLORER / "src" / "ask.js").read_text(encoding="utf-8")
+    assert "providers.json" in ask, "the page must read the generated registry"
+    # The fallback is deliberately one provider plus `custom`; more than that is drift.
+    fallback = ask.split("let ASK_PROVIDERS = {", 1)[1].split("};", 1)[0]
+    assert fallback.count("base_url:") <= 2, "the offline fallback grew into a second registry"
+
+
+# ── the tools the page offers to an in-browser agent (#236) ─────────────────
+
+
+def test_webmcp_registration_is_feature_detected() -> None:
+    """A browser without navigator.modelContext must be unaffected."""
+    src = (EXPLORER / "src" / "webmcp.js").read_text(encoding="utf-8")
+    assert "navigator.modelContext" in src
+    assert "webmcpAvailable()" in src
+    assert "if (!webmcpAvailable()) return false" in src
+
+
+def test_webmcp_tools_are_described_and_schema_d() -> None:
+    src = (EXPLORER / "src" / "webmcp.js").read_text(encoding="utf-8")
+    for name in ("aquascope_find_stations", "aquascope_analyze_station", "aquascope_anywhere",
+                 "aquascope_describe_catchment", "aquascope_show_on_map"):
+        assert name in src, f"{name} should be offered to an agent"
+    assert src.count("inputSchema") >= 5, "every tool needs a schema an agent can fill in"
+
+
+def test_place_search_uses_a_geocoder_whose_terms_allow_autocomplete() -> None:
+    """Photon allows autocomplete; OSM's Nominatim forbids it, so it must not be called."""
+    src = (EXPLORER / "src" / "search.js").read_text(encoding="utf-8")
+    assert "photon.komoot.io" in src
+    called = re.findall(r'https?://[^\s"\')]+', src)
+    assert not [u for u in called if "nominatim" in u.lower()], "Nominatim forbids autocomplete"
+
+
+# ── focus and announcements (#231 follow-up) ────────────────────────────────
+#
+# Opening the drawer, the modal or the mobile rail used to leave focus where it
+# was and ignore Escape, and closing one dropped focus to the top of the
+# document. These exercise src/a11y.js against a hand-built DOM: node has no
+# document, and the logic worth testing is the filtering and the Tab cycle.
+
+A11Y = EXPLORER / "src" / "a11y.js"
+
+FAKE_DOM = """
+const focused = [];
+const el = (name, opts = {}) => ({
+  name, hidden: opts.hidden || false, disabled: opts.disabled || false,
+  offsetParent: opts.detached ? null : {},
+  closest: (sel) => (opts.inHidden && sel === "[hidden]" ? {} : null),
+  focus() { focused.push(this.name); globalThis.document.activeElement = this; },
+});
+const opener = el("opener");
+const first = el("first"), middle = el("middle"), last = el("last");
+const skipped = el("skipped", { hidden: true });
+const container = { children: [first, middle, skipped, last],
+  querySelector: () => null,
+  querySelectorAll: () => [first, middle, skipped, last],
+  contains: (x) => [first, middle, skipped, last].includes(x) };
+const handlers = [];
+globalThis.document = {
+  activeElement: opener,
+  addEventListener: (type, fn) => handlers.push(fn),
+  removeEventListener: (type, fn) => { const i = handlers.indexOf(fn); if (i >= 0) handlers.splice(i, 1); },
+  contains: () => true,
+  getElementById: () => null,
+  createElement: () => ({ setAttribute(k, v) { this[k] = v; }, className: "", textContent: "" }),
+  body: { appendChild: (x) => { globalThis.__region = x; } },
+};
+const outside = el("outside");
+const key = (k, shift = false, target = undefined) => {
+  let prevented = false;
+  const ev = { key: k, shiftKey: shift, target: target === undefined ? globalThis.document.activeElement : target,
+               preventDefault: () => { prevented = true; } };
+  for (const h of [...handlers]) h(ev);
+  return prevented;
+};
+"""
+
+
+@pytestmark_node
+def test_a_hidden_control_is_not_a_focus_target() -> None:
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    const names = m.focusableWithin(container).map((e) => e.name);
+    console.log(JSON.stringify(names));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == ["first", "middle", "last"]
+
+
+@pytestmark_node
+def test_opening_moves_focus_in_and_closing_puts_it_back() -> None:
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    const release = m.captureFocus(container, {{ restoreTo: opener }});
+    release();
+    console.log(JSON.stringify(focused));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == ["first", "opener"], "focus goes in, then back to what opened it"
+
+
+@pytestmark_node
+def test_escape_closes_and_a_trap_keeps_tab_inside() -> None:
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    let escapes = 0;
+    m.captureFocus(container, {{ trap: true, onEscape: () => {{ escapes += 1; }} }});
+    const atLast = (globalThis.document.activeElement = last, key("Tab"));     // wraps to first
+    const atFirst = (globalThis.document.activeElement = first, key("Tab", true));  // wraps to last
+    const middleTab = (globalThis.document.activeElement = middle, key("Tab"));     // ordinary, untouched
+    key("Escape");
+    console.log(JSON.stringify({{ focused, escapes, atLast, atFirst, middleTab }}));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    got = json.loads(out.stdout)
+    assert got["escapes"] == 1, "Escape has to close the surface"
+    assert got["atLast"] and got["atFirst"], "Tab off either end is intercepted"
+    assert not got["middleTab"], "Tab in the middle is left alone"
+    assert got["focused"] == ["first", "first", "last"], "wraps to the far end each way"
+
+
+@pytestmark_node
+def test_without_a_trap_tab_leaves_the_surface() -> None:
+    """The Ask drawer sits beside the page on a wide screen; tabbing out to the map is correct."""
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    m.captureFocus(container, {{ onEscape: () => {{}} }});
+    globalThis.document.activeElement = last;
+    console.log(JSON.stringify(key("Tab")));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) is False
+
+
+@pytestmark_node
+def test_announcements_go_to_one_polite_live_region() -> None:
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    m.announce("GR4J failed, retry");
+    const r = globalThis.__region;
+    console.log(JSON.stringify({{ role: r.role, live: r["aria-live"], text: r.textContent, cls: r.className }}));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    got = json.loads(out.stdout)
+    assert got["role"] == "status" and got["live"] == "polite"
+    assert got["text"] == "GR4J failed, retry"
+    assert got["cls"] == "visually-hidden", "announced, not shown"
+
+
+def test_the_visually_hidden_class_the_live_region_uses_exists() -> None:
+    css = (EXPLORER / "style.css").read_text(encoding="utf-8")
+    assert ".visually-hidden" in css, "the live region would otherwise be visible on the page"
+
+
+@pytestmark_node
+def test_an_untrapped_surface_leaves_escape_alone_outside_itself() -> None:
+    """The Ask drawer must not eat the search box's Escape, or the area tool's."""
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    let escapes = 0;
+    m.captureFocus(container, {{ onEscape: () => {{ escapes += 1; }} }});
+    const fromOutside = key("Escape", false, outside);
+    const inside = key("Escape", false, first);
+    console.log(JSON.stringify({{ escapes, fromOutside, inside }}));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    got = json.loads(out.stdout)
+    assert got["escapes"] == 1, "Escape inside closes it; Escape elsewhere is somebody else's"
+    assert not got["fromOutside"] and got["inside"]
+
+
+@pytestmark_node
+def test_a_trapped_surface_owns_escape_wherever_it_came_from() -> None:
+    script = f"""
+    {FAKE_DOM}
+    const m = await import({json.dumps(A11Y.as_uri())});
+    let escapes = 0;
+    m.captureFocus(container, {{ trap: true, onEscape: () => {{ escapes += 1; }} }});
+    key("Escape", false, outside);
+    console.log(JSON.stringify(escapes));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout) == 1
+
+
+def test_the_ask_button_is_wired_before_anything_is_awaited() -> None:
+    """Clicking Ask right after load used to do nothing at all.
+
+    `initAsk()` began with `await loadProviders()`, a fetch of providers.json,
+    and only attached the button's click listener afterwards. Between load and
+    that response the app's headline control was inert and silent about it. The
+    listener has to be attached before the first await; this is the invariant,
+    stated where it will fail if someone moves it back.
+    """
+    src = (EXPLORER / "src" / "ask.js").read_text(encoding="utf-8")
+    body = src[src.index("export async function initAsk()"):]
+    # The statement, not the comment that explains it: match on the indentation.
+    wired = body.index('\n  $("btn-ask").addEventListener')
+    awaited = body.index("\n  await loadProviders();")
+    assert wired < awaited, "initAsk() must wire the Ask button before it awaits the provider list"
+
+
+def test_running_before_the_provider_list_arrives_says_so() -> None:
+    """The Run button is live from the start too, so it has to survive an empty picker."""
+    src = (EXPLORER / "src" / "ask.js").read_text(encoding="utf-8")
+    run = src[src.index("async function runAsk()"):]
+    guard = run[:run.index("const key =")]
+    assert "ASK_PROVIDERS[provider]" in guard and "askStatus(" in guard, (
+        "runAsk() must check the chosen provider exists and report it, not throw on undefined"
+    )

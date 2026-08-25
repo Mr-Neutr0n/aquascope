@@ -28,26 +28,37 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aquascope import __version__
+from aquascope.ai_engine.providers import ENV_SCAN_ORDER
+from aquascope.ai_engine.providers import PROVIDERS as _REGISTRY
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_RESULT_CHARS = 14_000
 
+#: The whole conversation's budget, in characters (roughly four to a token).
+#: A per-result cap is not enough on a small window: three results at the cap
+#: exceed a free tier's 8,000 tokens a minute on their own, and the provider
+#: answers 413 "Request too large", which no amount of retrying will fix.
+#: 24,000 characters is about 6,000 tokens, leaving room for the reply.
+MAX_CONTEXT_CHARS = 24_000
+
+#: Below this there is no room for a useful tool result, so a 413 here is about
+#: something other than the conversation and should surface rather than loop.
+MIN_CONTEXT_CHARS = 3_000
+
+#: Said back to a model whose tool call the provider could not parse. Short on
+#: purpose: it is added to a conversation that may already be near the limit.
+TOOL_JSON_REMINDER = (
+    "Your last tool call could not be parsed. The arguments must be a single JSON object, "
+    'with any code as one JSON string: {"code": "import numpy as np\\nresult = 1"}. '
+    "Newlines and quotes inside it have to be escaped. Please make that call again."
+)
+
+# One registry for the whole project (aquascope.ai_engine.providers); this dict
+# is the shape the loop already used, kept so callers and tests do not change.
 PROVIDERS: dict[str, dict[str, str | None]] = {
-    "openai": {"base_url": None, "model": "gpt-4o-mini", "env": "OPENAI_API_KEY"},
-    # Groq retired llama-3.3-70b-versatile on 2026-08-16 (console.groq.com/docs/deprecations);
-    # gpt-oss-120b is the production tool-calling model on the free tier.
-    "groq": {
-        "base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b", "env": "GROQ_API_KEY",
-    },
-    "huggingface": {
-        "base_url": "https://router.huggingface.co/v1", "model": "Qwen/Qwen2.5-72B-Instruct", "env": "HF_TOKEN",
-    },
-    "mistral": {"base_url": "https://api.mistral.ai/v1", "model": "mistral-small-latest", "env": "MISTRAL_API_KEY"},
-    "openrouter": {
-        "base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini", "env": "OPENROUTER_API_KEY",
-    },
-    "ollama": {"base_url": "http://localhost:11434/v1", "model": "qwen2.5:7b", "env": None},
+    p.id: {"base_url": None if p.id == "openai" else p.base_url, "model": p.model, "env": p.env}
+    for p in _REGISTRY.values()
 }
 
 SYSTEM_PROMPT = """You are AquaScope's analyst, a careful hydrologist's assistant.
@@ -73,6 +84,22 @@ class ToolSpec:
     description: str
     parameters: dict[str, Any]
     func: Callable[..., Any]
+
+
+
+# Data the sandbox tool can see (the record on screen, an uploaded table). The
+# caller fills this in for one ask() and it is cleared afterwards.
+_SANDBOX_DATA: dict[str, Any] = {}
+
+
+def _run_python_tool(code: str) -> dict[str, Any]:
+    """The run_python tool: execute a snippet against aquascope and the current data."""
+    from aquascope.ai_engine.sandbox import SandboxError, run_python
+
+    try:
+        return run_python(code, data=_SANDBOX_DATA).to_dict()
+    except SandboxError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def _tool_specs() -> list[ToolSpec]:
@@ -162,6 +189,30 @@ def _tool_specs() -> list[ToolSpec]:
             t.regionalize_signatures,
         ),
         ToolSpec(
+            "run_python",
+            "Run a short Python snippet with aquascope, workbench, pandas (pd) and numpy (np) already imported, "
+            "plus any data the page passed (for example df, the record on screen). Leave what you want back in a "
+            "variable called result. Use this when no other tool fits: decadal statistics, a ratio between two "
+            "records, the same analysis over several donors. Imports outside the standard scientific set are refused.",
+            {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
+            _run_python_tool,
+        ),
+        ToolSpec(
+            "list_analyses",
+            "The analyses available for a table of the user's own data (the workbench): what each needs and does.",
+            {"type": "object", "properties": {}}, t.list_analyses,
+        ),
+        ToolSpec(
+            "analyse_table",
+            "Run one workbench analysis on a table the user supplied as CSV text: eda, quality, who_screen, "
+            "flow_duration, baseflow, recession, flood_frequency, signatures, return_periods, sgi_drought, "
+            "recharge, aquifer_drawdown. params carries the analysis's own options.",
+            {"type": "object", "properties": {"csv": {"type": "string"}, "analysis": {"type": "string"},
+                                              "params": {"type": "object"}},
+             "required": ["analysis"]},
+            t.analyse_table,
+        ),
+        ToolSpec(
             "describe_methods", "What each analysis computes and the reference to cite.",
             {"type": "object", "properties": {}}, t.describe_methods,
         ),
@@ -187,7 +238,7 @@ def resolve_llm(
             "model": model or os.environ.get("AQUASCOPE_LLM_MODEL") or PROVIDERS["huggingface"]["model"],
         }
     if provider is None:
-        for name in ("openai", "groq", "huggingface", "mistral", "openrouter"):
+        for name in ENV_SCAN_ORDER:
             env = PROVIDERS[name]["env"]
             if env and os.environ.get(env):
                 provider = name
@@ -230,9 +281,19 @@ class AskResult:
     methods: list[dict[str, str]] = field(default_factory=list)
     data_used: list[dict[str, Any]] = field(default_factory=list)
     steps: int = 0
+    #: Deterministic checks over the answer and the tool results (verify.py).
+    checks: list[dict[str, Any]] = field(default_factory=list)
+    verified: bool = True
+    #: The steps behind the answer as a study file, so it can be run again.
+    study: str = ""
 
     def to_markdown(self) -> str:
         lines = [f"# {self.question}", "", self.answer.strip(), ""]
+        unmet = [c for c in self.checks if not c.get("passed")]
+        if unmet:
+            lines += ["## What this answer does not establish", ""]
+            lines += [f"- {c.get('detail') or c.get('name')}" for c in unmet]
+            lines += [""]
         if self.data_used:
             lines += ["## Data", ""]
             for d in self.data_used:
@@ -309,6 +370,53 @@ def _truncate(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
     return text if len(text) <= limit else text[:limit] + f'... [truncated {len(text) - limit} chars]'
 
 
+def _conversation_size(messages: list[dict[str, Any]]) -> int:
+    """Everything that goes on the wire, not just the text a human would read.
+
+    An assistant turn carries its ``tool_calls`` with the arguments the model
+    wrote, which for a ``run_python`` call is a whole snippet. Counting only
+    ``content`` under-reads the request badly, which is how a conversation
+    budgeted at 6,000 tokens arrived as 9,300.
+    """
+    try:
+        return len(json.dumps(messages, ensure_ascii=False, default=str))
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return sum(len(str(m.get("content") or "")) for m in messages)
+
+
+def fit_context(messages: list[dict[str, Any]], budget: int = MAX_CONTEXT_CHARS) -> list[dict[str, Any]]:
+    """Shrink the oldest tool results until the conversation fits the budget.
+
+    The model needs the last result in full to answer; the older ones it has
+    usually already summarised into its own reasoning. So the oldest are cut
+    first, each keeping a readable head and saying what was removed, and the
+    most recent is left alone. Nothing else is touched: the system prompt, the
+    question and the assistant's own turns stay whole.
+    """
+    if _conversation_size(messages) <= budget:
+        return messages
+    out = [dict(m) for m in messages]
+    tool_indexes = [i for i, m in enumerate(out) if m.get("role") == "tool"]
+    for i in tool_indexes[:-1] if len(tool_indexes) > 1 else []:
+        if _conversation_size(out) <= budget:
+            break
+        content = str(out[i].get("content") or "")
+        if len(content) <= 400:
+            continue
+        out[i]["content"] = content[:400] + f"... [trimmed {len(content) - 400} chars to fit the context]"
+    # Still over: the newest result is itself too big, so cut that too. The
+    # note about the cut is part of the message, so leave room for it, or the
+    # conversation comes out just over the budget it was supposed to fit.
+    if _conversation_size(out) > budget and tool_indexes:
+        i = tool_indexes[-1]
+        content = str(out[i].get("content") or "")
+        note_allowance = 80
+        room = max(200, budget - (_conversation_size(out) - len(content)) - note_allowance)
+        if len(content) > room:
+            out[i]["content"] = content[:room] + f"... [trimmed {len(content) - room} chars to fit the context]"
+    return out
+
+
 def ask(
     question: str,
     *,
@@ -319,12 +427,19 @@ def ask(
     max_steps: int = 8,
     client: Any | None = None,
     on_event: Callable[[str], None] | None = None,
+    data: dict[str, Any] | None = None,
+    verify_answer: bool = True,
 ) -> AskResult:
     """Answer ``question`` with tool calls over aquascope; returns an :class:`AskResult`.
 
     ``client`` lets tests (or callers with their own SDK setup) pass an
     OpenAI-compatible client; otherwise one is built from ``resolve_llm``
     (the ``openai`` SDK if installed, else the built-in ``urllib`` client).
+
+    ``data`` is put in reach of the ``run_python`` tool (the Explorer passes the
+    record on screen). ``verify_answer`` runs the deterministic checks in
+    :mod:`aquascope.ai_engine.verify` and reports what the answer does not
+    establish, rather than leaving it to the reader to notice.
     """
     cfg = {"provider": "custom", "model": model or "test", "api_key": None, "base_url": base_url}
     if client is None:
@@ -340,12 +455,42 @@ def ask(
     ]
     result = AskResult(question=question, answer="", model=str(cfg["model"]), provider=str(cfg["provider"]))
     say = on_event or (lambda _m: None)
+    _SANDBOX_DATA.clear()
+    _SANDBOX_DATA.update(data or {})
+    seen: list[dict[str, Any]] = []          # what each tool actually returned, for the checks
 
+    budget = MAX_CONTEXT_CHARS
     for step in range(1, max_steps + 1):
         result.steps = step
-        response = client.chat.completions.create(
-            model=cfg["model"], messages=messages, tools=tools, tool_choice="auto"
-        )
+        messages = fit_context(messages, budget)
+        # A 413 is the provider saying this request cannot fit its window, at
+        # any speed, so retrying it unchanged is pointless. Halve the budget and
+        # go again: the window belongs to the provider and is not ours to guess.
+        from aquascope.ai_engine.llm_transport import LLMHTTPError
+        malformed = 0
+        for attempt in range(6):
+            try:
+                response = client.chat.completions.create(
+                    model=cfg["model"], messages=messages, tools=tools, tool_choice="auto"
+                )
+                break
+            except LLMHTTPError as exc:
+                body = (exc.body or "").lower()
+                too_large = exc.status == 413 or "too large" in body
+                # Some providers reject the whole request when the model's own
+                # tool call will not parse as JSON. The model wrote it, so the
+                # model can write it again: say what was wrong and resample.
+                bad_call = exc.status == 400 and "tool_use_failed" in body
+                if too_large and attempt < 5 and budget > MIN_CONTEXT_CHARS:
+                    budget = max(MIN_CONTEXT_CHARS, budget // 2)
+                    say(f"the request was too large for the model's window, retrying within {budget} characters")
+                    messages = fit_context(messages, budget)
+                elif bad_call and malformed < 2:
+                    malformed += 1
+                    say("the model's tool call was not valid JSON, asking it to write that call again")
+                    messages = [*messages, {"role": "user", "content": TOOL_JSON_REMINDER}]
+                else:
+                    raise
         choice = response.choices[0]
         msg = choice.message
         calls = getattr(msg, "tool_calls", None) or []
@@ -376,6 +521,7 @@ def ask(
                     payload = {"error": f"{type(exc).__name__}: {exc}"}
                     ok = False
             _harvest_provenance(name, args, payload, result)
+            seen.append({"name": name, "arguments": args, "payload": payload, "ok": ok})
             text = json.dumps(payload, ensure_ascii=False, default=str)
             summary = text[:160]
             result.tool_calls.append(ToolCallRecord(name=name, arguments=args, ok=ok, summary=summary))
@@ -387,4 +533,16 @@ def ask(
         )
     if not result.answer:
         result.answer = "The model returned no answer."
+    if verify_answer:
+        from aquascope.ai_engine.verify import verify as _verify
+
+        checks = _verify(result.answer, seen, question=question)
+        result.checks = checks.to_dict()["checks"]
+        result.verified = checks.ok
+    # The steps that produced this answer, written down so they can be run again
+    # without a model (aquascope run study.yaml).
+    from aquascope.study import study_from_calls
+
+    result.study = study_from_calls(question, result.tool_calls, model=str(cfg["model"])).to_yaml()
+    _SANDBOX_DATA.clear()
     return result

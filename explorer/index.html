@@ -8,13 +8,24 @@
   <meta property="og:title" content="AquaScope Explorer" />
   <meta property="og:description" content="Click any public water gauge on Earth: the observed record, flood frequency with confidence limits, flow duration, trend and a rainfall-runoff model, computed in your browser. Nothing to install." />
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://rekin226-aquascope-explorer.static.hf.space/" />
+  <!-- Drawn from the published catalog by explorer/make_og_image.py, so the
+       preview is the actual coverage rather than a stock illustration. -->
+  <meta property="og:image" content="https://rekin226-aquascope-explorer.static.hf.space/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Every public water gauge AquaScope can reach, one dot each: dense across the United States, the United Kingdom, France, Germany, Ireland and Taiwan." />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://rekin226-aquascope-explorer.static.hf.space/og.png" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌊</text></svg>" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="./style.css?v=__BUILD__" />
 </head>
 <body>
   <a class="skip" href="#panel">Skip to the results panel</a>
+  <!-- What the cards say on screen ("loading", "failed, retry"), said once,
+       politely, for a screen reader. Written by src/a11y.js. -->
+  <div id="a11y-live" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <header id="top">
     <div class="brand">
@@ -33,6 +44,7 @@
                role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" />
         <div id="search-results" class="search-results" role="listbox" aria-label="Search results" hidden></div>
       </div>
+      <button id="btn-workbench" class="btn" title="Analyse your own data with the same tools">My data</button>
       <button id="btn-cite-top" class="btn" title="How to cite AquaScope and the data">Cite</button>
       <button id="btn-ask" class="btn ask-toggle" aria-expanded="false" aria-controls="drawer"
               title="Ask a question in plain language; answered from real gauges by aquascope's tools, in your browser">Ask ✨</button>
@@ -138,6 +150,7 @@
             <a id="st-agency" href="#" target="_blank" rel="noopener" class="btn">Agency page ↗</a>
             <button id="btn-share" class="btn" title="Copy a link to exactly this view">Copy link</button>
             <button id="btn-csv" class="btn" disabled>Download CSV</button>
+            <button id="btn-to-workbench" class="btn" title="Analyse this record with the workbench tools">Send to workbench</button>
             <button id="btn-cite" class="btn" title="How to cite this">Cite</button>
           </div>
           <div id="status" class="status" hidden></div>
@@ -322,6 +335,78 @@
           </section>
         </div>
       </div>
+
+      <!-- your own data -->
+      <div id="panel-workbench" hidden>
+        <div class="head">
+          <span class="badge" style="background:#00695c">Workbench</span>
+          <h2 id="wb-label">Your data</h2>
+          <div class="st-meta" id="wb-meta">A CSV or an Excel export, or the gauge you are looking at. Everything runs in this tab.</div>
+          <div class="st-actions">
+            <button id="wb-back" class="btn">Back to the map</button>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Workbench analyses">
+          <button role="tab" data-tab="data" aria-controls="wb-tab-data" aria-selected="true" id="wb-t-data">Data</button>
+          <button role="tab" data-tab="quality" aria-controls="wb-tab-quality" aria-selected="false" tabindex="-1" id="wb-t-quality" disabled>Quality</button>
+          <button role="tab" data-tab="hydrology" aria-controls="wb-tab-hydrology" aria-selected="false" tabindex="-1" id="wb-t-hydrology" disabled>Hydrology</button>
+          <button role="tab" data-tab="extremes" aria-controls="wb-tab-extremes" aria-selected="false" tabindex="-1" id="wb-t-extremes" disabled>Extremes</button>
+          <button role="tab" data-tab="groundwater" aria-controls="wb-tab-groundwater" aria-selected="false" tabindex="-1" id="wb-t-groundwater" disabled>Groundwater</button>
+          <button role="tab" data-tab="methods" aria-controls="wb-tab-methods" aria-selected="false" tabindex="-1" id="wb-t-methods" disabled>Methods</button>
+        </div>
+
+        <div class="panes">
+          <section id="wb-tab-data" role="tabpanel" aria-labelledby="wb-t-data" tabindex="0">
+            <div id="wb-empty">
+              <div id="wb-drop" class="wb-drop">
+                <p><strong>Drop a file here</strong>, or <label class="link" for="wb-file">choose one</label>.</p>
+                <input type="file" id="wb-file" accept=".csv,.txt,.xlsx,.xls" hidden />
+                <p class="muted">CSV or Excel. aquascope works out which column is the date and which is the value,
+                  converts to SI units and writes a QA report. Nothing is uploaded: the file is read in this tab.</p>
+              </div>
+              <div class="card">
+                <div class="card-title"><h3>Or paste a table</h3></div>
+                <div class="card-body">
+                  <textarea id="wb-paste" rows="4" placeholder="date,discharge&#10;2020-01-01,3.2&#10;2020-01-02,3.4"></textarea>
+                  <div class="row-actions"><button id="wb-paste-run" class="btn small">Use this table</button></div>
+                </div>
+              </div>
+              <p class="muted">Looking at a gauge? Open it here with "Send to workbench" on its page.</p>
+            </div>
+            <div id="wb-loaded" hidden>
+              <div id="wb-load-card" class="card" hidden><div class="card-body"></div></div>
+              <div id="wb-qa-card" class="card" hidden>
+                <div class="card-title"><h3>Read and checked</h3></div>
+                <div class="card-body"></div>
+              </div>
+              <div id="wb-insights-card" class="card" hidden>
+                <div class="card-title"><h3>What this table looks like</h3></div>
+                <div class="card-body"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="wb-tab-quality" role="tabpanel" aria-labelledby="wb-t-quality" tabindex="0" hidden>
+            <div id="wb-quality-list"></div>
+          </section>
+          <section id="wb-tab-hydrology" role="tabpanel" aria-labelledby="wb-t-hydrology" tabindex="0" hidden>
+            <div id="wb-hydrology-list"></div>
+          </section>
+          <section id="wb-tab-extremes" role="tabpanel" aria-labelledby="wb-t-extremes" tabindex="0" hidden>
+            <div id="wb-extremes-list"></div>
+          </section>
+          <section id="wb-tab-groundwater" role="tabpanel" aria-labelledby="wb-t-groundwater" tabindex="0" hidden>
+            <div id="wb-groundwater-list"></div>
+          </section>
+          <section id="wb-tab-methods" role="tabpanel" aria-labelledby="wb-t-methods" tabindex="0" hidden>
+            <div class="card">
+              <div class="card-title"><h3>Methods and citations</h3></div>
+              <div class="card-body"><ol id="wb-methods"></ol></div>
+            </div>
+          </section>
+        </div>
+      </div>
     </aside>
 
     <!-- the Analyst, beside the inspector rather than instead of it -->
@@ -335,24 +420,23 @@
         climate of a point); aquascope runs them here in your browser; the answer ends with the data used and the
         methods with citations, assembled from the tool results, not from the model.</p>
 
+      <div id="ask-tier" class="ask-tier">
+        <label><input type="radio" name="ask-tier" value="key" checked> Your key <span class="muted">(full tool loop)</span></label>
+        <label><input type="radio" name="ask-tier" value="local"> On your device <span class="muted" id="ask-local-note"></span></label>
+      </div>
+
       <details id="ask-settings" class="ask-settings" open>
         <summary>Model and key</summary>
         <div class="ask-grid">
           <label>Provider
-            <select id="ask-provider">
-              <option value="groq">Groq (free tier, fast)</option>
-              <option value="huggingface">Hugging Face (free with an account)</option>
-              <option value="openai">OpenAI</option>
-              <option value="mistral">Mistral</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="custom">Custom OpenAI-compatible endpoint</option>
-            </select>
+            <select id="ask-provider"></select>
           </label>
           <label>Model <input id="ask-model" type="text" autocomplete="off" spellcheck="false" /></label>
           <label id="ask-base-url-row" hidden>Base URL <input id="ask-base-url" type="url" placeholder="https://host/v1" autocomplete="off" spellcheck="false" /></label>
           <label>API key <input id="ask-key" type="password" autocomplete="off" placeholder="paste your key" /></label>
           <label class="ask-remember"><input id="ask-remember" type="checkbox" /> keep the key in this browser after I close the tab</label>
         </div>
+        <p id="ask-provider-note" class="muted ask-provider-note" hidden></p>
         <p class="muted ask-privacy">Your key goes from this tab straight to the provider you chose (this page has no server), and the model
           must support tool calling. By default it is kept for this tab only. Free keys:
           <a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a>,
@@ -360,18 +444,22 @@
           <button id="ask-forget" class="btn tiny" hidden>Forget key</button></p>
       </details>
 
-      <textarea id="ask-question" rows="3" placeholder="e.g. What is the 100-year flood of the Thames at Kingston, and how sure can we be?"></textarea>
+      <textarea id="ask-question" rows="3" data-autofocus placeholder="e.g. What is the 100-year flood of the Thames at Kingston, and how sure can we be?"></textarea>
       <label class="ask-context-toggle"><input type="checkbox" id="ask-use-context" checked /> tell it what I am looking at</label>
       <p id="ask-context" class="muted ask-context" hidden><span id="ask-context-text"></span></p>
+      <div id="ask-showcase" class="ask-showcase" hidden></div>
       <div id="ask-examples" class="ask-examples"></div>
       <div class="row-actions">
         <button id="ask-run" class="btn primary">Ask</button>
         <button id="ask-stop" class="btn" hidden>Stop</button>
         <button id="ask-copy" class="btn" hidden>Copy Markdown</button>
         <button id="ask-download" class="btn" hidden>Download .md</button>
+        <button id="ask-rerun" class="btn" hidden title="Run this answer's tool calls again here, live, with no key">Run the tools again</button>
+        <button id="ask-study" class="btn" hidden title="The steps behind this answer, to run again with `aquascope run study.yaml`">Download study.yaml</button>
       </div>
       <div id="ask-status" class="status" hidden></div>
       <ol id="ask-log" class="ask-log" hidden></ol>
+      <div id="ask-checks" class="ask-checks" hidden></div>
       <div id="ask-stations" class="ask-stations" hidden></div>
       <article id="ask-result" class="ask-result" hidden></article>
     </aside>

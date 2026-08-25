@@ -48,6 +48,9 @@ ul, ol { margin: 0; }
 
 .skip { position: absolute; left: -9999px; top: 0; z-index: 100; background: var(--bg); padding: .5rem .8rem; border: 1px solid var(--line); }
 .skip:focus { left: .5rem; top: .5rem; }
+/* Announced, not shown: the polite live region in src/a11y.js. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* ── header ──────────────────────────────────────────────────────────────── */
 
@@ -275,6 +278,7 @@ table.regime td:first-child { white-space: nowrap; }
 }
 .ask-grid .ask-remember { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: .4rem; }
 .ask-grid .ask-remember input { width: auto; }
+.ask-provider-note { font-size: .74rem; line-height: 1.45; margin: .4rem 0 0; }
 .ask-privacy { font-size: .75rem; line-height: 1.45; margin: .5rem 0 0; }
 #ask-question { width: 100%; font: inherit; font-size: .9rem; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 8px; resize: vertical; margin-top: .4rem; background: var(--bg); color: var(--ink); }
 .ask-context-toggle { display: flex; align-items: center; gap: .35rem; font-size: .76rem; color: var(--muted); margin-top: .35rem; }
@@ -359,3 +363,58 @@ table.regime td:first-child { white-space: nowrap; }
   [role="tabpanel"][hidden] { display: block !important; }
   .card { break-inside: avoid; }
 }
+
+/* ── the workbench (your own data) ───────────────────────────────────────── */
+
+.wb-drop {
+  border: 2px dashed var(--line); border-radius: var(--radius); padding: 1.2rem .9rem;
+  text-align: center; margin-bottom: .7rem; background: var(--bg-soft);
+}
+.wb-drop.over { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, var(--bg)); }
+.wb-drop p { margin: .3rem 0; font-size: .85rem; }
+.wb-drop .link { color: var(--blue); cursor: pointer; text-decoration: underline; }
+#wb-paste { width: 100%; font: inherit; font-size: .8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+.wb-params { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem .6rem; margin-bottom: .3rem; }
+.wb-field { display: flex; flex-direction: column; gap: .15rem; font-size: .72rem; color: var(--muted); }
+.wb-field input, .wb-field select {
+  font: inherit; font-size: .82rem; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: .25rem .35rem;
+}
+.wb-result { margin-top: .4rem; font-size: .84rem; }
+.wb-result table.ffa td:first-child { color: var(--muted); }
+.wb-result .btn.tiny { margin-top: .4rem; }
+.wb-json { background: var(--bg-soft); padding: .5rem; border-radius: 8px; overflow: auto; max-height: 260px; font-size: .74rem; }
+.wb-warnings { padding-left: 1.1rem; font-size: .78rem; color: var(--warn-ink); line-height: 1.5; }
+.wb-suggestions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+/* In workbench mode the map steps aside: the table is the subject. */
+body.workbench-mode .map-wrap { display: none; }
+body.workbench-mode .panel { width: auto; flex: 1; }
+
+/* The Analyst's checks and the code it wrote (#234). */
+.ask-checks { margin-top: .7rem; padding: .5rem .65rem; border-radius: 8px; font-size: .8rem; line-height: 1.5; }
+.ask-checks.ok { background: var(--bg-soft); color: var(--muted); }
+.ask-checks.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.ask-checks ul { padding-left: 1.1rem; margin: .3rem 0 0; }
+.ask-checks[hidden] { display: none; }
+.ask-code { background: var(--bg-soft); padding: .35rem .5rem; border-radius: 6px; margin: .25rem 0 0;
+  font-size: .72rem; overflow: auto; max-height: 160px; white-space: pre-wrap; }
+
+/* Worked examples, for readers with no key (#233). */
+.ask-showcase { margin: .6rem 0; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); }
+.ask-showcase[hidden] { display: none; }
+.showcase-head { font-size: .78rem; margin-bottom: .35rem; }
+.showcase-list { display: flex; flex-direction: column; gap: .25rem; }
+.showcase-chip { text-align: left; font-size: .74rem; }
+.showcase-note { font-size: .76rem; color: var(--muted); border-left: 2px solid var(--line); padding-left: .5rem; margin-bottom: .6rem; line-height: 1.5; }
+.ask-log .changed { color: var(--warn-ink); }
+
+/* Which model answers: your key, or one on your device (#233). */
+.ask-tier { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; margin: .5rem 0; }
+.ask-tier label { display: flex; align-items: center; gap: .35rem; }
+.ask-tier input:disabled + span, .ask-tier label:has(input:disabled) { opacity: .55; }
+
+/* Places in the search results (#231 follow-up). */
+.search-results .hit-head { padding: .3rem .6rem .15rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; }
+.search-results .hit .pin { width: 10px; height: 10px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: #455a64; display: inline-block; flex: none; }

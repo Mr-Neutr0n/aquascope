@@ -70,6 +70,22 @@ NWIS_STATE_CODES: tuple[str, ...] = (
     "as", "mp",
 )
 
+# Two-digit ANSI (FIPS) codes for the OGC API's ``state_code`` queryable.
+# The NWIS keyless path accepts 2-letter abbreviations, so we translate.
+STATE_FIPS: dict[str, str] = {
+    "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
+    "CT": "09", "DE": "10", "DC": "11", "FL": "12", "GA": "13", "HI": "15",
+    "ID": "16", "IL": "17", "IN": "18", "IA": "19", "KS": "20", "KY": "21",
+    "LA": "22", "ME": "23", "MD": "24", "MA": "25", "MI": "26", "MN": "27",
+    "MS": "28", "MO": "29", "MT": "30", "NE": "31", "NV": "32", "NH": "33",
+    "NJ": "34", "NM": "35", "NY": "36", "NC": "37", "ND": "38", "OH": "39",
+    "OK": "40", "OR": "41", "PA": "42", "RI": "44", "SC": "45", "SD": "46",
+    "TN": "47", "TX": "48", "UT": "49", "VT": "50", "VA": "51", "WA": "53",
+    "WV": "54", "WI": "55", "WY": "56",
+    "AS": "60", "GU": "66", "MP": "69", "PR": "72", "VI": "78",
+    "FM": "64", "MH": "68", "PW": "70",
+}
+
 
 def _parse_nwis_rdb_sites(text: str) -> list[tuple[str, str]]:
     """Yield ``(site_no, station_nm)`` from an NWIS RDB site listing."""
@@ -344,10 +360,65 @@ class USGSCollector(BaseCollector):
         if parameter_cd:
             params["parameter_code"] = parameter_cd
         if state_cd:
-            params["state_code"] = state_cd
+            state_cd, multiple_states_in_query = self._take_first_value(state_cd)
+            if multiple_states_in_query:
+                logger.warning(
+                    "USGS OGC state_code takes one state per query; stateCd contained a "
+                    "comma-separated list. Using the first value (%r) and dropping the rest.",
+                    state_cd,
+                )
+            state_code = self._normalise_state_code(state_cd)
+            if state_code is None:
+                logger.warning(
+                    "Could not map NWIS-style state code %r to a two-digit ANSI code for the "
+                    "USGS OGC API; the stateCd filter was dropped from the query.",
+                    state_cd,
+                )
+            else:
+                params["state_code"] = state_code
         if county_cd:
-            params["county_code"] = county_cd
+            county_cd, multiple_counties_in_query = self._take_first_value(county_cd)
+            if multiple_counties_in_query:
+                logger.warning(
+                    "USGS OGC county_code takes one county per query; countyCd contained a "
+                    "comma-separated list. Using the first value (%r) and dropping the rest.",
+                    county_cd,
+                )
+            county_code = self._normalise_county_code(county_cd)
+            if county_code is None:
+                logger.warning(
+                    "Could not map NWIS-style county code %r to a three-digit ANSI code for the "
+                    "USGS OGC API; the countyCd filter was dropped from the query.",
+                    county_cd,
+                )
+            else:
+                params["county_code"] = county_code
+                # A three-digit county code is only unique within its state. A
+                # full five-digit FIPS code carries the state prefix, so
+                # we attempt to recover it; a bare three-digit code without a
+                # state filter matches that county in every state.
+                if "state_code" not in params:
+                    stripped_county_cd = county_cd.strip()
+                    if len(stripped_county_cd) == 5 and stripped_county_cd.isdigit():
+                        state_code = self._normalise_state_code(stripped_county_cd[:2])
+                        if state_code is not None:
+                            params["state_code"] = state_code
+                    else:
+                        logger.warning(
+                            "County code %r is only unique within its state; without a state code "
+                            "filter, the USGS OGC query matches county %s in every state, so the "
+                            "response will contain data from multiple states.",
+                            county_cd,
+                            county_code,
+                        )
         if huc_val:
+            huc_val, multiple_hucs_in_query = self._take_first_value(huc_val)
+            if multiple_hucs_in_query:
+                logger.warning(
+                    "USGS OGC hydrologic_unit_code takes one HUC per query; huc contained a "
+                    "comma-separated list. Using the first value %r and dropping the rest.",
+                    huc_val,
+                )
             params["hydrologic_unit_code"] = huc_val
 
         url = f"collections/{collection}/items"
@@ -588,8 +659,7 @@ class USGSCollector(BaseCollector):
         if not location_id:
             return None
 
-        if not location_id.startswith("USGS-"):
-            location_id = f"USGS-{location_id}"
+        location_id = USGSCollector._normalise_monitoring_location_id(location_id)
 
         # One lookup per station per collector instance: a long daily record
         # would otherwise re-ask (and, when throttled, re-fail) once per row.
@@ -625,6 +695,59 @@ class USGSCollector(BaseCollector):
         cache[location_id] = rounded_catchment_area
 
         return rounded_catchment_area
+
+    @staticmethod
+    def _normalise_monitoring_location_id(location_id: str) -> str:
+        """Ensure an OGC ``monitoring_location_id`` carries its agency prefix."""
+        if location_id.startswith("USGS-"):
+            return location_id
+        return f"USGS-{location_id}"
+
+    @staticmethod
+    def _take_first_value(value: str) -> tuple[str, bool]:
+        """Return the first element of a comma-separated filter value.
+
+        The OGC API accepts only one state, county or HUC per query; a
+        comma-separated list returns an empty response rather than an error.
+        Returns ``(first_element, was_list)`` - if the value is a list, the
+        caller is warned, and the first element of the list is used
+        as a parameter.
+        """
+        parts = [part.strip() for part in value.split(",")]
+        return parts[0], len(parts) > 1
+
+    @staticmethod
+    def _normalise_state_code(state_cd: str) -> str | None:
+        """Translate an NWIS state code to the two-digit ANSI code the OGC API expects (e.g. "AK" becomes "02").
+
+        Returns ``None`` when ``state_cd`` is neither a recognised abbreviation
+        nor a one- or two-digit numeric code, so callers can warn instead of
+        sending a filter that silently matches nothing.
+        """
+        code = state_cd.strip()
+        if code.isdigit():
+            if len(code) <= 2:
+                # If a numeric ANSI code, return the provided code with left padding if needed (e.g. "2" becomes "02").
+                return code.zfill(2)
+            return None
+        # Convert NWIS code to corresponding ANSI code; if a mapping doesn't exist, return None.
+        return STATE_FIPS.get(code.upper())
+
+    @staticmethod
+    def _normalise_county_code(county_cd: str) -> str | None:
+        """Drop the two-digit state prefix from an NWIS five-digit county code.
+
+        The OGC ``county_code`` queryable is the three-digit ANSI county code
+        (e.g. "24033" becomes "033"). Returns ``None`` when ``county_cd`` is
+        neither a three- nor five-digit numeric code, so callers can warn
+        instead of filtering silently.
+        """
+        code = county_cd.strip()
+        if len(code) == 5 and code.isdigit():
+            return code[2:]
+        if len(code) == 3 and code.isdigit():
+            return code
+        return None
 
     @staticmethod
     def _count_sig_figs(value: str | float) -> int:

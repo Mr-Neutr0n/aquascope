@@ -320,6 +320,133 @@ def _default_years_note() -> str:
     return f"Records are requested back to {(today - timedelta(days=int(40 * 365.25))).isoformat()} by default."
 
 
+def analyse_table(
+    csv: str,
+    analysis: str,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run one of the workbench analyses on a table of *your own* data (CSV text).
+
+    The analyses are the ones the dashboard pages offer, and they are the same
+    code the Explorer runs in the browser: eda, quality, preprocess, insights,
+    who_screen, flow_duration, baseflow, recession, flood_frequency, signatures,
+    return_periods, sgi_drought, recharge, aquifer_drawdown.
+
+    Pass the data as CSV text (a header row and one row per observation) and the
+    parameters of the analysis as a dict, for example
+    ``{"method": "eckhardt", "alpha": 0.98}``.
+    """
+    from io import StringIO
+
+    import pandas as pd
+
+    from aquascope import workbench
+
+    if analysis not in workbench.TOOLS:
+        return {"error": f"Unknown analysis {analysis!r}", "available": sorted(workbench.TOOLS)}
+    spec = workbench.TOOLS[analysis]
+    kwargs = dict(params or {})
+    if spec["needs"] == "none":
+        return workbench.run(analysis, **kwargs)
+    if not csv or not csv.strip():
+        return {"error": f"{analysis} needs a table; pass the data as CSV text."}
+    df = pd.read_csv(StringIO(csv))
+    result = workbench.run(analysis, df, **kwargs)
+    result.pop("frame", None)          # the cleaned frame is not JSON
+    return result
+
+
+def list_analyses() -> dict[str, Any]:
+    """Every workbench analysis with what it needs and what it is for."""
+    from aquascope import workbench
+
+    return {
+        "analyses": [
+            {"name": name, "needs": spec["needs"], "summary": spec["summary"]}
+            for name, spec in workbench.TOOLS.items()
+        ],
+        "note": "Run one with analyse_table(csv, analysis, params). These are the dashboard's analyses, "
+                "and the same code the Explorer runs in the browser.",
+    }
+
+
+# ── inline views (MCP Apps) ─────────────────────────────────────────────────
+# A client that supports the MCP Apps extension (SEP-1865, in the 2026-07 spec)
+# can render HTML a server returns, inline in the conversation. A hydrograph is
+# worth more than a page of JSON, so analyze_station can hand one back. Clients
+# without the extension are unaffected: they get the JSON they always got.
+
+_WIDGET_CSS = (
+    "body{margin:0;font:13px/1.5 system-ui,sans-serif;color:#1f2933}"
+    ".k{display:flex;gap:.6rem;flex-wrap:wrap;margin:.4rem 0}"
+    ".k div{border:1px solid #e3e8ee;border-radius:8px;padding:.3rem .5rem}"
+    ".k b{display:block;font-size:1rem}"
+    "svg{width:100%;height:120px}"
+    ".m{color:#6b7785;font-size:11px;line-height:1.45}"
+)
+
+
+def _sparkline(values: list[float], width: int = 560, height: int = 120) -> str:
+    """A dependency-free hydrograph: the shape of a record, in an inline SVG."""
+    clean = [v for v in values if isinstance(v, (int, float))]
+    if len(clean) < 2:
+        return ""
+    lo, hi = min(clean), max(clean)
+    span = (hi - lo) or 1.0
+    step = max(1, len(clean) // width)
+    pts = clean[::step]
+    dx = width / max(len(pts) - 1, 1)
+    coords = " ".join(
+        f"{i * dx:.1f},{height - (v - lo) / span * (height - 8) - 4:.1f}" for i, v in enumerate(pts)
+    )
+    return (
+        f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" role="img" '
+        f'aria-label="hydrograph"><polyline fill="none" stroke="#1565c0" stroke-width="1.2" '
+        f'points="{coords}"/></svg>'
+    )
+
+
+def station_view(source: str, station_id: str, years: int = 40) -> dict[str, Any]:
+    """analyze_station, plus a small HTML view of it for clients that render one.
+
+    The ``_meta`` block is what an MCP Apps client looks for; everything else is
+    the ordinary tool result, so a client that ignores views loses nothing.
+    """
+    import html as _html
+
+    result = analyze_station(source, station_id, years=years)
+    if result.get("error"):
+        return result
+    stats = result.get("stats") or {}
+    series = (result.get("series") or {}).get("v") or []
+    ffa = ((result.get("ffa") or {}).get("fits") or {}).get("gev_lmoments") or {}
+    rp = (result.get("ffa") or {}).get("return_periods") or []
+    q100 = ""
+    if ffa.get("q") and 100 in rp:
+        q100 = f"<div>100-yr flood<b>{ffa['q'][rp.index(100)]:.4g} {_html.escape(result.get('unit') or '')}</b></div>"
+    body = (
+        f"<h3 style='margin:.2rem 0'>{_html.escape(str(result.get('name') or station_id))}</h3>"
+        f"<div class='m'>{_html.escape(source)} / {_html.escape(station_id)} · "
+        f"{_html.escape(str(result.get('start')))} to {_html.escape(str(result.get('end')))}</div>"
+        f"<div class='k'>"
+        f"<div>mean<b>{(stats.get('mean') or 0):.4g} {_html.escape(result.get('unit') or '')}</b></div>"
+        f"<div>max<b>{(stats.get('max') or 0):.4g}</b></div>"
+        f"<div>years<b>{result.get('years')}</b></div>{q100}</div>"
+        f"{_sparkline(series)}"
+        f"<div class='m'>Data: {_html.escape(str(result.get('attribution') or ''))} "
+        f"({_html.escape(str(result.get('license') or ''))}). Computed with aquascope.</div>"
+    )
+    result["_meta"] = {
+        "openai/outputTemplate": "text/html+skybridge",
+        "mcp/view": {
+            "mimeType": "text/html",
+            "html": f"<style>{_WIDGET_CSS}</style><main>{body}</main>",
+        },
+    }
+    return result
+
+
+
 # ── server wiring ──────────────────────────────────────────────────────────
 
 
@@ -336,6 +463,9 @@ def build_server():
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)
     server.tool()(archive_health)
+    server.tool()(list_analyses)
+    server.tool()(analyse_table)
+    server.tool()(station_view)
 
     @server.resource("aquascope://sources")
     def sources_resource() -> str:
