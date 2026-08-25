@@ -454,11 +454,14 @@
         methods with citations, assembled from the tool results, not from the model.</p>
 
       <div id="ask-tier" class="ask-tier">
-        <label><input type="radio" name="ask-tier" value="key" checked> Your key <span class="muted">(full tool loop)</span></label>
+        <label><input type="radio" name="ask-tier" value="showcase" checked> Worked examples <span class="muted">(no key, recorded runs)</span></label>
         <label><input type="radio" name="ask-tier" value="local"> On your device <span class="muted" id="ask-local-note"></span></label>
+        <label><input type="radio" name="ask-tier" value="key"> Your own key <span class="muted">(the full tool loop)</span></label>
       </div>
 
-      <details id="ask-settings" class="ask-settings" open>
+      <div id="ask-showcase" class="ask-showcase" hidden></div>
+
+      <details id="ask-settings" class="ask-settings">
         <summary>Model and key</summary>
         <div class="ask-grid">
           <label>Provider
@@ -477,11 +480,16 @@
           <button id="ask-forget" class="btn tiny" hidden>Forget key</button></p>
       </details>
 
-      <textarea id="ask-question" rows="3" data-autofocus placeholder="e.g. What is the 100-year flood of the Thames at Kingston, and how sure can we be?"></textarea>
-      <label class="ask-context-toggle"><input type="checkbox" id="ask-use-context" checked /> tell it what I am looking at</label>
-      <p id="ask-context" class="muted ask-context" hidden><span id="ask-context-text"></span></p>
-      <div id="ask-showcase" class="ask-showcase" hidden></div>
-      <div id="ask-examples" class="ask-examples"></div>
+      <div id="ask-compose">
+        <textarea id="ask-question" rows="3" data-autofocus placeholder="e.g. What is the 100-year flood of the Thames at Kingston, and how sure can we be?"></textarea>
+        <label class="ask-context-toggle"><input type="checkbox" id="ask-use-context" checked /> tell it what I am looking at</label>
+        <p id="ask-context" class="muted ask-context" hidden><span id="ask-context-text"></span></p>
+        <div id="ask-examples" class="ask-examples"></div>
+      </div>
+      <p id="ask-compose-note" class="muted ask-compose-note" hidden>
+        These are runs recorded once with a key. To ask your own question, pick <strong>On your device</strong> or
+        <strong>Your own key</strong> above.
+      </p>
       <div class="row-actions">
         <button id="ask-run" class="btn primary">Ask</button>
         <button id="ask-stop" class="btn" hidden>Stop</button>
@@ -494,7 +502,7 @@
       <ol id="ask-log" class="ask-log" hidden></ol>
       <div id="ask-checks" class="ask-checks" hidden></div>
       <div id="ask-stations" class="ask-stations" hidden></div>
-      <article id="ask-result" class="ask-result" hidden></article>
+      <article id="ask-result" class="ask-result" tabindex="-1" hidden></article>
     </aside>
   </main>
 

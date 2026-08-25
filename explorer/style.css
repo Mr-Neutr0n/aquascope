@@ -568,15 +568,19 @@ table.regime td:first-child { white-space: nowrap; }
 .ask-code { background: var(--bg-sunken); padding: .38rem .5rem; border-radius: 6px; margin: .25rem 0 0;
   font-size: .71rem; overflow: auto; max-height: 160px; white-space: pre-wrap; }
 
-.ask-showcase { margin: .6rem 0; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-soft); }
+.ask-showcase { margin: .6rem 0; padding: .65rem .7rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-soft); }
 .ask-showcase[hidden] { display: none; }
-.showcase-head { font-size: .77rem; margin-bottom: .35rem; }
+.showcase-head { font-size: .8rem; margin-bottom: .45rem; }
 .showcase-list { display: flex; flex-direction: column; gap: .25rem; }
 .showcase-chip { text-align: left; font-size: .73rem; }
 .showcase-note { font-size: .75rem; color: var(--muted); border-left: 2px solid var(--line); padding-left: .55rem; margin-bottom: .6rem; line-height: 1.55; }
 .ask-log .changed { color: var(--warn-ink); }
 
 .ask-tier { display: flex; flex-direction: column; gap: .2rem; font-size: .79rem; margin: .55rem 0; }
+.ask-tier input { accent-color: var(--blue); }
+.ask-compose-note { font-size: .78rem; line-height: 1.55; margin: .6rem 0 0; padding-left: .55rem; border-left: 2px solid var(--line); }
+.ask-compose-note strong { color: var(--ink-2); font-weight: 600; }
+#ask-result:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
 .ask-tier label { display: flex; align-items: center; gap: .35rem; }
 .ask-tier input:disabled + span, .ask-tier label:has(input:disabled) { opacity: .55; }
 
