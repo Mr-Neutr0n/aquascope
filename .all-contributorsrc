@@ -179,6 +179,16 @@
         "test",
         "doc"
       ]
+    },
+    {
+      "login": "dchaudhari7177",
+      "name": "Dipak Chaudhari",
+      "avatar_url": "https://avatars.githubusercontent.com/u/111210939?v=4",
+      "profile": "https://dipakchaudhari.me",
+      "contributions": [
+        "code",
+        "test"
+      ]
     }
   ],
   "commitType": "docs"
