@@ -109,7 +109,11 @@ function render(res, r) {
   // Overview: KPIs + hydrograph
   const k = res.stats || {};
   $("kpis").innerHTML = [
-    ["record", `${res.start} → ${res.end}`, `${res.years} yr · ${res.n.toLocaleString()} obs`],
+    // Years, not two full dates: "1986-08-26 → 2026-08-22" wrapped onto a second
+    // line while the three tiles beside it sat on one, and the exact days are
+    // already on the line under the station name.
+    ["record", `${String(res.start).slice(0, 4)}–${String(res.end).slice(0, 4)}`,
+      `${res.years} yr · ${res.n.toLocaleString()} obs`],
     ["mean", `${fmt(k.mean)} ${unit}`, varLabel],
     ["max", `${fmt(k.max)} ${unit}`, "observed"],
     ["min", `${fmt(k.min)} ${unit}`, "observed"],
