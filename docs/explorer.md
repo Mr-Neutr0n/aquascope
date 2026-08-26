@@ -92,9 +92,15 @@ surface temperature, GRACE water storage anomaly, and ESA WorldCover land cover.
 The time-driven ones share a single date control, so you can walk a flood or a
 snowmelt day by day.
 
-**The gauges themselves** can be coloured by agency, by record length or by how
-recently they last reported, with a legend, and a density heat map shows where
-the world is actually measured. **Select an area** drags a box and hands back
+**The gauges themselves** carry their agency as a shape as well as a colour: a
+circle for USGS, a triangle for the Environment Agency, a square for Hub'Eau, a
+diamond for PEGELONLINE, a pentagon for OPW and a cross for CWA. Colour alone
+does not survive colour-vision deficiency (Hub'Eau's red and the Environment
+Agency's green are ΔE 4.2 apart under deuteranopia, and they are the two largest
+European sources), so identity carries two channels. They can also be coloured
+by record length or by how recently they last reported, with a legend, and the
+shape goes on saying the agency underneath; a density heat map shows where the
+world is actually measured. **Select an area** drags a box and hands back
 the gauges inside it as CSV.
 
 The whole state (basemap, overlays, opacity, date, terrain, globe, colouring)
