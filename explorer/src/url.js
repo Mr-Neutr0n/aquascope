@@ -7,7 +7,7 @@
 //
 // The legacy forms (#s=key, #p=lat,lon) still parse, so old links keep working.
 
-import { actions, state, trace } from "./core.js?v=__BUILD__";
+import { LAYER_DEFAULTS, actions, state, trace } from "./core.js?v=__BUILD__";
 
 let applying = false;      // ignore our own hashchange
 let lastWritten = "";
@@ -51,14 +51,19 @@ function currentHash({ view } = {}) {
   if (view) q.set("v", `${view.zoom.toFixed(2)}/${view.lat.toFixed(4)}/${view.lon.toFixed(4)}`);
   if (state.hidden.size) q.set("hide", [...state.hidden].join(","));
   if (state.basinsOn) q.set("basins", "1");
-  if (state.basemap && state.basemap !== "light") q.set("b", state.basemap);
+  if (state.basemap && state.basemap !== LAYER_DEFAULTS.basemap) q.set("b", state.basemap);
   if (state.overlays && state.overlays.size) q.set("o", [...state.overlays].join(","));
   if (state.date && (state.overlays.size || state.basemap === "daily")) q.set("d", state.date);
-  if (state.terrain) q.set("t", "1");
-  if (state.hillshade) q.set("hs", "1");
-  if (state.globe) q.set("gl", "1");
-  if (state.gaugeStyle && state.gaugeStyle !== "source") q.set("gs", state.gaugeStyle);
-  if (state.heat) q.set("hm", "1");
+  // Only what differs from LAYER_DEFAULTS, written as 0 or 1 so a link can turn
+  // a default-on layer off as well as a default-off layer on.
+  const flag = (key, param) => {
+    if (Boolean(state[key]) !== Boolean(LAYER_DEFAULTS[key])) q.set(param, state[key] ? "1" : "0");
+  };
+  flag("terrain", "t");
+  flag("hillshade", "hs");
+  flag("globe", "gl");
+  if (state.gaugeStyle && state.gaugeStyle !== LAYER_DEFAULTS.gaugeStyle) q.set("gs", state.gaugeStyle);
+  flag("heat", "hm");
   return `#${q.toString().replace(/%2F/gi, "/").replace(/%2C/gi, ",")}`;
 }
 

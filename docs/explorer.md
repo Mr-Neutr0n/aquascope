@@ -56,18 +56,35 @@ These are the same functions the Streamlit dashboard used to own, so
 implementation rather than four that drift. The public Streamlit deployments
 have been retired in favour of this.
 
+## The shell
+
+The map is the page. It fills the window, and the layer rail, the inspector and
+the Analyst float over it as cards, so the map is the first thing you see and
+opening a panel never takes width from it. The rail (the stacked-squares button
+at the top left) is closed on arrival and groups its controls under **Sources**,
+**Basemap**, **Relief**, **Overlays** and **Credits**; the chevron at the top
+right folds the inspector away when you want the whole map. On a phone the map
+keeps the screen and the inspector is a bottom sheet.
+
+The world view is a **globe**, because the coverage is worldwide and thin, and
+Mercator spends its pixels on the empty high latitudes. MapLibre eases the globe
+back to Mercator by about zoom 5, so everything below the world view behaves
+like an ordinary map. The button under the layers button switches projection,
+and `gl=0` in a link pins a flat map.
+
 ## Map layers
 
-The left rail is a layer stack, and every layer in it is keyless and free to
-use. Nothing here needs an account, and each carries its attribution and licence
-in the rail, in the map credits and in an info panel.
+The rail is a layer stack, and every layer in it is keyless and free to use.
+Nothing here needs an account, and each carries its attribution and licence in
+the rail, in the map credits and in an info panel.
 
 **Basemaps**: OpenFreeMap light, dark and streets (OpenStreetMap data, ODbL);
 Sentinel-2 cloudless 2016 and 2025 from EOX; EOX Terrain Light; NASA GIBS VIIRS
 true colour for a chosen day; USGS imagery over the United States.
 
-**Terrain**: 3D terrain and hillshade from the AWS Terrain Tiles DEM, and a
-globe projection.
+**Relief**: 3D terrain and hillshade from the AWS Terrain Tiles DEM. Hillshade
+is on by default; the light basemap on its own is near-white land on pale water,
+which reads as an empty page rather than as a map.
 
 **Overlays**, each with an opacity slider and its own colour scale: GPM IMERG
 precipitation rate, SMAP root-zone soil moisture, MODIS snow cover, MODIS land
@@ -221,7 +238,7 @@ loop is nine times faster, same numbers to 1e-14), which is what makes
 - `index.html`, `style.css` and ES modules under `src/` (still no bundler):
   `map.js`, `layers.js` and `layer-ui.js` (MapLibre, the basemap and overlay
   registry), `catalog.js` (DuckDB-WASM over the archive's GeoParquet, GeoJSON
-  fallback), `search.js`, `shell.js` and `url.js` (the three-pane shell and
+  fallback), `search.js`, `shell.js` and `url.js` (the map-first shell and
   URL-as-state), the `panel-*.js` inspectors, `charts.js` (Plotly), `ask.js`
   with `showcase.js` and `local-model.js`, and `webmcp.js`. `app.js` wires them
   together.

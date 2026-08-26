@@ -5,7 +5,7 @@
 import { $, actions, copyText, escapeHtml, fmt, haversineKm, sourceStyle, state, stationKey } from "./core.js?v=__BUILD__";
 import { addTableDownload, plot } from "./charts.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment } from "./basins.js?v=__BUILD__";
-import { setPointMarker, highlightStation } from "./map.js?v=__BUILD__";
+import { flyToPoint, setPointMarker, highlightStation } from "./map.js?v=__BUILD__";
 import { addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
 import { hideCard, selectTab, setCard, setTab, showSurface } from "./shell.js?v=__BUILD__";
 import { call } from "./worker-client.js?v=__BUILD__";
@@ -27,7 +27,7 @@ function nearestStations(lat, lon, n = 6) {
   return out;
 }
 
-export async function selectPoint(lat, lon, { tab = null, push = true } = {}) {
+export async function selectPoint(lat, lon, { tab = null, push = true, fly = false } = {}) {
   lat = Math.round(lat * 1e4) / 1e4;
   lon = Math.round(lon * 1e4) / 1e4;
   const my = ++pointRun;
@@ -36,6 +36,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true } = {}) {
   state.point = { lat, lon };
   highlightStation(null);
   setPointMarker(lat, lon);
+  if (fly) flyToPoint(lat, lon);
 
   showSurface("panel-point");
   $("pt-title").textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}°`;

@@ -179,6 +179,26 @@
         "test",
         "doc"
       ]
+    },
+    {
+      "login": "dchaudhari7177",
+      "name": "Dipak Chaudhari",
+      "avatar_url": "https://avatars.githubusercontent.com/u/111210939?v=4",
+      "profile": "https://dipakchaudhari.me",
+      "contributions": [
+        "code",
+        "test"
+      ]
+    },
+    {
+      "login": "Sanchar127",
+      "name": "Sanchar127",
+      "avatar_url": "https://avatars.githubusercontent.com/u/143952019?v=4",
+      "profile": "https://github.com/Sanchar127",
+      "contributions": [
+        "code",
+        "test"
+      ]
     }
   ],
   "commitType": "docs"
