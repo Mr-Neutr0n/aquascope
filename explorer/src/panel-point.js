@@ -3,6 +3,7 @@
 // in, the gauges nearest to it and what their regime suggests here.
 
 import { $, actions, copyText, escapeHtml, fmt, haversineKm, sourceStyle, state, stationKey } from "./core.js?v=__BUILD__";
+import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { addTableDownload, plot } from "./charts.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment } from "./basins.js?v=__BUILD__";
 import { flyToPoint, setPointMarker, highlightStation } from "./map.js?v=__BUILD__";
@@ -68,7 +69,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true, fly = fal
       li.setAttribute("role", "button");
       li.dataset.key = stationKey(r);
       const st = sourceStyle(r.source);
-      li.innerHTML = `<i style="background:${st.color}"></i>${escapeHtml(r.name || r.station_id)} ` +
+      li.innerHTML = `${shapeSvg(st.shape, st.color)}${escapeHtml(r.name || r.station_id)} ` +
         `<span class="muted">${escapeHtml(st.label)}</span>` +
         `<span class="dist">${d < 10 ? d.toFixed(1) : Math.round(d)} km</span>`;
       const open = () => actions.selectStation(li.dataset.key, { fly: true });

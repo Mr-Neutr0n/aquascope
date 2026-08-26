@@ -12,6 +12,7 @@ import { CONFIG } from "../config.js?v=__BUILD__";
 import {
   $, actions, copyText, downloadBlob, escapeHtml, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
+import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { closeDrawer, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=__BUILD__";
 import { Cancelled, callCancelable, call, onAskProgress } from "./worker-client.js?v=__BUILD__";
 import { map } from "./map.js?v=__BUILD__";
@@ -193,6 +194,12 @@ function currentTier() {
  * (#271). The recorded runs lead now; asking your own question is a tier you
  * choose.
  */
+const TIER_NOTE = {
+  showcase: "Real runs, recorded once a week. No key needed.",
+  local: "Runs on your device. Nothing leaves this tab.",
+  key: "The full tool loop, with your own provider key.",
+};
+
 function applyTier() {
   const tier = currentTier();
   const showcase = tier === "showcase";
@@ -201,9 +208,17 @@ function applyTier() {
   $("ask-compose").hidden = showcase;
   $("ask-compose-note").hidden = !showcase;
   $("ask-run").hidden = showcase;
-  askStatus(tier === "local"
-    ? "Nothing leaves this tab: the model runs here, and so do the tools."
-    : "");
+  // One line, for the tier you actually picked. All three used to explain
+  // themselves at once, which is three explanations to read before you can
+  // choose between them.
+  const note = $("ask-tier-note");
+  if (note) {
+    const local = $("ask-local-note");
+    note.textContent = tier === "local" && local && local.textContent
+      ? `${TIER_NOTE.local} ${local.textContent}`
+      : (TIER_NOTE[tier] || "");
+  }
+  askStatus("");
 }
 
 // Whether CI has published any examples: with none, the tier is an empty box.
@@ -353,7 +368,7 @@ function renderAsk(res) {
     const b = document.createElement("button");
     b.className = "chip";
     b.type = "button";
-    b.innerHTML = `<i style="background:${sourceStyle(r.source).color}"></i>${escapeHtml(r.name || r.station_id)}`;
+    b.innerHTML = `${shapeSvg(sourceStyle(r.source).shape, sourceStyle(r.source).color)}${escapeHtml(r.name || r.station_id)}`;
     b.title = "Open this station on the map";
     b.addEventListener("click", () => actions.selectStation(stationKey(r), { fly: true }));
     chips.push(b);
