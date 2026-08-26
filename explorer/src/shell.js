@@ -13,6 +13,9 @@ export function showSurface(id) {
   const panel = $("panel");
   if (panel) panel.scrollTop = 0;
   revealPanel();
+  // Picking something on the map while the Analyst is open is a request to look
+  // at it, so the Analyst steps aside rather than hiding the thing you clicked.
+  if (drawerOpen()) closeDrawer();
 }
 
 export function isSurface(id) {
@@ -201,20 +204,39 @@ export function bootDone() {
   setTimeout(() => { bar.hidden = true; fill.style.width = "0%"; }, 400);
 }
 
-// ── drawer (Ask) ────────────────────────────────────────────────────────────
-// The drawer sits beside the inspector instead of replacing it, so the station
-// stays on screen while the Analyst works.
+// ── the Analyst ─────────────────────────────────────────────────────────────
+// One surface on the right, not two. The Analyst used to open *beside* the
+// inspector so the station stayed on screen, but two cards of the same size and
+// weight, side by side, do not read as "this one, then that one" -- they read
+// as clutter, and together they covered 60 % of a 1,440 px window. It takes the
+// inspector's place now and names what it came from, so the station is still
+// there in a line of text and one click away.
 
 let releaseDrawer = null;
+
+// What the Analyst is looking at, for the chip in its header.
+function contextChip() {
+  const chip = $("ask-context-chip");
+  if (!chip) return;
+  const st = state.selected;
+  const label = st
+    ? (st.name || st.station_id)
+    : state.point
+      ? `${state.point.lat.toFixed(2)}, ${state.point.lon.toFixed(2)}`
+      : "";
+  chip.textContent = label;
+  chip.hidden = !label;
+}
 
 export function openDrawer() {
   const d = $("drawer");
   if (!d) return;
+  contextChip();
   d.hidden = false;
   document.body.classList.add("drawer-open");
   $("btn-ask").setAttribute("aria-expanded", "true");
-  // Not trapped: on a wide screen the drawer sits beside the inspector, and
-  // tabbing out to the map is the right behaviour.
+  // Not trapped: tabbing out to the map is the right behaviour for a panel that
+  // is not modal.
   releaseDrawer = captureFocus(d, { onEscape: closeDrawer, restoreTo: $("btn-ask") });
   syncMapPadding();
   announce("Ask panel opened");
@@ -328,6 +350,27 @@ export function initShell() {
       $("search").select();
     }
   });
+  // A <details> menu stays open until it is toggled, which is not what anyone
+  // expects of a menu: clicking the map, or pressing Escape, should shut it.
+  document.addEventListener("click", (e) => {
+    for (const d of document.querySelectorAll("details.more[open]")) {
+      if (!d.contains(e.target)) d.open = false;
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const d of document.querySelectorAll("details.more[open]")) {
+      d.open = false;
+      const summary = d.querySelector("summary");
+      if (summary) summary.focus();
+    }
+  });
+  // Choosing something from the menu closes it too.
+  document.addEventListener("click", (e) => {
+    const item = e.target.closest(".more-menu > *");
+    if (item) { const d = item.closest("details.more"); if (d) d.open = false; }
+  });
+
   // The floating cards change size with the window, and the map's idea of
   // where "centre" is has to follow them.
   let resizeTimer = null;

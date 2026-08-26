@@ -397,6 +397,23 @@ body.drawer-open #btn-panel { display: none; }
 .head h2 { font-size: 1.1rem; line-height: 1.3; letter-spacing: -.02em; }
 .st-meta { font-size: .76rem; color: var(--muted); margin: .25rem 0 .55rem; line-height: 1.5; }
 .st-actions, .row-actions { display: flex; gap: .3rem; flex-wrap: wrap; align-items: center; }
+/* One action in the open, the rest behind a menu. Five peer buttons above the
+   tabs gave no clue which one anybody actually wanted. */
+.more { position: relative; }
+.more > summary { list-style: none; cursor: pointer; padding: .38rem .6rem; letter-spacing: .08em; line-height: 1; }
+.more > summary::-webkit-details-marker { display: none; }
+.more[open] > summary { background: var(--bg-soft); }
+.more-menu {
+  position: absolute; right: 0; top: calc(100% + 5px); z-index: 20; min-width: 190px;
+  display: flex; flex-direction: column; padding: .25rem;
+  background: var(--surface-solid); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-2);
+}
+.more-menu > * {
+  font: inherit; font-size: .8rem; text-align: left; padding: .42rem .55rem; border: 0; border-radius: var(--radius-xs);
+  background: none; color: var(--ink); cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.more-menu > *:hover { background: var(--bg-soft); }
 .row-actions { margin: .55rem 0; }
 
 /* ── tabs ────────────────────────────────────────────────────────────────── */
@@ -458,7 +475,7 @@ body.drawer-open #btn-panel { display: none; }
 /* ── controls ────────────────────────────────────────────────────────────── */
 
 .btn {
-  font: inherit; font-size: .78rem; font-weight: 520; padding: .38rem .7rem; border-radius: var(--radius-xs);
+  font: inherit; font-size: .78rem; font-weight: 520; padding: .48rem .75rem; border-radius: var(--radius-xs);
   border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer;
   text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: .3rem;
   transition: background .13s, border-color .13s;
@@ -511,23 +528,36 @@ table.regime td:first-child { white-space: nowrap; }
 
 /* ── drawer (Ask) ────────────────────────────────────────────────────────── */
 
+/* The Analyst takes the inspector's place rather than sitting next to it. Two
+   cards of the same size and weight side by side do not read as an order to
+   read them in; they read as clutter, and together they covered 60 % of a
+   1,440 px window. One surface, and the station is named in its header. */
 .drawer {
   position: absolute; right: var(--gap); top: var(--gap); max-height: calc(100% - var(--gap) * 2); z-index: 10;
-  width: var(--drawer-w); overflow: auto; overscroll-behavior: contain;
+  width: var(--panel-w); overflow: auto; overscroll-behavior: contain;
   background: var(--surface); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-2);
-  padding: .85rem .95rem 2rem;
+  padding: .8rem .95rem 1.6rem;
+  animation: surface-in .18s ease;
 }
 .drawer[hidden] { display: none; }
-/* Wide enough for both: the Analyst sits beside the station rather than over
-   it, which is the whole point of a drawer that is not a modal. */
-@media (min-width: 1360px) {
-  :root { --drawer-w: clamp(340px, 26vw, 420px); }
-  body.drawer-open .drawer { right: calc(var(--panel-w) + var(--gap) * 2); }
+/* The inspector stays mounted underneath, so its scroll and its results survive
+   a trip to the Analyst; it is just not painted while the Analyst is up. */
+body.drawer-open .panel { visibility: hidden; }
+@keyframes surface-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .drawer { animation: none; } }
+.drawer-head { display: flex; align-items: center; gap: .55rem; padding-bottom: .2rem; }
+.drawer-head h2 { font-size: 1.02rem; letter-spacing: -.02em; }
+.icon-btn.back { padding: .3rem; border: 0; background: none; }
+.icon-btn.back:hover { background: var(--bg-soft); }
+.icon-btn.back svg { width: 18px; height: 18px; display: block; }
+/* What the Analyst is looking at, so leaving the station does not lose it. */
+.context-chip {
+  margin-left: auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .74rem; color: var(--muted); background: var(--bg-soft);
+  border: 1px solid var(--line); border-radius: 999px; padding: .16rem .55rem;
 }
-.drawer-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.drawer-head h2 { font-size: 1.02rem; flex: 1; letter-spacing: -.02em; }
-.drawer-head .badge { margin-bottom: 0; }
+.context-chip[hidden] { display: none; }
 .ask-settings { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .55rem .7rem; margin: .65rem 0; font-size: .84rem; background: var(--bg); }
 .ask-settings summary { cursor: pointer; color: var(--blue); font-weight: 560; }
 .ask-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem .7rem; margin-top: .55rem; }
@@ -576,16 +606,35 @@ table.regime td:first-child { white-space: nowrap; }
 .ask-code { background: var(--bg-sunken); padding: .38rem .5rem; border-radius: 6px; margin: .25rem 0 0;
   font-size: .71rem; overflow: auto; max-height: 160px; white-space: pre-wrap; }
 
-.ask-showcase { margin: .6rem 0; padding: .65rem .7rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-soft); }
+.ask-showcase { margin: .5rem 0; padding: 0; border: 0; background: none; }
 .ask-showcase[hidden] { display: none; }
-.showcase-head { font-size: .8rem; margin-bottom: .45rem; }
+.showcase-head { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 640; margin-bottom: .4rem; }
+.showcase-head strong { font-weight: 640; }
 .showcase-list { display: flex; flex-direction: column; gap: .25rem; }
-.showcase-chip { text-align: left; font-size: .73rem; }
+/* One line each with the full question on hover: eight two-line chips is a
+   paragraph of reading before anything has been asked. */
+.showcase-chip {
+  text-align: left; font-size: .76rem; border-radius: var(--radius-xs); padding: .4rem .55rem;
+  display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .showcase-note { font-size: .75rem; color: var(--muted); border-left: 2px solid var(--line); padding-left: .55rem; margin-bottom: .6rem; line-height: 1.55; }
 .ask-log .changed { color: var(--warn-ink); }
 
-.ask-tier { display: flex; flex-direction: column; gap: .2rem; font-size: .79rem; margin: .55rem 0; }
-.ask-tier input { accent-color: var(--blue); }
+/* A segmented control, not three stacked radios each carrying its own sentence.
+   Three explanations to read before you can choose between three things is two
+   explanations too many; the chosen one explains itself underneath. */
+.ask-tier { display: flex; gap: 2px; margin: .7rem 0 .4rem; padding: 3px; background: var(--bg-sunken); border-radius: 999px; }
+.ask-tier .seg { flex: 1; position: relative; }
+.ask-tier .seg input { position: absolute; opacity: 0; pointer-events: none; }
+.ask-tier .seg span {
+  display: block; text-align: center; font-size: .78rem; padding: .32rem .3rem; border-radius: 999px;
+  color: var(--muted); cursor: pointer; white-space: nowrap; transition: background .14s, color .14s;
+}
+.ask-tier .seg:hover span { color: var(--ink); }
+.ask-tier .seg:has(input:checked) span { background: var(--surface-solid); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-1); }
+.ask-tier .seg:has(input:disabled) span { opacity: .4; cursor: not-allowed; }
+.ask-tier .seg:has(input:focus-visible) span { outline: 2px solid var(--blue); outline-offset: 1px; }
+.tier-note { font-size: .75rem; line-height: 1.5; margin: 0 0 .5rem; min-height: 1.1em; }
 .ask-compose-note { font-size: .78rem; line-height: 1.55; margin: .6rem 0 0; padding-left: .55rem; border-left: 2px solid var(--line); }
 .ask-compose-note strong { color: var(--ink-2); font-weight: 600; }
 #ask-result:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
