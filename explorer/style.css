@@ -575,8 +575,20 @@ body.drawer-open .panel { visibility: hidden; }
   border-radius: var(--radius-sm); resize: vertical; margin-top: .45rem; background: var(--bg); color: var(--ink);
 }
 #ask-question:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px var(--blue-soft); }
-.ask-context-toggle { display: flex; align-items: center; gap: .35rem; font-size: .75rem; color: var(--muted); margin-top: .4rem; }
-.ask-context { font-size: .73rem; line-height: 1.5; margin: .25rem 0 0; padding-left: .55rem; border-left: 2px solid var(--line); }
+.ask-context-toggle { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; color: var(--muted); cursor: pointer; }
+.ask-context-toggle input { accent-color: var(--blue); }
+/* The context is a receipt, not a briefing: the checkbox is always there, the
+   generated paragraph only when you ask to see it. */
+/* The checkbox is the control and sits outside the disclosure: nesting it in
+   the <summary> made one click toggle both. */
+.ask-context-row { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap; margin-top: .45rem; }
+.ask-context[hidden] { display: none; }
+.ask-context > summary { list-style: none; cursor: pointer; font-size: .7rem; color: var(--blue); }
+.ask-context > summary::-webkit-details-marker { display: none; }
+.ask-context > summary::after { content: "see what it sends"; }
+.ask-context[open] > summary::after { content: "hide"; }
+.ask-context-row .context-detail { flex-basis: 100%; }
+.context-detail { font-size: .72rem; line-height: 1.5; margin: .35rem 0 0; padding-left: .55rem; border-left: 2px solid var(--line); }
 .ask-examples { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem 0; }
 .ask-examples .chip { font-size: .71rem; text-align: left; }
 .ask-log { margin: .6rem 0 0; padding-left: 1.2rem; font-size: .77rem; color: var(--muted); line-height: 1.55; max-height: 180px; overflow: auto; }

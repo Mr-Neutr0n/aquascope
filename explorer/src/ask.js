@@ -45,12 +45,13 @@ async function loadProviders() {
   }
 }
 
+// Three, not five: with the "About <this station>" chip prepended, five made a
+// six-chip block under a box you are supposed to be typing in. The full set is
+// still one tab away under Examples.
 const ASK_EXAMPLES = [
   "What is the 100-year flood of the Thames at Kingston, and how sure can we be?",
-  "Compare the low flows (Q95) of the Seine at Paris and the Loire at Blois.",
   "Is the Potomac at Little Falls getting drier? Use the annual-mean trend.",
-  "How wet is Taipei compared with London, and what is the aridity class of each?",
-  "Which UK boreholes near Cambridge have the longest groundwater records?",
+  "How wet is Taipei compared with London?",
 ];
 
 const ASK_STORE = "aquascope.ask.settings";
@@ -119,17 +120,33 @@ function contextLine() {
   const ctx = currentContext();
   const el = $("ask-context-text");
   el.textContent = ctx || "nothing selected yet";
+  // The context itself is five lines of generated prose naming the station, the
+  // centre of the map, the zoom and every layer. That is what gets sent, not
+  // something to read: the checkbox is the control, the text is the receipt.
   $("ask-context").hidden = !ctx;
   return ctx;
 }
+
+// The question we filled in last, so a later selection can replace it without
+// overwriting anything the reader typed themselves.
+let autoQuestion = "";
+
+const summariseQuestion = (r) =>
+  `Summarise the record of ${r.name || r.station_id} (${r.source} / ${r.station_id}): ` +
+  "period, mean, trend, and the flood frequency if the record allows it.";
 
 export function openAsk() {
   openDrawer();
   const q = $("ask-question");
   contextLine();
-  if (state.selected && !q.value.trim()) {
-    const r = state.selected;
-    q.value = `Summarise the record of ${r.name || r.station_id} (${r.source} / ${r.station_id}): period, mean, trend, and the flood frequency if the record allows it.`;
+  // Only filling an *empty* box meant the first station's question stayed for
+  // every station after it: you could be looking at a gauge in Illinois with
+  // "Summarise the record of L'Yvette à Villebon-sur-Yvette" still in the box,
+  // and the context line underneath naming the Illinois one. Replace our own
+  // text; never replace theirs.
+  if (state.selected && (!q.value.trim() || q.value.trim() === autoQuestion)) {
+    autoQuestion = summariseQuestion(state.selected);
+    q.value = autoQuestion;
   }
   const chip = $("ask-this-station");
   if (chip) chip.remove();
@@ -141,7 +158,8 @@ export function openAsk() {
     b.id = "ask-this-station";
     b.textContent = `About ${r.name || r.station_id}`;
     b.addEventListener("click", () => {
-      q.value = `Summarise the record of ${r.name || r.station_id} (${r.source} / ${r.station_id}): period, mean, trend, and the flood frequency if the record allows it.`;
+      autoQuestion = summariseQuestion(r);
+      q.value = autoQuestion;
       q.focus();
     });
     $("ask-examples").prepend(b);
