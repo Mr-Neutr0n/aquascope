@@ -421,6 +421,13 @@ BOM_BY_PARAMETER_TYPE = {
         # even inside a filtered response -- must be dropped, not raise.
         ["9999999", "NO COORDS", "", "", "Rainfall"],
     ],
+    # BOM spells this parameter type with an "@", not the word "At" --
+    # PARAMETER_VARIABLE_MAP must use the same spelling or every EC row
+    # silently maps to nothing.
+    "Electrical Conductivity @ 25C": [
+        _BOM_HEADER,
+        ["410001", "M/BIDGEE R @ WAGGA", "-35.1082", "147.3598", "Electrical Conductivity @ 25C"],
+    ],
     "Ground Water Level": [
         _BOM_HEADER,
         # Real "unset location" garbage seen live from BOM's API 2026-08-25
@@ -458,7 +465,7 @@ class TestBOMStations:
         assert isinstance(wagga, Station)
         assert wagga.name == "M/BIDGEE R @ WAGGA"
         assert (wagga.latitude, wagga.longitude) == (-35.1082, 147.3598)
-        assert wagga.variables == ("discharge", "water_level")
+        assert wagga.variables == ("discharge", "water_level", "water_quality")
         assert wagga.country == "AUS"
         assert wagga.url.endswith("/410001")
 
@@ -494,11 +501,14 @@ class TestBOMStations:
         stations = collector.stations(variable="reservoir_storage")
         assert [s.station_id for s in stations] == ["410130"]
 
-        # only the three reservoir_storage parameter types are requested,
-        # each in its own call (not comma-joined into one)
+        # only the two reservoir_storage parameter types are requested,
+        # each in its own call (not comma-joined into one) -- "Storage
+        # Percentage Full" was removed: it's not a real BOM parameter type
+        # (0 live rows, absent from getParameterList), and Storage Level +
+        # Storage Volume already cover reservoir_storage.
         requested_types = {c.kwargs["params"]["parametertype_name"] for c in client.get_json.call_args_list}
-        assert requested_types == {"Storage Level", "Storage Percentage Full", "Storage Volume"}
-        assert client.get_json.call_count == 3
+        assert requested_types == {"Storage Level", "Storage Volume"}
+        assert client.get_json.call_count == 2
 
     def test_unknown_variable_returns_empty_without_calls(self):
         client = _bom_client()
@@ -524,6 +534,19 @@ class TestBOMStations:
     def test_no_matches_returns_empty(self):
         client = _bom_client(by_parameter_type={})
         assert BOMCollector(client=client).stations() == []
+
+    def test_electrical_conductivity_maps_to_water_quality(self):
+        # Regression test for the "At" vs "@" spelling mismatch: BOM's
+        # KiWIS instance uses "Electrical Conductivity @ 25C", and a wrong
+        # spelling in PARAMETER_VARIABLE_MAP means this request would
+        # return 0 rows (a live check found 3,599 real rows for the
+        # correct spelling vs. 0 for "At").
+        client = _bom_client()
+        stations = BOMCollector(client=client).stations(variable="water_quality")
+        requested_types = {c.kwargs["params"]["parametertype_name"] for c in client.get_json.call_args_list}
+        assert "Electrical Conductivity @ 25C" in requested_types
+        wagga = next(s for s in stations if s.station_id == "410001")
+        assert "water_quality" in wagga.variables
 
     def test_one_parameter_type_failing_does_not_fail_the_whole_catalog(self):
         client = MagicMock()

@@ -56,8 +56,7 @@ PARAMETER_UNITS: dict[str, str] = {
     "Water Course Level": "m",
     "Storage Level": "m",
     "Storage Volume": "ML",
-    "Storage Percentage Full": "%",
-    "Electrical Conductivity At 25C": "uS/cm",
+    "Electrical Conductivity @ 25C": "uS/cm",
     "Turbidity": "NTU",
     "Water Temperature": "degC",
     "Rainfall": "mm",
@@ -96,10 +95,9 @@ PARAMETER_VARIABLE_MAP: dict[str, str] = {
     "Water Course Level": "water_level",
     "Storage Level": "reservoir_storage",
     "Storage Volume": "reservoir_storage",
-    "Storage Percentage Full": "reservoir_storage",
     "Ground Water Level": "groundwater_level",
     "Rainfall": "precipitation",
-    "Electrical Conductivity At 25C": "water_quality",
+    "Electrical Conductivity @ 25C": "water_quality",
     "Turbidity": "water_quality",
     "Water Temperature": "water_quality",
     "pH": "water_quality",
@@ -140,17 +138,19 @@ class BOMCollector(BaseCollector):
     ) -> list[Station]:
         """BOM Water Data Online station catalog (KiWIS ``getStationList``).
 
-        BOM's KiWIS instance only returns real data from ``getStationList``
-        when the request is filtered by a single ``parametertype_name`` —
-        an unfiltered request comes back with every row's
-        ``station_latitude``/``station_longitude``/``parametertype_name``
-        blank, even for stations that do have real values (confirmed live
-        2026-08-25). So this issues one request per BOM parameter type (or
-        just the ones relevant to ``variable``, when given) and merges the
-        results by ``station_no``, folding each parameter type into the
-        shared registry vocabulary via ``PARAMETER_VARIABLE_MAP`` — a
-        station reporting discharge and water level ends up with
-        ``variables=("discharge", "water_level")``.
+        BOM's KiWIS instance only reliably returns ``parametertype_name``
+        from ``getStationList`` when the request is filtered by a single
+        parameter type — an unfiltered request does return real
+        coordinates for most rows (~89%), but leaves ``parametertype_name``
+        blank on the large majority (~76%) of them, making it useless for
+        grouping stations by variable (confirmed live 2026-08-25: 154,895
+        rows, 11% with a blank latitude, 76% with a blank
+        ``parametertype_name``). So this issues one request per BOM
+        parameter type (or just the ones relevant to ``variable``, when
+        given) and merges the results by ``station_no``, folding each
+        parameter type into the shared registry vocabulary via
+        ``PARAMETER_VARIABLE_MAP`` — a station reporting discharge and
+        water level ends up with ``variables=("discharge", "water_level")``.
 
         ``bbox`` is sent to KiWIS as its native ``bbox=`` filter (as
         ``west,south,east,north``) on every request and re-checked
