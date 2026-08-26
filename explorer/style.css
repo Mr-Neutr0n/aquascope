@@ -689,6 +689,10 @@ body.workbench-mode .panel {
 }
 body.workbench-mode .map-tools, body.workbench-mode #btn-panel,
 body.workbench-mode .maplibregl-control-container { display: none; }
+/* The workbench sits in the middle, so the Analyst replaces it there rather
+   than reappearing against the right edge: a surface that swaps should swap in
+   place, not jump across the window. */
+body.workbench-mode .drawer { right: auto; left: 50%; transform: translateX(-50%); }
 
 /* ── narrow screens ──────────────────────────────────────────────────────── */
 
