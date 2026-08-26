@@ -6,21 +6,28 @@
 export const $ = (id) => document.getElementById(id);
 export const EMPTY_FC = { type: "FeatureCollection", features: [] };
 
+// Colour *and* shape, because colour alone does not survive colour-vision
+// deficiency: Hub'Eau's red and the Environment Agency's green are ΔE 4.2 apart
+// under deuteranopia, and they are the two largest European sources. Six hues
+// cannot pass an all-pairs check however they are chosen, so identity carries a
+// second channel instead of a new palette (#283). Shapes are assigned so that
+// the pairs which collapse on hue are the least alike in outline.
 export const SOURCE_STYLE = {
-  usgs: { label: "USGS (US)", color: "#1565c0" },
-  uk_ea: { label: "Environment Agency (UK)", color: "#2e7d32" },
-  hubeau_hydrometrie: { label: "Hub'Eau (FR)", color: "#c62828" },
-  pegelonline: { label: "PEGELONLINE (DE)", color: "#ef6c00" },
-  ireland_opw: { label: "OPW (IE)", color: "#6a1b9a" },
-  taiwan_cwa: { label: "CWA (TW)", color: "#00838f" },
+  usgs: { label: "USGS (US)", color: "#1565c0", shape: "circle" },
+  uk_ea: { label: "Environment Agency (UK)", color: "#2e7d32", shape: "triangle" },
+  hubeau_hydrometrie: { label: "Hub'Eau (FR)", color: "#c62828", shape: "square" },
+  pegelonline: { label: "PEGELONLINE (DE)", color: "#ef6c00", shape: "diamond" },
+  ireland_opw: { label: "OPW (IE)", color: "#6a1b9a", shape: "pentagon" },
+  taiwan_cwa: { label: "CWA (TW)", color: "#00838f", shape: "cross" },
 };
 export const FALLBACK_COLOR = "#546e7a";
+export const FALLBACK_SHAPE = "circle";
 export const VAR_LABEL = {
   discharge: "discharge", water_level: "water level", precipitation: "rainfall",
   groundwater_level: "groundwater", climate: "climate", water_quality: "water quality",
 };
 
-export const sourceStyle = (src) => SOURCE_STYLE[src] || { label: src, color: FALLBACK_COLOR };
+export const sourceStyle = (src) => SOURCE_STYLE[src] || { label: src, color: FALLBACK_COLOR, shape: FALLBACK_SHAPE };
 export const stationKey = (r) => `${r.source}/${r.station_id}`;
 
 // Debug hooks (harmless in production): window.__aq.state, window.__aq.log.

@@ -12,6 +12,7 @@ import { CONFIG } from "../config.js?v=__BUILD__";
 import {
   $, actions, copyText, downloadBlob, escapeHtml, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
+import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { closeDrawer, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=__BUILD__";
 import { Cancelled, callCancelable, call, onAskProgress } from "./worker-client.js?v=__BUILD__";
 import { map } from "./map.js?v=__BUILD__";
@@ -353,7 +354,7 @@ function renderAsk(res) {
     const b = document.createElement("button");
     b.className = "chip";
     b.type = "button";
-    b.innerHTML = `<i style="background:${sourceStyle(r.source).color}"></i>${escapeHtml(r.name || r.station_id)}`;
+    b.innerHTML = `${shapeSvg(sourceStyle(r.source).shape, sourceStyle(r.source).color)}${escapeHtml(r.name || r.station_id)}`;
     b.title = "Open this station on the map";
     b.addEventListener("click", () => actions.selectStation(stationKey(r), { fly: true }));
     chips.push(b);
