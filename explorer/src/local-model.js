@@ -74,9 +74,9 @@ export function localModelPossible() {
 }
 
 export function describeLocal() {
-  if (promptApiAvailable()) return "Chrome's built-in model (nothing to download)";
-  if (webgpuAvailable()) return "a small open model, about 2 GB, downloaded once and cached";
-  return "not available in this browser (needs Chrome 148+, or WebGPU)";
+  if (promptApiAvailable()) return "Chrome's built-in model";
+  if (webgpuAvailable()) return "a small open model, about 2 GB, downloaded once";
+  return "not available in this browser (needs Chrome 138+, or WebGPU)";
 }
 
 // ── loading ─────────────────────────────────────────────────────────────────
@@ -84,13 +84,25 @@ export function describeLocal() {
 export async function loadLocalModel(onProgress = () => {}) {
   if (engine) return engine;
   if (promptApiAvailable()) {
-    onProgress("Starting Chrome's built-in model…");
     const availability = await globalThis.LanguageModel.availability();
     if (availability === "unavailable") throw new Error("Chrome's built-in model is not available on this device.");
+    // Chrome fires downloadprogress even when the model is already on the
+    // machine, and it arrives as loaded: 1. Reporting that verbatim put
+    // "Downloading the model: 100 %" on screen for the whole run, which reads
+    // as a download stuck at the finish line rather than a model thinking.
+    // Only availability says whether anything is actually being fetched.
+    const willDownload = availability === "downloadable" || availability === "downloading";
+    onProgress(willDownload
+      ? "Downloading Chrome's built-in model (once)…"
+      : "Starting Chrome's built-in model…");
     const session = await globalThis.LanguageModel.create({
       initialPrompts: [{ role: "system", content: SYSTEM }],
       monitor(m) {
-        m.addEventListener("downloadprogress", (e) => onProgress(`Downloading the model: ${Math.round(e.loaded * 100)} %`));
+        m.addEventListener("downloadprogress", (e) => {
+          if (!willDownload) return;
+          const pct = Math.round((e.loaded || 0) * 100);
+          onProgress(pct >= 100 ? "Model downloaded, starting it…" : `Downloading the model: ${pct} %`);
+        });
       },
     });
     engine = {
@@ -160,6 +172,9 @@ export async function askLocally(question, { callTool, onEvent = () => {}, maxSt
   const toolCalls = [];
   let prompt = context ? `${question}\n\nContext: ${context}` : question;
   for (let step = 1; step <= maxSteps; step++) {
+    // A small model takes twenty seconds or so over a couple of tool calls.
+    // Without a running commentary that is indistinguishable from a hang.
+    onEvent(`Thinking… (step ${step} of ${maxSteps})`);
     const reply = parseReply(await eng.generate(prompt));
     if (reply.answer || !reply.tool) {
       return { answer: reply.answer || "The local model did not produce an answer.", toolCalls, model: eng.label };
@@ -167,6 +182,7 @@ export async function askLocally(question, { callTool, onEvent = () => {}, maxSt
     onEvent(`tool ${reply.tool}(${JSON.stringify(reply.arguments || {}).slice(0, 120)})`);
     let payload;
     try {
+      onEvent(`Running ${reply.tool}…`);
       payload = await callTool(reply.tool, reply.arguments || {});
     } catch (err) {
       payload = { error: err.message };
