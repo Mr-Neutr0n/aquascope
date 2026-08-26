@@ -480,8 +480,13 @@
 
       <div id="ask-compose">
         <textarea id="ask-question" rows="3" data-autofocus placeholder="e.g. What is the 100-year flood of the Thames at Kingston, and how sure can we be?"></textarea>
-        <label class="ask-context-toggle"><input type="checkbox" id="ask-use-context" checked /> tell it what I am looking at</label>
-        <p id="ask-context" class="muted ask-context" hidden><span id="ask-context-text"></span></p>
+        <div class="ask-context-row">
+          <label class="ask-context-toggle"><input type="checkbox" id="ask-use-context" checked /> tell it what I am looking at</label>
+          <details id="ask-context" class="ask-context" hidden>
+            <summary aria-label="Show what will be sent"></summary>
+            <p class="muted context-detail"><span id="ask-context-text"></span></p>
+          </details>
+        </div>
         <div id="ask-examples" class="ask-examples"></div>
       </div>
       <p id="ask-compose-note" class="muted ask-compose-note" hidden>Recorded runs. Pick another tab to ask your own.</p>
