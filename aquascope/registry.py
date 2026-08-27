@@ -89,7 +89,7 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="https://waterdata.usgs.gov/",
         variables=("discharge", "water_level", "water_quality"),
         supports_bbox=True, supports_station_lookup=True,
-        output_model="StreamflowReading | WaterQualitySample",
+        output_model="StreamflowReading | WaterLevelReading | WaterQualitySample",
         license="US-PD", redistributable=True,
         attribution="U.S. Geological Survey, National Water Information System (public domain)",
     ),
