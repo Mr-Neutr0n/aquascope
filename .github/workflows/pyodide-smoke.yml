@@ -11,6 +11,7 @@ on:
       - "explorer/**"
       - "pyproject.toml"
       - ".github/scripts/pyodide_smoke.mjs"
+      - ".github/workflows/pyodide-smoke.yml"
   schedule:
     - cron: "0 0 * * 1"  # 00:00 UTC on Monday — weekly upstream canary
   workflow_dispatch:
@@ -33,7 +34,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-        
+
       - name: Get Pyodide version
         id: pyodide-version
         if: github.event_name != 'schedule'
