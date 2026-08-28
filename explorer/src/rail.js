@@ -3,6 +3,7 @@
 // phone could neither filter sources nor turn the basins on.
 
 import { $, escapeHtml, sourceStyle, state } from "./core.js?v=__BUILD__";
+import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { sourceCounts } from "./catalog.js?v=__BUILD__";
 import { refreshMapData } from "./map.js?v=__BUILD__";
 import { setBasinsVisible } from "./basins.js?v=__BUILD__";
@@ -18,7 +19,7 @@ export function buildRail() {
     const row = document.createElement("label");
     row.className = "rail-row";
     row.innerHTML = `<input type="checkbox" id="${id}" ${state.hidden.has(src) ? "" : "checked"}>` +
-      `<i style="background:${st.color}"></i>` +
+      `${shapeSvg(st.shape, st.color)}` +
       `<span class="rail-label">${escapeHtml(st.label)}</span>` +
       `<span class="rail-count">${counts[src].toLocaleString()}</span>`;
     row.querySelector("input").addEventListener("change", (e) => {
@@ -39,9 +40,12 @@ export function buildRail() {
 }
 
 export function updateCount() {
+  const total = state.stations.length;
   const visible = state.stations.filter((r) => !state.hidden.has(r.source)).length;
   const el = $("count");
-  el.textContent = `${visible.toLocaleString()} of ${state.stations.length.toLocaleString()} gauges shown`;
+  el.textContent = visible === total
+    ? `${total.toLocaleString()} shown`
+    : `${visible.toLocaleString()} of ${total.toLocaleString()} shown`;
 }
 
 // Reflect a filter that arrived from the URL back into the checkboxes.

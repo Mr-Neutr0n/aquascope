@@ -1,0 +1,82 @@
+name: Pyodide Smoke Test
+
+# Proves the aquascope wheel installs and runs under Pyodide (WASM).
+# Catches incompatible C-extension dependencies or module-load side-effects
+# that would silently break the live demo.
+
+on:
+  pull_request:
+    paths:
+      - "aquascope/**"
+      - "explorer/**"
+      - "pyproject.toml"
+      - ".github/scripts/pyodide_smoke.mjs"
+  schedule:
+    - cron: "0 0 * * 1"  # 00:00 UTC on Monday — weekly upstream canary
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+        
+      - name: Get Pyodide version
+        id: pyodide-version
+        if: github.event_name != 'schedule'
+        run: |
+          PYODIDE_VERSION=$(grep -oP 'pyodideIndexURL:\s*"[^"]*/v\K[^/"]+' explorer/config.js)
+
+          if [ -z "$PYODIDE_VERSION" ]; then
+            echo "Failed to extract Pyodide version from explorer/config.js index URL."
+            exit 1
+          fi
+
+          echo "Using Pyodide $PYODIDE_VERSION"
+          echo "PYODIDE_VERSION=$PYODIDE_VERSION" >> "$GITHUB_ENV"
+          echo "version=$PYODIDE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install pyodide
+        run: |
+          # PRs/dispatch: pinned to PYODIDE_VERSION (the version explorer/config.js
+          # specifies) so this job tests the runtime the site actually serves.
+          # Scheduled Monday canary: float, to detect new incompatibilities early.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "Using floating Pyodide version..."
+            npm install pyodide
+          else
+            echo "Using Pyodide $PYODIDE_VERSION..."
+            npm install "pyodide@${PYODIDE_VERSION}"
+          fi
+
+      - name: Cache Pyodide packages
+        if: github.event_name != 'schedule'
+        uses: actions/cache@v5
+        with:
+          path: /tmp/pyodide-cache
+          key: pyodide-${{ steps.pyodide-version.outputs.version }}--${{ hashFiles('.github/scripts/pyodide_smoke.mjs') }}
+          restore-keys: pyodide-${{ steps.pyodide-version.outputs.version }}-
+
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build --wheel
+
+      - name: Run Pyodide smoke test
+        run: node .github/scripts/pyodide_smoke.mjs dist/aquascope-*.whl
+
+      - name: Assemble Explorer site
+        run: python explorer/build.py --out dist-explorer --wheel dist/aquascope-*.whl

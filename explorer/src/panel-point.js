@@ -3,9 +3,10 @@
 // in, the gauges nearest to it and what their regime suggests here.
 
 import { $, actions, copyText, escapeHtml, fmt, haversineKm, sourceStyle, state, stationKey } from "./core.js?v=__BUILD__";
+import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { addTableDownload, plot } from "./charts.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment } from "./basins.js?v=__BUILD__";
-import { setPointMarker, highlightStation } from "./map.js?v=__BUILD__";
+import { flyToPoint, setPointMarker, highlightStation } from "./map.js?v=__BUILD__";
 import { addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
 import { hideCard, selectTab, setCard, setTab, showSurface } from "./shell.js?v=__BUILD__";
 import { call } from "./worker-client.js?v=__BUILD__";
@@ -27,7 +28,7 @@ function nearestStations(lat, lon, n = 6) {
   return out;
 }
 
-export async function selectPoint(lat, lon, { tab = null, push = true } = {}) {
+export async function selectPoint(lat, lon, { tab = null, push = true, fly = false } = {}) {
   lat = Math.round(lat * 1e4) / 1e4;
   lon = Math.round(lon * 1e4) / 1e4;
   const my = ++pointRun;
@@ -36,6 +37,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true } = {}) {
   state.point = { lat, lon };
   highlightStation(null);
   setPointMarker(lat, lon);
+  if (fly) flyToPoint(lat, lon);
 
   showSurface("panel-point");
   $("pt-title").textContent = `${lat.toFixed(3)}°, ${lon.toFixed(3)}°`;
@@ -67,7 +69,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true } = {}) {
       li.setAttribute("role", "button");
       li.dataset.key = stationKey(r);
       const st = sourceStyle(r.source);
-      li.innerHTML = `<i style="background:${st.color}"></i>${escapeHtml(r.name || r.station_id)} ` +
+      li.innerHTML = `${shapeSvg(st.shape, st.color)}${escapeHtml(r.name || r.station_id)} ` +
         `<span class="muted">${escapeHtml(st.label)}</span>` +
         `<span class="dist">${d < 10 ? d.toFixed(1) : Math.round(d)} km</span>`;
       const open = () => actions.selectStation(li.dataset.key, { fly: true });

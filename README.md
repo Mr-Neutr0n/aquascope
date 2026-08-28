@@ -7,18 +7,19 @@
 **Open-source Python toolkit for water data, hydrology, and agricultural water management — with an AI engine that recommends and auto-executes research methodologies.**
 
 [![CI](https://github.com/Rekin226/aquascope/actions/workflows/ci.yml/badge.svg)](https://github.com/Rekin226/aquascope/actions/workflows/ci.yml)
+[![Pyodide](https://github.com/Rekin226/aquascope/actions/workflows/pyodide-smoke.yml/badge.svg)](https://github.com/Rekin226/aquascope/actions/workflows/pyodide-smoke.yml)
 [![PyPI version](https://img.shields.io/pypi/v/aquascope.svg?color=blue&cacheSeconds=300&v=2)](https://pypi.org/project/aquascope/)
 [![Python](https://img.shields.io/pypi/pyversions/aquascope.svg?color=informational&cacheSeconds=300&v=2)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21903143.svg)](https://doi.org/10.5281/zenodo.21903143)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Tests](https://img.shields.io/badge/tests-1000%2B%20passing-brightgreen.svg)](#)
-[![Live demo](https://img.shields.io/badge/%F0%9F%8C%8A%20Live%20demo-AquaScope%20Explorer-blue)](https://rekin226-aquascope-explorer.static.hf.space/)
+[![Live Explorer Demo – Runs in Your Browser](https://img.shields.io/badge/%F0%9F%8C%8A%20Live%20Demo-AquaScope%20Explorer-blue)](https://rekin226-aquascope-explorer.static.hf.space/)
 
 [![GitHub stars](https://img.shields.io/github/stars/Rekin226/aquascope?style=social)](https://github.com/Rekin226/aquascope/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Rekin226/aquascope?style=social)](https://github.com/Rekin226/aquascope/network/members)
 
-[**🌊 Live Demo**](https://rekin226-aquascope-explorer.static.hf.space/) ·
+[**🌊 Live Explorer Demo - Runs in Your Browser, No Install Required**](https://rekin226-aquascope-explorer.static.hf.space/) ·
 [**Install**](#-install) ·
 [**Examples**](#-examples) ·
 [**CLI**](#-cli) ·
@@ -407,6 +408,8 @@ Thanks to these wonderful people who make AquaScope possible ([emoji key](CONTRI
     <tr>
       <td align="center" valign="top" width="20%"><a href="https://github.com/Prakshal0809"><img src="https://avatars.githubusercontent.com/u/116380035?v=4?s=100" width="100px;" alt="PRAKSHAL BHAVINKUMAR BHANDARI"/><br /><sub><b>PRAKSHAL BHAVINKUMAR BHANDARI</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Prakshal0809" title="Documentation">📖</a></td>
       <td align="center" valign="top" width="20%"><a href="https://github.com/Osheun"><img src="https://avatars.githubusercontent.com/u/138526540?v=4?s=100" width="100px;" alt="Osheun"/><br /><sub><b>Osheun</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Tests">⚠️</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://dipakchaudhari.me"><img src="https://avatars.githubusercontent.com/u/111210939?v=4?s=100" width="100px;" alt="Dipak Chaudhari"/><br /><sub><b>Dipak Chaudhari</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=dchaudhari7177" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=dchaudhari7177" title="Tests">⚠️</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://github.com/Sanchar127"><img src="https://avatars.githubusercontent.com/u/143952019?v=4?s=100" width="100px;" alt="Sanchar127"/><br /><sub><b>Sanchar127</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Sanchar127" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Sanchar127" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>

@@ -4,6 +4,7 @@
 
 import { $, escapeHtml, state } from "./core.js?v=__BUILD__";
 import { announce, captureFocus } from "./a11y.js?v=__BUILD__";
+import { syncMapPadding } from "./map.js?v=__BUILD__";
 
 const SURFACES = ["panel-empty", "panel-station", "panel-point", "panel-workbench"];
 
@@ -11,6 +12,10 @@ export function showSurface(id) {
   for (const s of SURFACES) { const el = $(s); if (el) el.hidden = s !== id; }
   const panel = $("panel");
   if (panel) panel.scrollTop = 0;
+  revealPanel();
+  // Picking something on the map while the Analyst is open is a request to look
+  // at it, so the Analyst steps aside rather than hiding the thing you clicked.
+  if (drawerOpen()) closeDrawer();
 }
 
 export function isSurface(id) {
@@ -199,21 +204,41 @@ export function bootDone() {
   setTimeout(() => { bar.hidden = true; fill.style.width = "0%"; }, 400);
 }
 
-// ── drawer (Ask) ────────────────────────────────────────────────────────────
-// The drawer sits beside the inspector instead of replacing it, so the station
-// stays on screen while the Analyst works.
+// ── the Analyst ─────────────────────────────────────────────────────────────
+// One surface on the right, not two. The Analyst used to open *beside* the
+// inspector so the station stayed on screen, but two cards of the same size and
+// weight, side by side, do not read as "this one, then that one" -- they read
+// as clutter, and together they covered 60 % of a 1,440 px window. It takes the
+// inspector's place now and names what it came from, so the station is still
+// there in a line of text and one click away.
 
 let releaseDrawer = null;
+
+// What the Analyst is looking at, for the chip in its header.
+function contextChip() {
+  const chip = $("ask-context-chip");
+  if (!chip) return;
+  const st = state.selected;
+  const label = st
+    ? (st.name || st.station_id)
+    : state.point
+      ? `${state.point.lat.toFixed(2)}, ${state.point.lon.toFixed(2)}`
+      : "";
+  chip.textContent = label;
+  chip.hidden = !label;
+}
 
 export function openDrawer() {
   const d = $("drawer");
   if (!d) return;
+  contextChip();
   d.hidden = false;
   document.body.classList.add("drawer-open");
   $("btn-ask").setAttribute("aria-expanded", "true");
-  // Not trapped: on a wide screen the drawer sits beside the inspector, and
-  // tabbing out to the map is the right behaviour.
+  // Not trapped: tabbing out to the map is the right behaviour for a panel that
+  // is not modal.
   releaseDrawer = captureFocus(d, { onEscape: closeDrawer, restoreTo: $("btn-ask") });
+  syncMapPadding();
   announce("Ask panel opened");
 }
 
@@ -225,6 +250,7 @@ export function closeDrawer() {
   document.body.classList.remove("drawer-open");
   $("btn-ask").setAttribute("aria-expanded", "false");
   if (releaseDrawer) { releaseDrawer({ restore: wasOpen }); releaseDrawer = null; }
+  syncMapPadding();
 }
 
 export function toggleDrawer() {
@@ -237,7 +263,11 @@ export function drawerOpen() {
   return Boolean(d && !d.hidden);
 }
 
-// ── left rail (mobile) ──────────────────────────────────────────────────────
+// ── the layers rail ─────────────────────────────────────────────────────────
+// It floats over the map at every width now, rather than being a column that
+// took 232 px from the map on a laptop and hid entirely on a phone. Closed on
+// arrival: the map is what someone came for, and the layer list is two clicks
+// of depth, not a wall to read past.
 
 let releaseRail = null;
 
@@ -246,14 +276,45 @@ export function toggleRail(force) {
   document.body.classList.toggle("rail-open", open);
   const btn = $("btn-rail");
   if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
-  // The rail only overlays the map on a narrow screen; that is also the only
-  // width where the toggle exists, so focus follows it there and nowhere else.
-  if (open && btn && btn.offsetParent !== null) {
-    releaseRail = captureFocus($("rail"), { onEscape: () => toggleRail(false), restoreTo: btn });
+  if (open) {
+    // You cannot focus something still computed as visibility:hidden, and focus
+    // has to land inside for Escape to close it (an untrapped surface only owns
+    // Escape from within). Read a layout property first so the class change is
+    // applied before the focus call rather than after it.
+    const rail = $("rail");
+    void rail.offsetHeight;
+    releaseRail = captureFocus(rail, { onEscape: () => toggleRail(false), restoreTo: btn });
   } else if (releaseRail) {
     releaseRail({ restore: true });
     releaseRail = null;
   }
+}
+
+export function railOpen() {
+  return document.body.classList.contains("rail-open");
+}
+
+// ── the inspector ───────────────────────────────────────────────────────────
+// One click to push the panel off screen and see the map whole, and the same
+// click to bring it back. The panel keeps its state and its scroll position.
+
+export function togglePanel(force) {
+  const collapsed = force === undefined ? !document.body.classList.contains("panel-collapsed") : force;
+  const changed = collapsed !== document.body.classList.contains("panel-collapsed");
+  document.body.classList.toggle("panel-collapsed", collapsed);
+  if (changed) syncMapPadding();
+  const btn = $("btn-panel");
+  if (btn) {
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    btn.title = collapsed ? "Show the panel" : "Hide the panel and see the whole map";
+    btn.setAttribute("aria-label", btn.title);
+    btn.style.transform = collapsed ? "rotate(180deg)" : "";
+  }
+}
+
+// A selection is worth showing: bring the panel back if it was folded away.
+export function revealPanel() {
+  if (document.body.classList.contains("panel-collapsed")) togglePanel(false);
 }
 
 // ── modal ───────────────────────────────────────────────────────────────────
@@ -280,6 +341,7 @@ export function initShell() {
   $("modal-close").addEventListener("click", closeModal);
   $("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
   $("btn-rail").addEventListener("click", () => toggleRail());
+  $("btn-panel").addEventListener("click", () => togglePanel());
   $("drawer-close").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {
     if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
@@ -287,6 +349,34 @@ export function initShell() {
       $("search").focus();
       $("search").select();
     }
+  });
+  // A <details> menu stays open until it is toggled, which is not what anyone
+  // expects of a menu: clicking the map, or pressing Escape, should shut it.
+  document.addEventListener("click", (e) => {
+    for (const d of document.querySelectorAll("details.more[open]")) {
+      if (!d.contains(e.target)) d.open = false;
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const d of document.querySelectorAll("details.more[open]")) {
+      d.open = false;
+      const summary = d.querySelector("summary");
+      if (summary) summary.focus();
+    }
+  });
+  // Choosing something from the menu closes it too.
+  document.addEventListener("click", (e) => {
+    const item = e.target.closest(".more-menu > *");
+    if (item) { const d = item.closest("details.more"); if (d) d.open = false; }
+  });
+
+  // The floating cards change size with the window, and the map's idea of
+  // where "centre" is has to follow them.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(syncMapPadding, 150);
   });
   // Reflect state for tests and debugging.
   state.shellReady = true;

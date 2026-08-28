@@ -12,6 +12,7 @@ import { CONFIG } from "../config.js?v=__BUILD__";
 import {
   $, actions, copyText, downloadBlob, escapeHtml, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
+import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { closeDrawer, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=__BUILD__";
 import { Cancelled, callCancelable, call, onAskProgress } from "./worker-client.js?v=__BUILD__";
 import { map } from "./map.js?v=__BUILD__";
@@ -44,12 +45,13 @@ async function loadProviders() {
   }
 }
 
+// Three, not five: with the "About <this station>" chip prepended, five made a
+// six-chip block under a box you are supposed to be typing in. The full set is
+// still one tab away under Examples.
 const ASK_EXAMPLES = [
   "What is the 100-year flood of the Thames at Kingston, and how sure can we be?",
-  "Compare the low flows (Q95) of the Seine at Paris and the Loire at Blois.",
   "Is the Potomac at Little Falls getting drier? Use the annual-mean trend.",
-  "How wet is Taipei compared with London, and what is the aridity class of each?",
-  "Which UK boreholes near Cambridge have the longest groundwater records?",
+  "How wet is Taipei compared with London?",
 ];
 
 const ASK_STORE = "aquascope.ask.settings";
@@ -118,17 +120,33 @@ function contextLine() {
   const ctx = currentContext();
   const el = $("ask-context-text");
   el.textContent = ctx || "nothing selected yet";
+  // The context itself is five lines of generated prose naming the station, the
+  // centre of the map, the zoom and every layer. That is what gets sent, not
+  // something to read: the checkbox is the control, the text is the receipt.
   $("ask-context").hidden = !ctx;
   return ctx;
 }
+
+// The question we filled in last, so a later selection can replace it without
+// overwriting anything the reader typed themselves.
+let autoQuestion = "";
+
+const summariseQuestion = (r) =>
+  `Summarise the record of ${r.name || r.station_id} (${r.source} / ${r.station_id}): ` +
+  "period, mean, trend, and the flood frequency if the record allows it.";
 
 export function openAsk() {
   openDrawer();
   const q = $("ask-question");
   contextLine();
-  if (state.selected && !q.value.trim()) {
-    const r = state.selected;
-    q.value = `Summarise the record of ${r.name || r.station_id} (${r.source} / ${r.station_id}): period, mean, trend, and the flood frequency if the record allows it.`;
+  // Only filling an *empty* box meant the first station's question stayed for
+  // every station after it: you could be looking at a gauge in Illinois with
+  // "Summarise the record of L'Yvette à Villebon-sur-Yvette" still in the box,
+  // and the context line underneath naming the Illinois one. Replace our own
+  // text; never replace theirs.
+  if (state.selected && (!q.value.trim() || q.value.trim() === autoQuestion)) {
+    autoQuestion = summariseQuestion(state.selected);
+    q.value = autoQuestion;
   }
   const chip = $("ask-this-station");
   if (chip) chip.remove();
@@ -140,7 +158,8 @@ export function openAsk() {
     b.id = "ask-this-station";
     b.textContent = `About ${r.name || r.station_id}`;
     b.addEventListener("click", () => {
-      q.value = `Summarise the record of ${r.name || r.station_id} (${r.source} / ${r.station_id}): period, mean, trend, and the flood frequency if the record allows it.`;
+      autoQuestion = summariseQuestion(r);
+      q.value = autoQuestion;
       q.focus();
     });
     $("ask-examples").prepend(b);
@@ -184,6 +203,61 @@ function currentTier() {
   return el ? el.value : "key";
 }
 
+/**
+ * Show the half of the drawer the chosen tier can actually use.
+ *
+ * The drawer used to open on the credentials form with "Your key" preselected,
+ * so the first thing a visitor met was the one thing they could not do, and the
+ * eight recorded examples that need no key at all sat about 700 px below it
+ * (#271). The recorded runs lead now; asking your own question is a tier you
+ * choose.
+ */
+const TIER_NOTE = {
+  showcase: "Real runs, recorded once a week. No key needed.",
+  local: "Runs on your device. Nothing leaves this tab.",
+  key: "The full tool loop, with your own provider key.",
+};
+
+function applyTier() {
+  const tier = currentTier();
+  const showcase = tier === "showcase";
+  $("ask-settings").hidden = tier !== "key";
+  $("ask-showcase").hidden = showcase ? !hasRecordedExamples() : true;
+  $("ask-compose").hidden = showcase;
+  $("ask-compose-note").hidden = !showcase;
+  $("ask-run").hidden = showcase;
+  // One line, for the tier you actually picked. All three used to explain
+  // themselves at once, which is three explanations to read before you can
+  // choose between them.
+  const note = $("ask-tier-note");
+  if (note) {
+    const local = $("ask-local-note");
+    note.textContent = tier === "local" && local && local.textContent
+      ? `${TIER_NOTE.local} ${local.textContent}`
+      : (TIER_NOTE[tier] || "");
+  }
+  askStatus("");
+}
+
+// Whether CI has published any examples: with none, the tier is an empty box.
+function hasRecordedExamples() {
+  const box = $("ask-showcase");
+  return Boolean(box && box.querySelector(".showcase-chip"));
+}
+
+/**
+ * Bring an answer into view and let a screen reader announce it.
+ *
+ * A replayed example landed in `#ask-result` far enough down the drawer that on
+ * a normal viewport nothing visibly happened, which reads as a failed click.
+ */
+export function revealResult() {
+  const out = $("ask-result");
+  if (!out || out.hidden) return;
+  try { out.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { out.scrollIntoView(); }
+  out.focus({ preventScroll: true });
+}
+
 // The device tier: a small model here, a reduced tool set, tools run in the
 // worker exactly as they do for the full loop.
 async function runLocally(question) {
@@ -206,6 +280,7 @@ async function runLocally(question) {
     state.ask.markdown = `# ${question}\n\n${res.answer}\n`;
     $("ask-result").innerHTML = localAnswerHtml(res);
     $("ask-result").hidden = false;
+    revealResult();
     $("ask-copy").hidden = false;
     $("ask-download").hidden = false;
     $("ask-study").hidden = true;
@@ -294,6 +369,7 @@ function renderAsk(res) {
   const out = $("ask-result");
   out.innerHTML = mdToHtml(res.markdown);
   out.hidden = false;
+  revealResult();
   $("ask-copy").hidden = false;
   $("ask-download").hidden = false;
   renderChecks(res.checks || [], res.verified);
@@ -310,7 +386,7 @@ function renderAsk(res) {
     const b = document.createElement("button");
     b.className = "chip";
     b.type = "button";
-    b.innerHTML = `<i style="background:${sourceStyle(r.source).color}"></i>${escapeHtml(r.name || r.station_id)}`;
+    b.innerHTML = `${shapeSvg(sourceStyle(r.source).shape, sourceStyle(r.source).color)}${escapeHtml(r.name || r.station_id)}`;
     b.title = "Open this station on the map";
     b.addEventListener("click", () => actions.selectStation(stationKey(r), { fly: true }));
     chips.push(b);
@@ -432,14 +508,9 @@ export async function initAsk() {
   const localRadio = document.querySelector('input[name="ask-tier"][value="local"]');
   localRadio.disabled = !possible;
   for (const r of document.querySelectorAll('input[name="ask-tier"]')) {
-    r.addEventListener("change", () => {
-      const local = currentTier() === "local";
-      $("ask-settings").hidden = local;
-      askStatus(local
-        ? "Nothing leaves this tab: the model runs here, and so do the tools."
-        : "");
-    });
+    r.addEventListener("change", applyTier);
   }
+  applyTier();
   actions.openAsk = openAsk;
 
   // Last, because it is the only part that waits on the network: the provider
@@ -466,7 +537,12 @@ export async function initAsk() {
   if (saved.base_url && provider.value === "custom") base.value = saved.base_url;
   if (saved.key) $("ask-key").value = saved.key;
   $("ask-remember").checked = Boolean(saved.remember);
-  $("ask-settings").open = !saved.key;
+  // Collapsed unless there is already a key to look at (#271).
+  $("ask-settings").open = Boolean(saved.key);
+  if (saved.key) {
+    const keyTier = document.querySelector('input[name="ask-tier"][value="key"]');
+    if (keyTier) { keyTier.checked = true; applyTier(); }
+  }
   updateForgetButton();
   provider.addEventListener("change", () => applyProvider(false));
   for (const el of [provider, model, base, $("ask-key"), $("ask-remember")]) el.addEventListener("change", saveAskSettings);
