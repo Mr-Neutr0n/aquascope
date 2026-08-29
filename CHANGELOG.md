@@ -4,6 +4,9 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Changed
+- `CITATION.cff` lists the v0.13.0 version DOI `10.5281/zenodo.22152064` (concept DOI unchanged).
+
 ## [0.13.0] - 2026-08-29
 
 ### Added
