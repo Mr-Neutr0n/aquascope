@@ -160,6 +160,11 @@ class BOMCollector(BaseCollector):
         Rows whose coordinates fall outside ``AU_SANITY_BBOX`` are dropped
         (see that constant's docstring) and counted in a single summary
         warning, rather than being returned as if they were real stations.
+
+        If every parameter-type request fails, raises a ``RuntimeError`` so
+        the harvest and callers report the outage rather than recording an
+        empty catalog. If a subset of requests fails, logs a summary warning
+        naming the lost parameter types and returns the partial catalog.
         """
         if variable and variable not in PARAMETER_VARIABLE_MAP.values():
             return []
@@ -171,6 +176,8 @@ class BOMCollector(BaseCollector):
 
         grouped: dict[str, dict[str, Any]] = {}
         implausible_count = 0
+        failed_types: list[str] = []
+        last_exc: Exception | None = None
         for parameter_type in parameter_types:
             params: dict[str, Any] = {
                 "service": "kisters",
@@ -186,10 +193,15 @@ class BOMCollector(BaseCollector):
 
             try:
                 data = self.client.get_json(BOM_BASE, params=params)
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "BOM getStationList request failed for parametertype_name=%s", parameter_type, exc_info=True
+                    "BOM getStationList request failed for parametertype_name=%s: %s",
+                    parameter_type,
+                    exc,
+                    exc_info=True,
                 )
+                failed_types.append(parameter_type)
+                last_exc = exc
                 continue
 
             for row in self._parse_station_rows(data):
@@ -212,6 +224,21 @@ class BOMCollector(BaseCollector):
                     {"name": row.get("station_name"), "latitude": lat, "longitude": lon, "variables": set()},
                 )
                 entry["variables"].add(PARAMETER_VARIABLE_MAP[parameter_type])
+
+        if failed_types:
+            if len(failed_types) == len(parameter_types):
+                raise RuntimeError(
+                    f"BOM getStationList failed for all {len(parameter_types)} parameter type(s): "
+                    f"{', '.join(failed_types)}"
+                ) from last_exc
+            logger.warning(
+                "BOM getStationList failed for %d of %d parameter type(s) (%s); "
+                "returning partial catalog of %d station(s)",
+                len(failed_types),
+                len(parameter_types),
+                ", ".join(failed_types),
+                len(grouped),
+            )
 
         if implausible_count:
             logger.warning(
