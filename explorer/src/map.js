@@ -5,9 +5,14 @@
 import { EMPTY_FC, actions, dbg, escapeHtml, sourceStyle, state, trace } from "./core.js?v=__BUILD__";
 import { toFeatureCollection } from "./catalog.js?v=__BUILD__";
 import { TERRAIN_DEM, basemapById, overlayById, tileUrls } from "./layers.js?v=__BUILD__";
+import { SHAPE_NAMES, shapeSdf } from "./shapes.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
 
 export let map = null;
+
+// Set by the app to finish setting the map up if it loads after we gave up.
+let onLate = null;
+export function whenMapLoadsLate(cb) { onLate = cb; }
 
 // Our own sources and layers, which must survive a basemap change: setStyle
 // replaces the whole style, so they are carried across explicitly.
@@ -34,6 +39,89 @@ export function webglAvailable() {
 // demo tiles served Open Sans Semibold, which 404s there).
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
 const LABEL_FONT = ["Noto Sans Bold"];
+
+// Centred on the Atlantic: the one framing that holds North America, Europe and
+// west Africa at once, which is where all six agencies are. The old default
+// fitted a box from California to Taiwan, which cropped both ends of it.
+export const DEFAULT_CENTER = [-38, 28];
+
+// How much of the map is hidden behind the floating cards. MapLibre calls this
+// padding, and once it knows about it "centre" means the middle of what you can
+// actually see: the globe is not framed half under the inspector, and flying to
+// a gauge does not land it beneath the panel either.
+export function panelPadding() {
+  const pad = { top: 0, right: 0, bottom: 0, left: 0 };
+  if (!map) return pad;
+  const frame = map.getContainer().getBoundingClientRect();
+  if (!frame.width || !frame.height) return pad;
+  if (document.body.classList.contains("workbench-mode")) return pad;
+  const cards = [document.getElementById("panel"), document.getElementById("drawer")];
+  for (const el of cards) {
+    if (!el || el.hidden || el.offsetParent === null) continue;
+    if (el.id === "panel" && document.body.classList.contains("panel-collapsed")) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    // A card narrower than the map is a side panel; a full-width one is the
+    // bottom sheet the narrow layout uses.
+    if (r.width < frame.width * 0.75) pad.right = Math.max(pad.right, frame.right - r.left);
+    else pad.bottom = Math.max(pad.bottom, frame.bottom - r.top);
+  }
+  // Never more than a bit under half. Past roughly 52 % of the width the camera
+  // centre is far enough off that MapLibre's own scale control cannot unproject
+  // on a globe and prints "NaN m" (measured: fine at 750 px of 1,440, broken at
+  // 800). With the inspector and the Analyst both open on a 1,440 px window the
+  // uncapped figure is 859. The globe then sits partly behind a card, which is
+  // what a map under a floating panel is supposed to do.
+  pad.right = Math.min(pad.right, frame.width * 0.48);
+  pad.bottom = Math.min(pad.bottom, frame.height * 0.48);
+  return pad;
+}
+
+export function syncMapPadding() {
+  if (!state.mapOk || !map) return;
+  const next = panelPadding();
+  // setPadding moves the camera, so only when it would actually change
+  // something: otherwise a resize or a re-render nudges the map for no reason,
+  // and can cut a fly-to short.
+  const now = map.getPadding ? map.getPadding() : null;
+  if (now && ["top", "right", "bottom", "left"].every((k) => Math.abs((now[k] || 0) - next[k]) < 2)) return;
+  try { map.setPadding(next, { duration: 0 }); } catch { /* nothing to do */ }
+}
+
+// The cards resize for reasons no click tells us about: the workbench widening
+// the inspector, a long station name wrapping, the window changing. Watch them
+// instead of trying to name every occasion.
+export function watchPanelSizes() {
+  if (typeof ResizeObserver === "undefined") return;
+  let timer = null;
+  const ro = new ResizeObserver(() => {
+    clearTimeout(timer);
+    timer = setTimeout(syncMapPadding, 120);
+  });
+  for (const id of ["panel", "drawer"]) {
+    const el = document.getElementById(id);
+    if (el) ro.observe(el);
+  }
+}
+
+// The globe does not grow as 2^zoom: MapLibre eases it towards Mercator as you
+// zoom in, so the sphere widens by about 1.78x per zoom level rather than 2x.
+// Measured on MapLibre 5.6 at zooms 0.8 to 2.4 (268, 344, 432, 544, 686 px).
+const GLOBE_PX_AT_Z0 = 169;
+const GLOBE_GROWTH = Math.log(1.782);
+
+// Zoom so the globe (or the world) fills the part of the map you can see.
+// It has to be derived from the container: a hard-coded zoom leaves a marble in
+// a sea of white on a monitor and overflows on a phone.
+export function fitWorldZoom(container, { globe = true } = {}) {
+  const pad = panelPadding();
+  const w = Math.max(220, (container ? container.clientWidth : 900) - pad.right);
+  const h = Math.max(220, (container ? container.clientHeight : 700) - pad.bottom);
+  const zoom = globe
+    ? Math.log((Math.min(w, h) * 0.76) / GLOBE_PX_AT_Z0) / GLOBE_GROWTH
+    : Math.log2((Math.max(w, Math.min(w, h)) * 1.02) / 256);
+  return Math.max(0, Math.min(4, zoom));
+}
 
 // A raster basemap as a whole style, so switching basemaps is always the same
 // operation whether the target is a vector style URL or a tile template.
@@ -70,7 +158,7 @@ function styleFor(basemapId, date) {
   return b.kind === "style" ? b.url : rasterStyle(b, date);
 }
 
-export function initMap(initialView, { basemap = "light", date = null } = {}) {
+export function initMap(initialView, { basemap = "light", date = null, globe = false } = {}) {
   if (!webglAvailable()) {
     trace("map: no webgl");
     return Promise.resolve({ ok: false, reason: "webgl" });
@@ -79,9 +167,10 @@ export function initMap(initialView, { basemap = "light", date = null } = {}) {
     map = dbg.map = new maplibregl.Map({
       container: "map",
       style: styleFor(basemap, date),
-      center: initialView ? [initialView.lon, initialView.lat] : [0, 30],
+      center: initialView ? [initialView.lon, initialView.lat] : DEFAULT_CENTER,
       zoom: initialView ? initialView.zoom : 1.6,
-      attributionControl: { compact: true },
+      // Added by hand below, at the bottom left, where the inspector is not.
+      attributionControl: false,
     });
   } catch (err) {
     console.warn("map unavailable:", err && err.message);
@@ -89,15 +178,40 @@ export function initMap(initialView, { basemap = "light", date = null } = {}) {
     return Promise.resolve({ ok: false, reason: "init" });
   }
   appliedBasemap = basemap;
+  // Coverage is global and sparse, so the world view is a globe: it drops
+  // Mercator's polar exaggeration, and MapLibre flattens it back to Mercator on
+  // its own past about zoom 5, where the work happens. It has to be set on the
+  // map rather than passed to the constructor, which ignores a `projection`
+  // option (getProjection() comes back undefined), and setting it as soon as
+  // the style is ready avoids a flat frame before the globe appears.
+  // applyLayerState() is what decides state.globe; this only gets the sphere on
+  // screen sooner, so it must not write back a failure over the intent.
+  if (globe) map.once("style.load", () => setGlobe(true));
+  // One column at the top left: our layers and projection buttons first (see
+  // .map-tools), then MapLibre's own, which the stylesheet pushes below them.
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
-  map.addControl(new maplibregl.ScaleControl(), "bottom-left");
-  map.addControl(new maplibregl.FullscreenControl(), "top-left");
   map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "top-left");
+  map.addControl(new maplibregl.FullscreenControl(), "top-left");
+  // Bottom left, both of them: the inspector floats over the bottom right.
+  map.addControl(new maplibregl.ScaleControl(), "bottom-left");
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve({ ok: false, reason: "slow" }), 20000);
     let settled = false;
+    let timer = null;
     const done = (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
-    map.once("load", () => done({ ok: true }));
+    // Through done(), not resolve(): giving up has to record that we gave up,
+    // or the late-load branch below cannot tell that it is late.
+    timer = setTimeout(() => done({ ok: false, reason: "slow" }), 20000);
+    map.once("load", () => {
+      // The twenty seconds are a promise to the reader, not a verdict on the
+      // map: a cold cache with Pyodide's 15 MB downloading alongside it can
+      // take longer, and a tab that was in the background renders nothing at
+      // all until it is looked at, so `load` can arrive minutes late. It used
+      // to be terminal, which left a working map with no gauges on it under a
+      // notice saying it had failed, recoverable only by reloading.
+      if (settled) { const late = onLate; onLate = null; if (late) late(); return; }
+      done({ ok: true });
+    });
     map.once("error", (e) => {
       // A basemap host can be down (none of these have an SLA). Fall back to a
       // raster basemap once rather than losing the whole map.
@@ -141,6 +255,7 @@ export const currentBasemap = () => appliedBasemap;
 export function setBasemap(id, { date = null, then = null } = {}) {
   if (!state.mapOk) return;
   const terrainOn = Boolean(map.getTerrain && map.getTerrain());
+  const globeOn = Boolean(state.globe);
   appliedBasemap = id;
   map.setStyle(styleFor(id, date), { diff: false, transformStyle: carryOver });
   // The new style is not usable until it has loaded; terrain in particular is a
@@ -149,8 +264,26 @@ export function setBasemap(id, { date = null, then = null } = {}) {
     if (terrainOn && map.getSource("terrain-dem")) {
       map.setTerrain({ source: "terrain-dem", exaggeration: 1.3 });
     }
+    // setStyle replaces the projection and the image table along with the rest.
+    ensureShapeImages();
+    if (globeOn) setGlobe(true);
     if (then) then();
   });
+}
+
+// One SDF image per shape, registered on the current style. setStyle throws the
+// image table away with everything else, so this runs again after a basemap
+// change; the shapes themselves are computed once and reused.
+const sdfCache = new Map();
+
+export function ensureShapeImages() {
+  if (!map) return;
+  for (const name of SHAPE_NAMES) {
+    const id = `gauge-${name}`;
+    if (map.hasImage && map.hasImage(id)) continue;
+    if (!sdfCache.has(name)) sdfCache.set(name, shapeSdf(name));
+    try { map.addImage(id, sdfCache.get(name), { sdf: true, pixelRatio: 2 }); } catch { /* already there */ }
+  }
 }
 
 function firstDataLayerId() {
@@ -227,12 +360,14 @@ export function setHillshade(on) {
   if (map.getLayer("hillshade")) return;
   map.addLayer({
     id: "hillshade", type: "hillshade", source: "terrain-dem",
-    paint: { "hillshade-exaggeration": 0.5, "hillshade-shadow-color": "#4a4a4a" },
+    paint: { "hillshade-exaggeration": 0.38, "hillshade-shadow-color": "#3f5566", "hillshade-accent-color": "#5b7286" },
   }, firstDataLayerId());
 }
 
 export function setGlobe(on) {
-  if (!state.mapOk || !map.setProjection) return false;
+  // `map`, not `state.mapOk`: the projection can be set as soon as the map
+  // object exists, and mapOk is only true once the app has finished booting it.
+  if (!map || !map.setProjection) return false;
   try {
     map.setProjection({ type: on ? "globe" : "mercator" });
     return true;
@@ -252,7 +387,7 @@ const COLOR_FIELD = { source: "color", record: "colorRecord", recent: "colorRece
 
 export function setGaugeStyle(mode) {
   if (!state.mapOk || !map.getLayer("points")) return;
-  map.setPaintProperty("points", "circle-color", ["get", COLOR_FIELD[mode] || "color"]);
+  map.setPaintProperty("points", "icon-color", ["get", COLOR_FIELD[mode] || "color"]);
 }
 
 export function setHeatmap(on) {
@@ -274,28 +409,60 @@ export function setHeatmap(on) {
 
 export function addStationLayers(fc) {
   map.addSource("catchment", { type: "geojson", data: EMPTY_FC });
-  map.addLayer({ id: "catchment-fill", type: "fill", source: "catchment", paint: { "fill-color": "#1565c0", "fill-opacity": 0.14 } });
-  map.addLayer({ id: "catchment-line", type: "line", source: "catchment", paint: { "line-color": "#0d47a1", "line-width": 1.6, "line-dasharray": [2, 1.5] } });
-  map.addSource("stations", { type: "geojson", data: fc, cluster: true, clusterMaxZoom: 9, clusterRadius: 38 });
+  map.addLayer({ id: "catchment-fill", type: "fill", source: "catchment", paint: { "fill-color": "#0b6bb8", "fill-opacity": 0.15 } });
+  map.addLayer({ id: "catchment-line", type: "line", source: "catchment", paint: { "line-color": "#075390", "line-width": 1.8, "line-dasharray": [2, 1.5] } });
+  // clusterRadius 38 with clusterMaxZoom 9 tiled the United States with
+  // touching bubbles right down to state level. Wider grouping makes fewer,
+  // separated circles, and handing over to real dots at zoom 6 means you are
+  // looking at gauges as soon as you are looking at a river basin.
+  map.addSource("stations", { type: "geojson", data: fc, cluster: true, clusterMaxZoom: 6, clusterRadius: 92 });
   map.addLayer({
     id: "clusters", type: "circle", source: "stations", filter: ["has", "point_count"],
     paint: {
-      "circle-color": "#1565c0", "circle-opacity": 0.7, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5,
-      "circle-radius": ["step", ["get", "point_count"], 13, 50, 17, 250, 22, 1000, 28],
+      "circle-color": ["interpolate", ["linear"], ["get", "point_count"],
+        1, "#4d9fe0", 100, "#2b7fc4", 1000, "#125ea3", 10000, "#0b3f76"],
+      "circle-opacity": 0.92,
+      "circle-stroke-color": "rgba(255,255,255,.85)",
+      "circle-stroke-width": ["step", ["get", "point_count"], 1.5, 250, 2],
+      "circle-radius": ["interpolate", ["linear"], ["sqrt", ["get", "point_count"]],
+        1, 11, 10, 17, 40, 23, 130, 29],
     },
   });
   map.addLayer({
     id: "cluster-count", type: "symbol", source: "stations", filter: ["has", "point_count"],
-    layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 11, "text-font": LABEL_FONT },
-    paint: { "text-color": "#fff" },
+    layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": ["step", ["get", "point_count"], 11, 250, 12.5], "text-font": LABEL_FONT },
+    paint: { "text-color": "#fff", "text-halo-color": "rgba(10,45,80,.35)", "text-halo-width": 0.6 },
   });
+  // A symbol layer rather than a circle, so which agency a gauge belongs to is
+  // carried by outline as well as by hue (#283). SDF icons keep the colour
+  // data-driven, so "colour by record length" still works and the shape goes on
+  // saying the source underneath. allow-overlap because every gauge counts:
+  // symbol layers hide colliding icons by default, and a circle layer does not.
+  ensureShapeImages();
   map.addLayer({
-    id: "points", type: "circle", source: "stations", filter: ["!", ["has", "point_count"]],
-    paint: { "circle-color": ["get", "color"], "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3, 10, 6, 14, 9], "circle-stroke-color": "#fff", "circle-stroke-width": 1 },
+    id: "points", type: "symbol", source: "stations", filter: ["!", ["has", "point_count"]],
+    layout: {
+      "icon-image": ["concat", "gauge-", ["get", "shape"]],
+      // The icon is 24 px of shape in a 40 px field at pixelRatio 2, so 12 CSS
+      // px natural; these factors put it back on the diameters the circle layer
+      // used (6.8 px at z4 up to 18 px at z14).
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.57, 7, 0.77, 10, 1.08, 14, 1.5],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+    },
+    paint: {
+      "icon-color": ["get", "color"],
+      "icon-halo-color": "rgba(255,255,255,.92)",
+      "icon-halo-width": ["interpolate", ["linear"], ["zoom"], 4, 1, 10, 1.6],
+      "icon-opacity": 0.98,
+    },
   });
   map.addLayer({
     id: "selected", type: "circle", source: "stations", filter: ["==", ["get", "key"], "__none__"],
-    paint: { "circle-color": "#ffd600", "circle-radius": 11, "circle-stroke-color": "#212121", "circle-stroke-width": 2 },
+    paint: {
+      "circle-color": "#ffc400", "circle-radius": 10,
+      "circle-stroke-color": "#10222f", "circle-stroke-width": 2.5, "circle-opacity": 1,
+    },
   });
 
   map.on("click", "clusters", async (e) => {
@@ -343,6 +510,12 @@ export function highlightStation(key) {
 
 export function flyToStation(r) {
   if (state.mapOk) map.flyTo({ center: [r.lon, r.lat], zoom: Math.max(map.getZoom(), 9) });
+}
+
+// A gauge gets flown to; a point never was, so "the climate of Taipei" and any
+// #p= link dropped a marker somewhere off screen and left you on the world view.
+export function flyToPoint(lat, lon, { zoom = 8 } = {}) {
+  if (state.mapOk) map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom) });
 }
 
 export function setPointMarker(lat, lon) {
