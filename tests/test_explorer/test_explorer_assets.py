@@ -170,7 +170,13 @@ def test_fmt_honours_its_digits_argument() -> None:
       m.fmt(3.4217), m.fmt(null), m.fmt(2320.4, 0),
     ]));
     """
-    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, encoding="utf-8", check=True)
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
     got = json.loads(out.stdout)
     assert got[0] == "303"          # digits honoured below 1000
     assert got[1] == "1.51"         # and below 10
@@ -192,7 +198,13 @@ def test_fmt_p_formats_small_p_values_and_handles_nones() -> None:
       m.fmtP(1.0), m.fmtP(null), m.fmtP(undefined), m.fmtP(Number.NaN),
     ]));
     """
-    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, encoding="utf-8", check=True)
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
     got = json.loads(out.stdout)
     assert got[0] == "< 0.001"
     assert got[1] == "< 0.001"
