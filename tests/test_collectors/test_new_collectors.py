@@ -124,7 +124,7 @@ class TestWQPCollector:
                 "Location_Longitude": "-67.5",
                 "Activity_StartDate": "2023-05-15",
                 "Activity_StartTime": "10:30:00",
-                "Characteristic_Name": "Dissolved oxygen (DO)",
+                "Result_Characteristic": "Dissolved oxygen (DO)",
                 "Result_Measure": "8.5",
                 "Result_MeasureUnit": "mg/l",
             },
@@ -142,13 +142,13 @@ class TestWQPCollector:
             {
                 "Location_Identifier": "USGS-01010000",
                 "Activity_StartDate": "2023-05-15",
-                "Characteristic_Name": "pH",
+                "Result_Characteristic": "pH",
                 "Result_Measure": "",
             },
             {
                 "Location_Identifier": "USGS-01010000",
                 "Activity_StartDate": "2023-05-15",
-                "Characteristic_Name": "pH",
+                "Result_Characteristic": "pH",
                 "Result_Measure": "-",
             },
         ]
@@ -159,7 +159,7 @@ class TestWQPCollector:
     def test_fetch_raw_bounded_by_max_results(self):
         # 5 data rows offered, but we only asked for 2 — stream must stop early.
         csv_lines = [
-            "Location_Identifier,Characteristic_Name,Result_Measure",
+            "Location_Identifier,Result_Characteristic,Result_Measure",
             "A,pH,7.0",
             "B,pH,7.1",
             "C,pH,7.2",

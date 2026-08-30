@@ -78,7 +78,7 @@ class TestWQPRoutesThroughClient:
             "USGS-01010000,8.5\n"
         )
         mock_client = MagicMock()
-        mock_client._client = SimpleNamespace()  # no `stream` attribute
+        mock_client._client = SimpleNamespace()  # no streaming capability
         mock_client.get_text.return_value = csv_body
         collector = WQPCollector(client=mock_client)
 
