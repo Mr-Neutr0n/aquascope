@@ -170,7 +170,7 @@ def test_fmt_honours_its_digits_argument() -> None:
       m.fmt(3.4217), m.fmt(null), m.fmt(2320.4, 0),
     ]));
     """
-    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, encoding="utf-8", check=True)
     got = json.loads(out.stdout)
     assert got[0] == "303"          # digits honoured below 1000
     assert got[1] == "1.51"         # and below 10
@@ -179,6 +179,29 @@ def test_fmt_honours_its_digits_argument() -> None:
     assert got[4] == "3.422"
     assert got[5] == "—"
     assert got[6] == "2,320"
+
+
+@pytestmark_node
+def test_fmt_p_formats_small_p_values_and_handles_nones() -> None:
+    """A test with p = 0.000192 must format as '< 0.001' rather than 'p = 0'."""
+    core = EXPLORER / "src" / "core.js"
+    script = f"""
+    const m = await import({json.dumps(core.as_uri())});
+    console.log(JSON.stringify([
+      m.fmtP(0.000192), m.fmtP(0.0009), m.fmtP(0.001), m.fmtP(0.042),
+      m.fmtP(1.0), m.fmtP(null), m.fmtP(undefined), m.fmtP(Number.NaN),
+    ]));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, encoding="utf-8", check=True)
+    got = json.loads(out.stdout)
+    assert got[0] == "< 0.001"
+    assert got[1] == "< 0.001"
+    assert got[2] == "0.001"
+    assert got[3] == "0.042"
+    assert got[4] == "1.000"
+    assert got[5] == "—"
+    assert got[6] == "—"
+    assert got[7] == "—"
 
 
 @pytestmark_node

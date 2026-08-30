@@ -4,6 +4,9 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **GEV bootstrap discard tracking and Mann-Kendall p-value formatting** (#272): `FloodFreqResult` now exposes `n_bootstrap` and `n_bootstrap_discarded` counts when bootstrap confidence intervals are computed, surfacing when parameter bounds ($|c| \le 0.50$) discard resamples. The counts are threaded through `aquascope.explore`, `aquascope.workbench`, and the MCP server. In the Explorer, the Floods panel renders a footer caveat when $\ge 5\%$ of resamples are discarded, and Mann-Kendall trend p-values are formatted with `fmtP` (reporting `< 0.001` instead of `p = 0` for tiny p-values).
+
 ## [0.13.0] - 2026-08-29
 
 ### Added
