@@ -184,7 +184,7 @@ class WQPCollector(BaseCollector):
                     try:
                         sample_dt = datetime.strptime(date_str, "%Y-%m-%d")
                     except ValueError:
-                        logger.warning(
+                        logger.debug(
                             "Skipping WQP row: unparseable date '%s' for station %s",
                             date_str,
                             row.get("Location_Identifier", "unknown"),
@@ -205,7 +205,7 @@ class WQPCollector(BaseCollector):
                     )
                 )
             except (ValueError, KeyError, TypeError) as exc:
-                logger.warning(
+                logger.debug(
                     "Skipping WQP row due to error: %s (station: %s)",
                     exc,
                     row.get("Location_Identifier", "unknown"),
