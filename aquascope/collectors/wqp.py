@@ -198,7 +198,7 @@ class WQPCollector(BaseCollector):
                         station_name=row.get("Location_Name"),
                         location=loc,
                         sample_datetime=sample_dt,
-                        parameter=row.get("Characteristic_Name", "unknown"),
+                        parameter=row.get("Result_Characteristic", "unknown"),
                         value=float(val_str),
                         unit=row.get("Result_MeasureUnit", ""),
                         county=row.get("Location_CountyCode"),
