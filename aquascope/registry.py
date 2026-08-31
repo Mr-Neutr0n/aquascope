@@ -242,10 +242,10 @@ SOURCES: dict[str, SourceMeta] = {
     ),
     "taiwan_wra_iot": _s(
         key="taiwan_wra_iot", label="Taiwan WRA IoT", region="Taiwan",
-        description="Real-time groundwater level and rainfall accumulation",
+        description="Real-time groundwater level (v2 API; rainfall requires paid membership, not supported)",
         agency="Water Resources Agency, MOEA", country="TWN",
         homepage="https://iot.wra.gov.tw/",
-        variables=("groundwater_level", "precipitation"),
+        variables=("groundwater_level",),
         output_model="WaterQualitySample",
         license="OGDL-Taiwan-1.0", redistributable=True,
         attribution="Water Resources Agency, Ministry of Economic Affairs (Open Government Data License 1.0)",
