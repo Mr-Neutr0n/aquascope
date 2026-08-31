@@ -4,6 +4,13 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **WQP collector moved to the WQX 3.0 API** (#170). The old WQX 2.2 endpoint missed USGS data after 2024-03-11. `fetch_raw` now calls `/wqx3/Result/search` with `dataProfile=narrow`; a clean break from 2.2 — only WQX 3.0 field names are read (cross-walked from the official schema, e.g. `ResultMeasureValue` to `Result_Measure`, `CharacteristicName` to `Characteristic_Name`, `MonitoringLocationIdentifier` to `Location_Identifier`), with no dual-version support.
+
+### Fixed
+- **WQP no longer downloads the whole state** (#170). `/Result/search` returns CSV with no server-side row cap, so a state query buffered hundreds of MB (317 MB / 452 s / 836k rows) before `max_results` was applied. `fetch_raw` now streams the response off the underlying httpx transport and stops reading once `max_results` rows are seen, so a query downloads only the window it needs.
+- **WQP failures are loud instead of silent empties** (#170). The old collector caught every error and returned `[]`, so a slow or dead endpoint looked like a genuine "no data" response. Errors now log descriptively and re-raise, and the client uses a payload-appropriate 600 second timeout; now, only a genuine empty body returns `[]`. Where streaming transport is unavailable, it warns that streaming is off and falls back to a buffered request.
+
 ## [0.13.0] - 2026-08-29
 
 ### Added
