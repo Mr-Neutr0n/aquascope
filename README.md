@@ -410,6 +410,7 @@ Thanks to these wonderful people who make AquaScope possible ([emoji key](CONTRI
       <td align="center" valign="top" width="20%"><a href="https://github.com/Osheun"><img src="https://avatars.githubusercontent.com/u/138526540?v=4?s=100" width="100px;" alt="Osheun"/><br /><sub><b>Osheun</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Tests">⚠️</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Osheun" title="Documentation">📖</a></td>
       <td align="center" valign="top" width="20%"><a href="https://dipakchaudhari.me"><img src="https://avatars.githubusercontent.com/u/111210939?v=4?s=100" width="100px;" alt="Dipak Chaudhari"/><br /><sub><b>Dipak Chaudhari</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=dchaudhari7177" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=dchaudhari7177" title="Tests">⚠️</a></td>
       <td align="center" valign="top" width="20%"><a href="https://github.com/Sanchar127"><img src="https://avatars.githubusercontent.com/u/143952019?v=4?s=100" width="100px;" alt="Sanchar127"/><br /><sub><b>Sanchar127</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Sanchar127" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Sanchar127" title="Tests">⚠️</a></td>
+      <td align="center" valign="top" width="20%"><a href="http://harikp.com"><img src="https://avatars.githubusercontent.com/u/64578610?v=4?s=100" width="100px;" alt="hari"/><br /><sub><b>hari</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Mr-Neutr0n" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
@@ -431,7 +432,7 @@ If you use AquaScope in your research, please cite:
   author  = {Ouédraogo, Abdoul Rachid},
   year    = {2026},
   url     = {https://github.com/Rekin226/aquascope},
-  version = {0.12.0},
+  version = {0.13.0},
   doi     = {10.5281/zenodo.21903143},
   license = {MIT}
 }
@@ -440,7 +441,7 @@ If you use AquaScope in your research, please cite:
 Machine-readable metadata lives in [CITATION.cff](CITATION.cff); GitHub's "Cite this
 repository" button renders it in APA and BibTeX. Every tagged release is archived on
 Zenodo; `10.5281/zenodo.21903143` is the concept DOI that always resolves to the latest
-version (v0.11.0 is [10.5281/zenodo.21989509](https://doi.org/10.5281/zenodo.21989509)).
+version (v0.12.0 is [10.5281/zenodo.21995649](https://doi.org/10.5281/zenodo.21995649)).
 
 ## 📄 License
 
