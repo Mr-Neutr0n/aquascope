@@ -67,7 +67,7 @@ def fit_gev(
     discharge: pd.Series,
     *,
     return_periods: list[int] | None = None,
-    ci_level: float = 0.90,
+    ci_level: float | None = 0.90,
     max_abs_shape: float = 0.5,
 ) -> FloodFreqResult:
     """Fit a Generalized Extreme Value (GEV) distribution via MLE with L-moments seeding.

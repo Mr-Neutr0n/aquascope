@@ -342,7 +342,7 @@ class TestFloodFrequency:
         res_boot = fit_gev(self.q, ci_level=0.90)
         assert res_boot.n_bootstrap == 1000
         assert isinstance(res_boot.n_bootstrap_discarded, int)
-        assert res_boot.n_bootstrap_discarded >= 0
+        assert res_boot.n_bootstrap_discarded > 0
 
         res_no_ci = fit_gev(self.q, ci_level=None)
         assert res_no_ci.n_bootstrap is None
