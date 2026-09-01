@@ -385,8 +385,8 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="https://unstats.un.org/sdgs/",
         variables=("indicator",),
         output_model="SDG6Indicator",
-        license="unknown", redistributable=False,
-        attribution="United Nations Statistics Division, SDG Global Database",
+        license="UNdata Terms of Use", redistributable=True,
+        attribution="UNdata",
     ),
     "aquastat": _s(
         key="aquastat", label="FAO AQUASTAT", region="Global",
