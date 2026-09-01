@@ -211,7 +211,9 @@ def analyze_station(
     if bootstrap_ci and res.get("ffa") and store.get("series") is not None:
         try:
             ci = flood_ci(store["series"])
-            res["ffa"]["fits"]["gev_bootstrap"] = {k: ci[k] for k in ("q", "ci", "params")}
+            res["ffa"]["fits"]["gev_bootstrap"] = {
+                k: ci[k] for k in ("q", "ci", "params", "n_bootstrap", "n_bootstrap_discarded") if k in ci
+            }
             res.setdefault("methods", []).append(ci["method"])
         except Exception as exc:  # noqa: BLE001
             res.setdefault("notes", []).append(f"bootstrap CI failed: {exc}")
