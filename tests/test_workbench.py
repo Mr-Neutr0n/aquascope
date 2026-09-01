@@ -177,6 +177,8 @@ def test_flood_frequency_return_levels_increase(discharge_frame: pd.DataFrame) -
     levels = [res["return_periods"][k] for k in sorted(res["return_periods"], key=float)]
     assert levels == sorted(levels), "a longer return period cannot mean a smaller flood"
     assert res["distribution"] == "GEV"
+    assert res["n_bootstrap"] == 1000
+    assert isinstance(res["n_bootstrap_discarded"], int) and res["n_bootstrap_discarded"] >= 0
 
 
 def test_return_periods_carry_the_empirical_points(discharge_frame: pd.DataFrame) -> None:
@@ -341,6 +343,7 @@ def test_run_says_when_an_analysis_needs_data() -> None:
 
 def test_the_dashboard_uses_the_workbench_rather_than_its_own_copy() -> None:
     """_state used to carry a second implementation of the column rules."""
+    pytest.importorskip("streamlit")
     from aquascope.dashboard import _state
 
     assert _state.profile is wb.profile
