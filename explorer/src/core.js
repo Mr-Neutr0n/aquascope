@@ -90,6 +90,16 @@ export function fmt(x, digits) {
   return n.toLocaleString(undefined, { maximumFractionDigits: d });
 }
 
+// P-values. A test with p = 0.000192 is not "p = 0", which is mathematically
+// impossible for most tests and misleads readers; report small values as "< 0.001".
+export function fmtP(p) {
+  if (p === null || p === undefined || Number.isNaN(p)) return "—";
+  const n = Number(p);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 0.001) return "< 0.001";
+  return n.toFixed(3);
+}
+
 // "a increasing trend" was wrong; pick the article from the first sound.
 export const article = (word) => (/^[aeiou]/i.test(String(word)) ? "an" : "a");
 

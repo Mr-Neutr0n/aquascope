@@ -5,7 +5,7 @@
 
 import { CONFIG } from "../config.js?v=__BUILD__";
 import {
-  $, VAR_LABEL, actions, article, copyText, downloadBlob, escapeHtml, fmt, sourceStyle, state, stationKey,
+  $, VAR_LABEL, actions, article, copyText, downloadBlob, escapeHtml, fmt, fmtP, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
 import { addTableDownload, emphasisColor, plot, surfaceColor } from "./charts.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment, stationArea } from "./basins.js?v=__BUILD__";
@@ -172,7 +172,7 @@ function render(res, r) {
     const t = res.trend;
     const dir = t.trend === "no trend" ? "no significant trend" : `${article(t.trend)} ${t.trend} trend`;
     $("trend-text").innerHTML = `Mann-Kendall on ${t.n_years} annual means: <strong>${dir}</strong> ` +
-      `(p = ${fmt(t.p_value, 3)}, τ = ${fmt(t.tau, 2)}). Sen's slope ${fmt(t.sens_slope_per_year, 3)} ${escapeHtml(unit)}/yr.`;
+      `(p = ${fmtP(t.p_value)}, τ = ${fmt(t.tau, 2)}). Sen's slope ${fmt(t.sens_slope_per_year, 3)} ${escapeHtml(unit)}/yr.`;
     setCard($("st-trend-card"), "ready");
   } else hideCard($("st-trend-card"));
 
@@ -217,8 +217,16 @@ function renderFfaTable(ffa, unit) {
     return `<tr><td>${rp}</td><td>${gq}</td><td>${lq}</td>${b ? `<td>${bq}</td>` : ""}</tr>`;
   }).join("");
   const table = $("ffa-table");
+  let caveat = "";
+  if (b && typeof b.n_bootstrap === "number" && typeof b.n_bootstrap_discarded === "number" && b.n_bootstrap > 0) {
+    const kept = b.n_bootstrap - b.n_bootstrap_discarded;
+    const pct = (b.n_bootstrap_discarded / b.n_bootstrap) * 100;
+    if (pct >= 5) {
+      caveat = `<br><span class="muted">90 % CI from ${fmt(kept)} of ${fmt(b.n_bootstrap)} resamples; ${fmt(b.n_bootstrap_discarded)} fits fell outside the shape bounds (|c| ≤ 0.50).</span>`;
+    }
+  }
   table.innerHTML = `<thead>${head}</thead><tbody>${rows}</tbody>` +
-    `<tfoot><tr><td colspan="${b ? 4 : 3}" class="muted">Return levels in ${escapeHtml(unit)}. T = return period.</td></tr></tfoot>`;
+    `<tfoot><tr><td colspan="${b ? 4 : 3}" class="muted">Return levels in ${escapeHtml(unit)}. T = return period.${caveat}</td></tr></tfoot>`;
   const r = state.selected;
   addTableDownload($("ffa-actions"), table, r ? `${r.source}-${r.station_id}-flood-frequency.csv` : "flood-frequency.csv");
 }

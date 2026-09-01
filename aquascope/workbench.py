@@ -549,6 +549,8 @@ def flood_frequency(df: pd.DataFrame, column: str | None = None) -> dict[str, An
         "params": jsonable(list(res.params)),
         "return_periods": {str(k): jsonable(v) for k, v in res.return_periods.items()},
         "confidence_intervals": {str(k): jsonable(list(v)) for k, v in (res.confidence_intervals or {}).items()},
+        "n_bootstrap": res.n_bootstrap,
+        "n_bootstrap_discarded": res.n_bootstrap_discarded,
         "annual_max": _series_payload(res.annual_max) if res.annual_max is not None else None,
         "methods": [{
             "name": "GEV flood frequency",

@@ -96,6 +96,8 @@ def test_analyze_and_flood_frequency_drop_bulk_and_can_bootstrap():
         ff = m.flood_frequency("usgs", "USGS-1", years=15, bootstrap_ci=True)
     assert set(ff) >= {"ffa", "methods", "license"} and "series" not in ff
     assert "gev_bootstrap" in ff["ffa"]["fits"] and len(ff["ffa"]["fits"]["gev_bootstrap"]["ci"]) == 6
+    assert ff["ffa"]["fits"]["gev_bootstrap"]["n_bootstrap"] == 1000
+    assert isinstance(ff["ffa"]["fits"]["gev_bootstrap"]["n_bootstrap_discarded"], int)
     assert any(mm["name"].startswith("GEV (MLE") for mm in ff["methods"])
 
 

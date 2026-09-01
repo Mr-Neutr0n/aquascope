@@ -242,10 +242,10 @@ SOURCES: dict[str, SourceMeta] = {
     ),
     "taiwan_wra_iot": _s(
         key="taiwan_wra_iot", label="Taiwan WRA IoT", region="Taiwan",
-        description="Real-time groundwater level and rainfall accumulation",
+        description="Real-time groundwater level (v2 API; rainfall requires paid membership, not supported)",
         agency="Water Resources Agency, MOEA", country="TWN",
         homepage="https://iot.wra.gov.tw/",
-        variables=("groundwater_level", "precipitation"),
+        variables=("groundwater_level",),
         output_model="WaterQualitySample",
         license="OGDL-Taiwan-1.0", redistributable=True,
         attribution="Water Resources Agency, Ministry of Economic Affairs (Open Government Data License 1.0)",
@@ -331,8 +331,8 @@ SOURCES: dict[str, SourceMeta] = {
         variables=("discharge", "water_level", "reservoir_storage", "groundwater_level", "precipitation",
                    "water_quality"),
         output_model="StreamflowReading | WaterLevelReading | WaterQualitySample",
-        license="unknown", redistributable=False,
-        attribution="Bureau of Meteorology, Water Data Online (KISTERS KiWIS); terms to verify before mirroring",
+        license="CC-BY-3.0-AU", redistributable=True,
+        attribution="Bureau of Meteorology, © Commonwealth of Australia",
         supports_station_lookup=True,
     ),
     # ── Global ──────────────────────────────────────────────────────────
