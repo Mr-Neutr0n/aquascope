@@ -39,6 +39,7 @@ All notable changes to AquaScope are documented here.
 - `CITATION.cff` lists the v0.12.0 version DOI `10.5281/zenodo.21995649` (concept DOI unchanged).
 
 ### Fixed
+- USGS: one canonical `US_STATE_CODES` mapping replaces the `NWIS_STATE_CODES` / `STATE_FIPS` pair, so the alpha and numeric lists can no longer drift. The keyless NWIS site sweep now sends American Samoa's FIPS 5-1 code `AQ` instead of `as` (which 400s, losing names for 19 sites on every run), and FM, MH and PW are covered as 64, 68 and 70. (#239)
 - **BOM station lookup surfaces failures instead of returning a silently partial catalog** (#289). `BOMCollector.stations()` issues one request per BOM parameter type. When all requests fail, it now raises a `RuntimeError` rather than returning `[]`, allowing `harvest_stations` to record the source outage in `StationCatalog.error`. When a subset of parameter types fails, it logs a summary warning naming the lost parameter types and returns the partial catalog.
 - CI: the Pyodide smoke workflow now triggers on changes to itself. Its `paths:` filter listed `pyodide_smoke.mjs` but not `pyodide-smoke.yml`, so an edit to the workflow alone could land without the smoke test ever running on it.
 - USGS collector: support ISO 8601 timestamps ending with `Z` on Python 3.10 where `datetime.fromisoformat` rejects trailing `Z`, preventing silent drops of OGC records during normalisation.
