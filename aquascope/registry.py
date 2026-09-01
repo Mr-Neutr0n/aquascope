@@ -343,8 +343,8 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="https://grdc.bafg.de/",
         variables=("discharge",),
         output_model="StreamflowReading",
-        license="GRDC-terms", redistributable=False,
-        attribution="Global Runoff Data Centre, 56068 Koblenz, Germany (redistribution not permitted)",
+        license="GRDC Policy Guidelines", redistributable=False,
+        attribution="The Global Runoff Data Centre, 56068 Koblenz, Germany",
     ),
     "openmeteo": _s(
         key="openmeteo", label="Open-Meteo", region="Global",

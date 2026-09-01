@@ -4,8 +4,13 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **WQP collector moved to the WQX 3.0 API** (#170). The old WQX 2.2 endpoint missed USGS data after 2024-03-11. `fetch_raw` now calls `/wqx3/Result/search` with `dataProfile=narrow`; a clean break from 2.2 — only WQX 3.0 field names are read (cross-walked from the official schema, e.g. `ResultMeasureValue` to `Result_Measure`, `CharacteristicName` to `Characteristic_Name`, `MonitoringLocationIdentifier` to `Location_Identifier`), with no dual-version support.
+
 ### Fixed
 - Taiwan data.gov.tw collection now uses the WRA-hosted UUID datasets with strict TLS verification, preserves legacy numeric dataset IDs, and returns the complete response unless a client requests a limit.
+- **WQP no longer downloads the whole state** (#170). `/Result/search` returns CSV with no server-side row cap, so a state query buffered hundreds of MB (317 MB / 452 s / 836k rows) before `max_results` was applied. `fetch_raw` now streams the response off the underlying httpx transport and stops reading once `max_results` rows are seen, so a query downloads only the window it needs.
+- **WQP failures are loud instead of silent empties** (#170). The old collector caught every error and returned `[]`, so a slow or dead endpoint looked like a genuine "no data" response. Errors now log descriptively and re-raise, and the client uses a payload-appropriate 600 second timeout; now, only a genuine empty body returns `[]`. Where streaming transport is unavailable, it warns that streaming is off and falls back to a buffered request.
 
 ## [0.13.0] - 2026-08-29
 
@@ -34,6 +39,7 @@ All notable changes to AquaScope are documented here.
 - `CITATION.cff` lists the v0.12.0 version DOI `10.5281/zenodo.21995649` (concept DOI unchanged).
 
 ### Fixed
+- **BOM station lookup surfaces failures instead of returning a silently partial catalog** (#289). `BOMCollector.stations()` issues one request per BOM parameter type. When all requests fail, it now raises a `RuntimeError` rather than returning `[]`, allowing `harvest_stations` to record the source outage in `StationCatalog.error`. When a subset of parameter types fails, it logs a summary warning naming the lost parameter types and returns the partial catalog.
 - CI: the Pyodide smoke workflow now triggers on changes to itself. Its `paths:` filter listed `pyodide_smoke.mjs` but not `pyodide-smoke.yml`, so an edit to the workflow alone could land without the smoke test ever running on it.
 - USGS collector: support ISO 8601 timestamps ending with `Z` on Python 3.10 where `datetime.fromisoformat` rejects trailing `Z`, preventing silent drops of OGC records during normalisation.
 - **"On device" looked broken and was not** (#287). It answers in about thirty seconds over a couple of tool calls, but for all of that time the panel said "Downloading the model: 100 %" and the button said "Working…". Nothing was downloading: Chrome fires `downloadprogress` with `loaded: 1` even when the built-in model is already on the machine, and the handler printed it verbatim, so a model that was thinking looked like a download wedged at the finish line. Only `availability()` decides whether anything is being fetched now, and the run reports what it is actually doing: "Thinking… (step 1 of 3)", "Running analyze_station…". The tier no longer claims "nothing to download" merely because the API exists.
