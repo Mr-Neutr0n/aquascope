@@ -115,6 +115,8 @@ def test_analyze_station_usgs_end_to_end_with_fake_collector():
     assert csv.count("\n") == out["n"] + 1
     ci = analysis.flood_ci(store["series"])
     assert len(ci["q"]) == 6 and all(lo <= q <= hi for q, (lo, hi) in zip(ci["q"], ci["ci"]))
+    assert ci["n_bootstrap"] == 1000
+    assert isinstance(ci["n_bootstrap_discarded"], int) and ci["n_bootstrap_discarded"] >= 0
     assert ci["method"]["name"].startswith("GEV")
 
 
