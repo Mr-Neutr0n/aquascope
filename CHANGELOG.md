@@ -4,6 +4,9 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- Taiwan data.gov.tw collection now uses the WRA-hosted UUID datasets with strict TLS verification, preserves legacy numeric dataset IDs, and returns the complete response unless a client requests a limit.
+
 ## [0.13.0] - 2026-08-29
 
 ### Added

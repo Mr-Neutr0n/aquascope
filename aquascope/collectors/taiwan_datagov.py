@@ -30,6 +30,10 @@ DATAGOV_BASE = "https://opendata.wra.gov.tw/api/v2"
 
 DATASET_WATER_LEVEL = "73c4c3de-4045-4765-abeb-89f9f9cd5ff0"
 DATASET_GROUNDWATER = "58a7aa39-287a-4b96-985d-47ffbc7abbd4"
+LEGACY_DATASET_IDS = {
+    "25768": DATASET_WATER_LEVEL,
+    "161082": DATASET_GROUNDWATER,
+}
 
 
 class TaiwanDataGovCollector(BaseCollector):
@@ -58,23 +62,24 @@ class TaiwanDataGovCollector(BaseCollector):
                 base_url=DATAGOV_BASE,
                 rate_limiter=RateLimiter(max_calls=10, period_seconds=60),
                 cache_ttl_seconds=600,
-                verify=False,
+                relax_strict_tls=True,
             )
         )
-        self.dataset_id = dataset_id
+        self.dataset_id = LEGACY_DATASET_IDS.get(dataset_id, dataset_id)
 
-    def fetch_raw(self, limit: int = 1000, offset: int = 0, **kwargs) -> list[dict]:
+    def fetch_raw(self, limit: int | None = None, offset: int = 0, **kwargs) -> list[dict]:
         """
         Fetch records from the WRA Open Data API for the configured dataset.
 
-        The API returns the full dataset in one response; ``limit`` and
-        ``offset`` are applied client-side.
+        The API returns the full dataset in one response; ``offset`` and an
+        optional ``limit`` are applied client-side. By default all records are
+        returned.
         """
         data = self.client.get_json(self.dataset_id, params={"format": "json"})
         records = data if isinstance(data, list) else data.get("result", data.get("records", []))
         if offset:
             records = records[offset:]
-        if limit:
+        if limit is not None:
             records = records[:limit]
         return records
 
