@@ -475,6 +475,8 @@ def flood_ci(s: pd.Series) -> dict[str, Any]:
         "ci": [[_clean(float(a)), _clean(float(b))] for a, b in
                (r.confidence_intervals.get(rp, (float("nan"), float("nan"))) for rp in RETURN_PERIODS)],
         "params": [_clean(float(p)) for p in r.params],
+        "n_bootstrap": r.n_bootstrap,
+        "n_bootstrap_discarded": r.n_bootstrap_discarded,
         "method": METHODS["gev_bootstrap"],
     }
 

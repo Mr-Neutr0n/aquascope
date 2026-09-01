@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock
 
+import pytest
+
 from aquascope.collectors.bom import PARAMETER_VARIABLE_MAP, BOMCollector
 from aquascope.collectors.france_hubeau import HubeauHydrometrieCollector
 from aquascope.collectors.ireland_opw import IrelandOPWCollector
@@ -141,6 +143,18 @@ class TestUSGSStations:
         # the absolute next link is fetched with params=None so its query string survives
         assert ("https://example/next", None) in calls
         assert len(collector.stations(max_items=2)) == 2
+
+    def test_nwis_state_sweep_uses_aq_not_as(self):
+        client = MagicMock()
+        client.get_text.return_value = ""
+        collector = USGSCollector(api_key="DEMO_KEY", client=client)
+        collector._nwis_site_names(None)
+        state_codes = {
+            call.kwargs["params"]["stateCd"]
+            for call in client.get_text.call_args_list
+        }
+        assert "AQ" in state_codes
+        assert "AS" not in state_codes
 
 
 # ─── UK EA ───────────────────────────────────────────────────────────────────
@@ -312,10 +326,16 @@ class TestPegelonlineStations:
 OPW_GEOJSON = {
     "type": "FeatureCollection",
     "features": [
-        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-7.5757, 54.8383]},
-         "properties": {"name": "Sandy Mills", "ref": "0000001041"}},
-        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-6.2, 53.3]},
-         "properties": {"name": "No ref"}},
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-7.5757, 54.8383]},
+            "properties": {"name": "Sandy Mills", "ref": "0000001041"},
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-6.2, 53.3]},
+            "properties": {"name": "No ref"},
+        },
     ],
 }
 
@@ -347,15 +367,29 @@ CWA_STATION_LIST = {
         {
             "stationAttribute": "cwb",
             "item": [
-                {"stationID": "466920", "stationName": "臺北", "altitude": 5.3, "longitude": 121.5149,
-                 "latitude": 25.0377, "countryName": "臺北市", "stationStartDate": "1896-01-01", "stationEndDate": ""},
+                {
+                    "stationID": "466920",
+                    "stationName": "臺北",
+                    "altitude": 5.3,
+                    "longitude": 121.5149,
+                    "latitude": 25.0377,
+                    "countryName": "臺北市",
+                    "stationStartDate": "1896-01-01",
+                    "stationEndDate": "",
+                },
             ],
         },
         {
             "stationAttribute": "auto",
             "item": [
-                {"stationID": "C0A9F0", "stationName": "自動站", "longitude": 121.6, "latitude": 24.9,
-                 "stationStartDate": "2010-05-01", "stationEndDate": "2020-01-31"},
+                {
+                    "stationID": "C0A9F0",
+                    "stationName": "自動站",
+                    "longitude": 121.6,
+                    "latitude": 24.9,
+                    "stationStartDate": "2010-05-01",
+                    "stationEndDate": "2020-01-31",
+                },
                 {"stationID": "NOCOORD", "stationName": "x"},
             ],
         },
@@ -548,7 +582,7 @@ class TestBOMStations:
         wagga = next(s for s in stations if s.station_id == "410001")
         assert "water_quality" in wagga.variables
 
-    def test_one_parameter_type_failing_does_not_fail_the_whole_catalog(self):
+    def test_one_parameter_type_failing_does_not_fail_the_whole_catalog(self, caplog):
         client = MagicMock()
 
         def get_json(url, params=None, **kw):
@@ -557,11 +591,25 @@ class TestBOMStations:
             return BOM_BY_PARAMETER_TYPE.get(params["parametertype_name"], BOM_NO_MATCHES)
 
         client.get_json.side_effect = get_json
-        stations = BOMCollector(client=client).stations()
+        with caplog.at_level("WARNING"):
+            stations = BOMCollector(client=client).stations()
         # the failing type is skipped, but stations from other types still come back
         assert "410130" in [s.station_id for s in stations]
+        # summary warning reports the lost parameter type
+        assert "BOM getStationList failed for 1 of" in caplog.text
+        assert "Water Course Discharge" in caplog.text
 
-    def test_request_failure_returns_empty(self):
+    def test_all_parameter_types_failing_raises(self):
         client = MagicMock()
         client.get_json.side_effect = RuntimeError("boom")
-        assert BOMCollector(client=client).stations() == []
+        with pytest.raises(
+            RuntimeError,
+            match=rf"BOM getStationList failed for all {len(PARAMETER_VARIABLE_MAP)} parameter type\(s\)",
+        ):
+            BOMCollector(client=client).stations()
+
+    def test_single_variable_failing_raises(self):
+        client = MagicMock()
+        client.get_json.side_effect = RuntimeError("boom")
+        with pytest.raises(RuntimeError, match=r"BOM getStationList failed for all 1 parameter type\(s\)"):
+            BOMCollector(client=client).stations(variable="discharge")
