@@ -144,6 +144,18 @@ class TestUSGSStations:
         assert ("https://example/next", None) in calls
         assert len(collector.stations(max_items=2)) == 2
 
+    def test_nwis_state_sweep_uses_aq_not_as(self):
+        client = MagicMock()
+        client.get_text.return_value = ""
+        collector = USGSCollector(api_key="DEMO_KEY", client=client)
+        collector._nwis_site_names(None)
+        state_codes = {
+            call.kwargs["params"]["stateCd"]
+            for call in client.get_text.call_args_list
+        }
+        assert "AQ" in state_codes
+        assert "AS" not in state_codes
+
 
 # ─── UK EA ───────────────────────────────────────────────────────────────────
 
