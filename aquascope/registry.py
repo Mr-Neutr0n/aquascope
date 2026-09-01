@@ -395,8 +395,8 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="https://www.fao.org/aquastat/",
         variables=("indicator",),
         output_model="AquastatRecord",
-        license="unknown", redistributable=False,
-        attribution="FAO AQUASTAT",
+        license="FAO Terms and Conditions", redistributable=True,
+        attribution="© FAO",
     ),
     "wapor": _s(
         key="wapor", label="FAO WaPOR", region="Africa & Near East",
