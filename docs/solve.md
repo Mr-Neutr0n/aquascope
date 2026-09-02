@@ -59,10 +59,10 @@ Plan: playbook flood_risk, branch at_site, 3 step(s)
   39.5 years of daily discharge at Kingston (uk_ea 3400TH, 0.4 km from the point): an at-site
   frequency fit is defensible. ...
   1. describe_catchment(lat=51.415, lon=-0.308)
-  2. analyze_station(source='uk_ea', station_id='3400TH', years=100)
+  2. analyze_station(source='uk_ea', station_id='3400TH')
      gate min_years 20 on years
      gate not_empty on trend
-  3. flood_frequency(source='uk_ea', station_id='3400TH', years=100, bootstrap_ci=True)
+  3. flood_frequency(source='uk_ea', station_id='3400TH', bootstrap_ci=True)
      gate max_return_period_factor 3 on years
      gate ci_finite on ffa.fits.gev_bootstrap.ci
      gate spread_within 0.25 on ffa.fits.gev_lmoments.q, ffa.fits.lp3.q

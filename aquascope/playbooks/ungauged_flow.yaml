@@ -46,7 +46,6 @@ branches:
         arguments:
           source: "{{ station.source }}"
           station_id: "{{ station.station_id }}"
-          years: 100
         rationale: Flow-duration percentiles (Q95, Q50, Q10) and the record summary at the nearby gauge.
         expects:
           - check: min_years

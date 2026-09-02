@@ -47,7 +47,6 @@ branches:
         arguments:
           source: "{{ station.source }}"
           station_id: "{{ station.station_id }}"
-          years: 60
           variable: groundwater_level
         rationale: >-
           Record summary and the trend on annual means: Sen's slope (m/yr) with the Mann-Kendall p-value.

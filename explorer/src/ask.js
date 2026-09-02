@@ -14,7 +14,7 @@ import {
 } from "./core.js?v=__BUILD__";
 import { shapeSvg } from "./shapes.js?v=__BUILD__";
 import { closeDrawer, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=__BUILD__";
-import { Cancelled, callCancelable, call, onAskProgress } from "./worker-client.js?v=__BUILD__";
+import { Cancelled, callCancelable, call, ensureCatalogInWorker, onAskProgress } from "./worker-client.js?v=__BUILD__";
 import { map } from "./map.js?v=__BUILD__";
 import { visibleLayerSummary } from "./layer-ui.js?v=__BUILD__";
 import { initShowcase } from "./showcase.js?v=__BUILD__";
@@ -185,17 +185,6 @@ function askLog(text) {
   }
   log.appendChild(li);
   log.scrollTop = log.scrollHeight;
-}
-
-async function ensureCatalogInWorker() {
-  if (state.ask.catalogSent) return;
-  const rows = state.stations.map((r) => ({
-    source: r.source, station_id: r.station_id, name: r.name, latitude: r.lat, longitude: r.lon,
-    variables: r.variables || [], period_start: r.period_start, period_end: r.period_end, url: r.url,
-    agency: sourceStyle(r.source).label,
-  }));
-  await call("catalog", { rows });
-  state.ask.catalogSent = true;
 }
 
 function currentTier() {

@@ -79,7 +79,7 @@ def test_each_playbook_selects_the_branch_the_record_supports(pid, site, branch,
 def test_placeholders_resolve_to_typed_values_and_prose():
     study = pbk.plan("flood_risk", LONG, {"return_period": 200})
     fetch = study.step_by_id("s3")
-    assert fetch.arguments == {"source": "uk_ea", "station_id": "3400TH", "years": 100, "bootstrap_ci": True}
+    assert fetch.arguments == {"source": "uk_ea", "station_id": "3400TH", "bootstrap_ci": True}
     assert study.step_by_id("s1").arguments == {"lat": 51.415, "lon": -0.308}
     rp = [g for g in fetch.expects if g["check"] == "max_return_period_factor"][0]
     assert rp["return_period"] == 200 and isinstance(rp["return_period"], int)

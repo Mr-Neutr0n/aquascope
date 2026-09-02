@@ -52,7 +52,6 @@ branches:
         arguments:
           source: "{{ station.source }}"
           station_id: "{{ station.station_id }}"
-          years: 100
         rationale: >-
           Trend pre-test. Mann-Kendall with Sen's slope on the annual means says whether the record is
           stationary enough for a stationary fit; a significant trend is reported as a scenario caveat on the
@@ -72,7 +71,6 @@ branches:
         arguments:
           source: "{{ station.source }}"
           station_id: "{{ station.station_id }}"
-          years: 100
           bootstrap_ci: true
         rationale: >-
           Return levels from GEV (L-moments) and Log-Pearson III (Bulletin 17C), with a bootstrap band on the
@@ -128,7 +126,6 @@ branches:
         arguments:
           source: "{{ station.source }}"
           station_id: "{{ station.station_id }}"
-          years: 100
         rationale: >-
           The at-site record: annual maxima, a frequency fit when there are ten complete years, and the trend
           test. Marginal on its own; every number from it is quoted with the regional estimate.

@@ -4,7 +4,7 @@
 // a cancelled call never lands on the page.
 
 import { CONFIG } from "../config.js?v=__BUILD__";
-import { state } from "./core.js?v=__BUILD__";
+import { sourceStyle, state } from "./core.js?v=__BUILD__";
 import { bootDone, bootProgress } from "./shell.js?v=__BUILD__";
 
 let worker = null;
@@ -61,6 +61,19 @@ export function callCancelable(type, payload = {}) {
 
 export function call(type, payload = {}) {
   return callCancelable(type, payload).promise;
+}
+
+// The catalog the page holds, handed to Python once so find_stations() and
+// assess_site() answer from memory (the worker cannot read the Hub).
+export async function ensureCatalogInWorker() {
+  if (state.ask.catalogSent) return;
+  const rows = state.stations.map((r) => ({
+    source: r.source, station_id: r.station_id, name: r.name, latitude: r.lat, longitude: r.lon,
+    variables: r.variables || [], period_start: r.period_start, period_end: r.period_end, url: r.url,
+    agency: sourceStyle(r.source).label,
+  }));
+  await call("catalog", { rows });
+  state.ask.catalogSent = true;
 }
 
 export function workerBusyMessage() {

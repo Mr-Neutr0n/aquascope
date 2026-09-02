@@ -34,6 +34,7 @@
   --warn-ink: #8a5300;
   --err-bg: #fdeceb;
   --err-ink: #b3261e;
+  --ok-ink: #1e7b45;
 
   /* the space behind the globe, swapped per basemap by body[data-basemap] */
   --map-void: radial-gradient(62% 78% at 50% 38%, #f4f9fd 0%, #dceaf5 45%, #b8d2e8 78%, #9dbfda 100%);
@@ -74,6 +75,7 @@
     --warn-ink: #f2c879;
     --err-bg: #3a1d1c;
     --err-ink: #ff9a92;
+    --ok-ink: #78d295;
     --map-void: radial-gradient(62% 78% at 50% 38%, #1a2836 0%, #101a25 45%, #080d13 78%, #04070a 100%);
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .4), 0 2px 8px rgba(0, 0, 0, .35);
     --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 14px 38px rgba(0, 0, 0, .55);
@@ -471,6 +473,27 @@ body.drawer-open #btn-panel { display: none; }
 .basin .kv div { display: flex; justify-content: space-between; gap: .4rem; border-bottom: 1px dotted var(--line); padding: .12rem 0; }
 .basin .kv b { font-weight: 620; white-space: nowrap; }
 .basin-foot { margin-top: .4rem; font-size: .71rem; line-height: 1.5; }
+
+/* what can be answered here: counts on the summary line, rows behind it */
+.assess details > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.assess details > summary::-webkit-details-marker { display: none; }
+.assess details > summary h3 { font-size: .9rem; letter-spacing: -.005em; }
+.assess details > summary::after {
+  content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg); margin-left: .1rem; flex: none; align-self: center; transition: transform .12s;
+}
+.assess details[open] > summary::after { transform: rotate(225deg); }
+.assess-counts { margin-left: auto; font-size: .74rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.assess .ok { color: var(--ok-ink); }
+.assess .warn { color: var(--warn-ink); }
+.assess .no { color: var(--err-ink); }
+.assess-foot { font-size: .74rem; margin: .45rem 0 0; line-height: 1.45; }
+.assess-rows { list-style: none; padding: 0; margin: .4rem 0 0; }
+.assess-rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 .6rem; padding: .35rem 0; border-top: 1px solid var(--line-soft); font-size: .8rem; }
+.assess-status { font-size: .7rem; font-weight: 640; white-space: nowrap; }
+.assess-why { grid-column: 1 / -1; font-size: .72rem; line-height: 1.45; }
+.assess-notes { padding-left: 1.1rem; margin: .45rem 0 0; font-size: .7rem; line-height: 1.5; }
+.assess-notes:empty { display: none; }
 
 /* ── controls ────────────────────────────────────────────────────────────── */
 

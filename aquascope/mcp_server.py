@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
 from typing import Any
 
 from aquascope import __version__
@@ -38,8 +37,9 @@ SERVER_NAME = "aquascope"
 INSTRUCTIONS = (
     "AquaScope gives you the world's public water gauges (USGS, UK EA, Hub'Eau, PEGELONLINE, Ireland OPW, "
     "Taiwan CWA and more) behind one schema. Start with find_stations (no agency call), then get_timeseries or "
-    "analyze_station for a specific station. Flood frequency needs at least 10 complete years of daily flow. "
-    "Always show the licence/attribution returned with the data."
+    "analyze_station for a specific station. For a place or a station, assess_site(lat, lon) first says which "
+    "methods the record there supports; do not run one it marks not_defensible. Flood frequency needs at least "
+    "10 complete years of daily flow. Always show the licence/attribution returned with the data."
 )
 
 MAX_STATIONS = 200
@@ -106,7 +106,8 @@ def find_stations(
 ) -> dict[str, Any]:
     """Search the published station catalog (no agency call).
 
-    query: substring of the station name or id. bbox: [west, south, east, north] in degrees.
+    query: words from the station name, id or river, accent-insensitive ("Kingston Thames" finds the Thames at
+    Kingston). bbox: [west, south, east, north] in degrees.
     near: [lat, lon]; results are ordered nearest-first. variable: one of the registry vocabulary
     (discharge, water_level, precipitation, groundwater_level, ...). Returns at most ``limit`` (<= 200)
     stations with ids you can pass to get_timeseries / analyze_station.
@@ -188,13 +189,15 @@ def get_timeseries(
 
 
 def analyze_station(
-    source: str, station_id: str, years: int = 40, bootstrap_ci: bool = False, variable: str | None = None
+    source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False, variable: str | None = None
 ) -> dict[str, Any]:
     """Fetch and analyse one station: record summary, annual maxima, flood frequency (GEV L-moments and
     Log-Pearson III with 90 % CI; optional bootstrap GEV band), flow-duration percentiles, Mann-Kendall
     trend, and the method citations. Raw daily arrays are omitted; use get_timeseries for those.
     variable picks one of the station's variables (discharge by default; water_level, precipitation,
-    groundwater_level where the station has them).
+    groundwater_level where the station has them). By default the full record is requested, from the
+    catalog's first date for the station; years caps it to the last N years. fetch_note in the result says
+    what was requested and what the agency actually served.
     """
     from aquascope.explore import analyze_station as _analyze
     from aquascope.explore import flood_ci
@@ -204,7 +207,7 @@ def analyze_station(
     if variable and variable not in VARIABLES:
         return {"error": f"unknown variable {variable!r}; allowed: {list(VARIABLES)}"}
     store: dict[str, Any] = {}
-    res = _analyze(source, station_id, years=int(years), store=store, variable=variable)
+    res = _analyze(source, station_id, years=int(years) if years else None, store=store, variable=variable)
     res.pop("series", None)
     if "fdc" in res:
         res["fdc"] = {k: res["fdc"][k] for k in ("q95", "q50", "q10")}
@@ -220,16 +223,46 @@ def analyze_station(
     return res
 
 
-def flood_frequency(source: str, station_id: str, years: int = 40, bootstrap_ci: bool = False) -> dict[str, Any]:
-    """Return levels for T = 2, 5, 10, 25, 50, 100 years at a station (subset of analyze_station)."""
+def flood_frequency(
+    source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False
+) -> dict[str, Any]:
+    """Return levels for T = 2, 5, 10, 25, 50, 100 years at a station (subset of analyze_station).
+    years caps the record to the last N years; by default the full record is requested.
+    """
     res = analyze_station(source, station_id, years=years, bootstrap_ci=bootstrap_ci)
     if "error" in res:
         return res
     keep = {k: res.get(k) for k in ("source", "station_id", "agency", "license", "attribution", "unit",
-                                    "start", "end", "years", "n", "ffa", "notes", "methods")}
+                                    "start", "end", "years", "n", "ffa", "notes", "methods",
+                                    "fetch_note", "requested")}
     if not keep.get("ffa"):
         keep["error"] = "flood frequency not available (see notes)"
     return keep
+
+
+def assess_site(
+    lat: float,
+    lon: float,
+    radius_km: float = 50.0,
+    problem: str | None = None,
+    return_period: float | None = None,
+) -> dict[str, Any]:
+    """What can be answered at a place, before any analysis. Call this first for a question about a place or a
+    station. Returns the gauges within radius_km from the catalog (true record spans, no agency call), the
+    BasinATLAS catchment, the site context (years per variable, area, donors) and a sufficiency table: for every
+    method, defensible | marginal | not_defensible here, the reason (record length, resolution, catchment size
+    for a lumped model, return period against record length, donors), the tool that runs it and the station it
+    would use. Respect it: do not run a method marked not_defensible, say why, and offer what is defensible.
+    problem narrows the table: flood_risk, ungauged_flow, drought, groundwater_decline, supply_reliability,
+    climate_change, irrigation, water_quality. return_period is the T the question asks for, if any.
+    """
+    from aquascope.explore import assess_site as _assess
+
+    try:
+        return _assess(float(lat), float(lon), radius_km=float(radius_km), problem=problem or None,
+                       return_period=float(return_period) if return_period is not None else None)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
 
 def describe_methods() -> dict[str, Any]:
@@ -315,11 +348,6 @@ def regionalize_signatures(lat: float, lon: float, k: int = 10, method: str = "s
         return {"error": f"{exc}"}
     except Exception as exc:  # noqa: BLE001 - the model gets to see it
         return {"error": f"regionalisation failed: {type(exc).__name__}: {exc}"}
-
-
-def _default_years_note() -> str:
-    today = date.today()
-    return f"Records are requested back to {(today - timedelta(days=int(40 * 365.25))).isoformat()} by default."
 
 
 def analyse_table(
@@ -491,7 +519,7 @@ def _sparkline(values: list[float], width: int = 560, height: int = 120) -> str:
     )
 
 
-def station_view(source: str, station_id: str, years: int = 40) -> dict[str, Any]:
+def station_view(source: str, station_id: str, years: int | None = None) -> dict[str, Any]:
     """analyze_station, plus a small HTML view of it for clients that render one.
 
     The ``_meta`` block is what an MCP Apps client looks for; everything else is
@@ -544,6 +572,7 @@ def build_server():
     server.tool()(analyze_station)
     server.tool()(flood_frequency)
     server.tool()(describe_methods)
+    server.tool()(assess_site)
     server.tool()(describe_catchment)
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)

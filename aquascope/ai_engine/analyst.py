@@ -68,6 +68,8 @@ PROVIDERS: dict[str, dict[str, str | None]] = {
 SYSTEM_PROMPT = """You are AquaScope's analyst, a careful hydrologist's assistant.
 You answer questions about rivers, gauges, floods, rainfall and water resources ONLY from tool results.
 Rules:
+- For a question about a place or a station, call assess_site(lat, lon) first and respect its sufficiency
+  table: do not run a method it marks not_defensible, say why, and offer what it marks defensible instead.
 - Find stations with find_stations before analysing; prefer stations with long records for flood questions.
 - Use analyze_station / flood_frequency for numbers; use anywhere(lat, lon) when the user names a place with no gauge.
 - Use describe_catchment(lat, lon) for the catchment itself: area, elevation, climate, land cover, soils, dams.
@@ -75,6 +77,9 @@ Rules:
 - For "what flow to expect" at an ungauged place, use regionalize_signatures (mm/d estimates with a band and
   the leave-one-out skill); always quote the band and the skill, never a bare number.
 - Never invent values, station ids, or citations. If a tool returns an error or an empty record, say so.
+- Do not add facts about the site from memory: historic floods or droughts, dams, regulation or abstraction
+  upstream, geography, land use. Everything about the site comes from a tool result. If a fact did not, leave
+  it out or label it in the same sentence: "from general knowledge, not from the data".
 - Report units. Quote return levels with their confidence intervals when available.
 - Say which record (station, source, period, number of years) each number comes from.
 - Keep the answer under 300 words unless the user asks for a full report; the tool outputs already carry
@@ -111,6 +116,7 @@ def _tool_specs() -> list[ToolSpec]:
     from aquascope.explore import anywhere
 
     num = {"type": "number"}
+    years_cap = "Optional cap on the record: the last N years. Leave it out for the full record (the default)."
     return [
         ToolSpec(
             "list_sources", "Every data source with agency, country, variables and licence.",
@@ -128,12 +134,26 @@ def _tool_specs() -> list[ToolSpec]:
             t.find_stations,
         ),
         ToolSpec(
+            "assess_site",
+            "What can be answered at a place, before any analysis: the gauges within reach (catalog record spans, "
+            "no agency call), the catchment, and a sufficiency table marking every method defensible, marginal or "
+            "not_defensible here, with the reason and the station it would use. Call it first for a question about "
+            "a place or a station. problem narrows the table: flood_risk, ungauged_flow, drought, "
+            "groundwater_decline, supply_reliability, climate_change, irrigation, water_quality.",
+            {"type": "object", "properties": {"lat": num, "lon": num, "radius_km": num, "problem": {"type": "string"},
+                                              "return_period": num},
+             "required": ["lat", "lon"]},
+            t.assess_site,
+        ),
+        ToolSpec(
             "analyze_station",
             "Fetch one station's record and compute summary, annual maxima, flood frequency (GEV, LP3 with CI), "
             "FDC percentiles and trend. variable: discharge (default), water_level, precipitation or "
-            "groundwater_level for stations that have several.",
+            "groundwater_level for stations that have several. The full record is requested by default; "
+            "fetch_note in the result says what was asked for and what the agency served.",
             {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
-                                              "years": {"type": "integer"}, "bootstrap_ci": {"type": "boolean"},
+                                              "years": {"type": "integer", "description": years_cap},
+                                              "bootstrap_ci": {"type": "boolean"},
                                               "variable": {"type": "string"}},
              "required": ["source", "station_id"]},
             t.analyze_station,
@@ -142,7 +162,8 @@ def _tool_specs() -> list[ToolSpec]:
             "flood_frequency",
             "Return levels for T = 2..100 years at a station (subset of analyze_station).",
             {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
-                                              "years": {"type": "integer"}, "bootstrap_ci": {"type": "boolean"}},
+                                              "years": {"type": "integer", "description": years_cap},
+                                              "bootstrap_ci": {"type": "boolean"}},
              "required": ["source", "station_id"]},
             t.flood_frequency,
         ),
