@@ -136,7 +136,7 @@ SOURCES: dict[str, SourceMeta] = {
     ),
     # ── Europe ──────────────────────────────────────────────────────────
     "uk_ea": _s(
-        key="uk_ea", label="UK Environment Agency", region="United Kingdom",
+        key="uk_ea", label="Environment Agency (England)", region="United Kingdom",
         description="River level, flow, rainfall and groundwater telemetry from the EA Hydrology API (England)",
         agency="Environment Agency", country="GBR",
         homepage="https://environment.data.gov.uk/hydrology/",

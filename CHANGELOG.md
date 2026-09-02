@@ -4,7 +4,11 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Explorer: discharge can be displayed in ft³/s (cfs)** (#316). A "Show ft³/s" button in the station header converts the KPIs, hydrograph, flood-frequency table and chart, flow-duration curve, trend slope and GR4J plot at render time. The choice persists in localStorage. Everything internal is untouched: the worker, the model and the CSV downloads stay in the agency's unit.
+
 ### Changed
+- **The Environment Agency is labelled England, not UK** (#320), in the Explorer, the registry, the README and the docs tables. The EA is England's public body; Scotland (SEPA, #317), Wales (NRW) and Northern Ireland (DfI Rivers, #318) are separate agencies.
 - `CITATION.cff` lists the v0.13.0 version DOI `10.5281/zenodo.22152064` (concept DOI unchanged).
 - **WQP collector moved to the WQX 3.0 API** (#170). The old WQX 2.2 endpoint missed USGS data after 2024-03-11. `fetch_raw` now calls `/wqx3/Result/search` with `dataProfile=narrow`; a clean break from 2.2 — only WQX 3.0 field names are read (cross-walked from the official schema, e.g. `ResultMeasureValue` to `Result_Measure`, `CharacteristicName` to `Characteristic_Name`, `MonitoringLocationIdentifier` to `Location_Identifier`), with no dual-version support.
 
