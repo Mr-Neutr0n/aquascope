@@ -191,13 +191,31 @@ def _identifiers(payload: Any) -> list[str]:
     return found
 
 
+def _decimals(value: float) -> int | None:
+    """How many decimals the prose wrote: 0.004 has three, 29.0 none; None for exponent forms."""
+    text = repr(float(value))
+    if "e" in text or "E" in text:
+        return None
+    frac = text.split(".")[1].rstrip("0") if "." in text else ""
+    return len(frac)
+
+
 def _close(value: float, pool: list[float], *, rel: float = 0.02) -> bool:
-    """Is this number in the tool output, allowing for rounding in the prose?"""
+    """Is this number in the tool output, allowing for rounding in the prose?
+
+    Two tolerances: a relative one for big numbers written approximately, and
+    the rounding the prose itself did (tau = -0.0037 in the result, "-0.004"
+    in the answer, is the same number said to three decimals).
+    """
+    decimals = _decimals(value)
+    half_unit = 0.5 * 10 ** (-decimals) + 1e-12 if decimals is not None else None
     for other in pool:
         if other == value:
             return True
         scale = max(abs(value), abs(other), 1e-9)
         if abs(other - value) / scale <= rel:
+            return True
+        if half_unit is not None and abs(other - value) <= half_unit:
             return True
     return False
 

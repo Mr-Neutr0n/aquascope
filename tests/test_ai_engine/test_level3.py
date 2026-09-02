@@ -646,3 +646,23 @@ def test_the_years_check_prints_with_the_others() -> None:
     v = verify_mod.verify("The 2014 floods at Kingston.", _one(KINGSTON_PAYLOAD))
     md = v.to_markdown()
     assert "does not establish" in md and "2014" in md and "general knowledge" in md
+
+
+def test_prose_rounding_and_gate_words_are_not_invented_numbers():
+    """A live run flagged tau -0.004 (result -0.0037), 29.0 and a gate's '20 needed' as invented."""
+    from aquascope.ai_engine import verify as v
+
+    assert v._close(-0.004, [-0.0037])
+    assert v._close(29.0, [29.4])
+    assert v._close(650.0, [652.5])
+    assert not v._close(0.004, [0.0091])
+    assert not v._close(1234.0, [1300.0])
+    results = [
+        {"name": "analyze_station", "arguments": {}, "ok": True,
+         "payload": {"years": 142.9, "trend": {"tau": -0.0037}}},
+        {"name": "gates", "arguments": {}, "ok": True,
+         "payload": {"gates": [{"check": "min_years", "passed": True, "detail": "142.9 years of record, 20 needed"}]}},
+    ]
+    out = v.verify("Kendall tau = -0.004 over 142.9 years, against the 20 years the gate needs.", results)
+    numbers = next(c for c in out.checks if "number" in c.name)
+    assert numbers.passed, numbers.detail

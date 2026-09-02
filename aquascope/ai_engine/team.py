@@ -901,7 +901,11 @@ def solve(
 
     from aquascope.ai_engine.verify import verify as _verify
 
-    checks = _verify(answer, seen, question=text)
+    # The gates' own words ("142.9 years of record, 20 needed") and the plan are
+    # legitimate sources for the prose too, so they join the pool the checks read.
+    gate_pool = {"gates": [g for r in run.results for g in (r.get("gates") or [])], "plan": study.plan}
+    checks = _verify(answer, [*seen, {"name": "gates", "arguments": {}, "payload": gate_pool, "ok": True}],
+                     question=text)
     result.checks = checks.to_dict()["checks"]
     for c in checks.failed:
         not_established.append(c.detail or c.name)
