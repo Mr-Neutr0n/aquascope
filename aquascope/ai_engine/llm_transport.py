@@ -342,6 +342,8 @@ class AnthropicChatClient(UrllibChatClient):
     the Explorer's worker does, adding the header Anthropic requires before it
     answers a browser page directly. ``effort`` is passed through as
     ``output_config.effort`` when set; ``max_tokens`` is the per-reply ceiling.
+    ``workspace_id`` (``wrkspc_...``) is sent as ``anthropic-workspace-id``,
+    which identity-linked keys that span several workspaces require.
     """
 
     def __init__(
@@ -351,6 +353,7 @@ class AnthropicChatClient(UrllibChatClient):
         *,
         max_tokens: int = ANTHROPIC_DEFAULT_MAX_TOKENS,
         effort: str | None = None,
+        workspace_id: str | None = None,
         sdk_client: Any | None = None,
         **kwargs: Any,
     ):
@@ -358,6 +361,9 @@ class AnthropicChatClient(UrllibChatClient):
         if base.endswith("/v1"):  # an OpenAI-style root, given by habit
             base = base[:-3]
         super().__init__(api_key, base, **kwargs)
+        if workspace_id:
+            self.extra_headers["anthropic-workspace-id"] = workspace_id
+        self.workspace_id = workspace_id
         self.max_tokens = max_tokens
         self.effort = effort
         self._sdk = sdk_client
@@ -434,13 +440,20 @@ def make_client(api_key: str | None, base_url: str | None, provider: str | None 
     spec = PROVIDERS.get(provider or "")
     want_sdk = not in_pyodide() and os.environ.get("AQUASCOPE_LLM_TRANSPORT", "").lower() != "urllib"
     if spec is not None and spec.api == "anthropic":
-        client = AnthropicChatClient(api_key, base_url, effort=os.environ.get("AQUASCOPE_LLM_EFFORT") or None)
+        client = AnthropicChatClient(
+            api_key, base_url,
+            effort=os.environ.get("AQUASCOPE_LLM_EFFORT") or None,
+            workspace_id=os.environ.get("ANTHROPIC_WORKSPACE_ID") or None,
+        )
         if want_sdk:
             try:
                 import anthropic
 
                 # The loop already waits out 429s, so the SDK's own retries stay off.
-                client._sdk = anthropic.Anthropic(api_key=api_key, base_url=client.base_url, max_retries=0)
+                client._sdk = anthropic.Anthropic(
+                    api_key=api_key, base_url=client.base_url, max_retries=0,
+                    default_headers=dict(client.extra_headers) or None,
+                )
             except ImportError:
                 pass
         return client

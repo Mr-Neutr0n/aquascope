@@ -30,7 +30,7 @@
       "free": null,
       "signup": "https://console.anthropic.com/settings/keys",
       "browser": true,
-      "note": "Pay as you go; the Messages API, translated by aquascope.",
+      "note": "Pay as you go. In the browser use a key created for a single workspace: keys that span several need a workspace id header the page does not ask for.",
       "api": "anthropic",
       "context_chars": 200000
     },

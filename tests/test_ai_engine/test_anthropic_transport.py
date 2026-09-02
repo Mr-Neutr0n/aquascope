@@ -350,3 +350,28 @@ def test_analyst_runs_end_to_end_over_a_scripted_messages_api(monkeypatch):
     assert result_block["tool_use_id"] == "toolu_dm"
     # The window is large, so the 30k-character result went back whole instead of trimmed to 400.
     assert len(result_block["content"]) > 30_000 and "trimmed" not in result_block["content"]
+
+
+def test_workspace_id_travels_as_a_header_on_both_paths(monkeypatch):
+    monkeypatch.setenv("AQUASCOPE_LLM_TRANSPORT", "urllib")
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_01test")
+    seen = {}
+
+    def urlopen(req, timeout=0):
+        seen["headers"] = _headers(req)
+        return _Resp(_final("ok"))
+
+    client = make_client("k", None, provider="anthropic")
+    assert client.workspace_id == "wrkspc_01test"
+    with patch("urllib.request.urlopen", urlopen):
+        client.chat.completions.create(model="m", messages=[{"role": "user", "content": "q"}])
+    assert seen["headers"]["anthropic-workspace-id"] == "wrkspc_01test"
+
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID")
+    assert make_client("k", None, provider="anthropic").workspace_id is None
+
+    pytest.importorskip("anthropic")
+    monkeypatch.delenv("AQUASCOPE_LLM_TRANSPORT")
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_01test")
+    sdk_backed = make_client("sk-ant-x", None, provider="anthropic")
+    assert sdk_backed._sdk.default_headers["anthropic-workspace-id"] == "wrkspc_01test"

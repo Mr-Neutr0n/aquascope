@@ -31,6 +31,10 @@ default model, `--max-steps` bounds the tool loop. Works with any
 OpenAI-compatible endpoint that supports tool calling, and with Anthropic's
 Messages API: `--provider anthropic` defaults to `claude-opus-5`, and
 `AQUASCOPE_LLM_EFFORT` (`low` to `max`) sets how hard Claude thinks per step.
+An identity-linked key that can act in several workspaces also needs
+`ANTHROPIC_WORKSPACE_ID` (the `wrkspc_...` id from the console), which is sent
+as the `anthropic-workspace-id` header; a key created for one workspace does
+not.
 
 This is deliberately not an autonomous agent: no memory, no planning beyond
 the tool loop, no writes. It is the "ask, get the work done, see the work"

@@ -72,7 +72,8 @@ PROVIDERS: dict[str, Provider] = {
         models=["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
         env="ANTHROPIC_API_KEY",
         signup="https://console.anthropic.com/settings/keys",
-        note="Pay as you go; the Messages API, translated by aquascope.",
+        note="Pay as you go. In the browser use a key created for a single workspace: keys that span "
+             "several need a workspace id header the page does not ask for.",
         api="anthropic",
         # Roughly 50k tokens: plenty for a tool loop, a fraction of the window,
         # and old tool results stop being trimmed to 400 characters.
