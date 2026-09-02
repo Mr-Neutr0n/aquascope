@@ -83,9 +83,8 @@ def test_gauged_site_with_a_long_record_supports_at_site_flood_frequency(small_c
     # defensible first
     order = [r["status"] for r in res["sufficiency"]]
     assert order == sorted(order, key=[DEFENSIBLE, MARGINAL, NOT_DEFENSIBLE].index)
-    # the catalogue lists 1883; a default fetch serves the last 40 years, said once for the station
-    forty = [n for n in res["notes"] if "last 40 years" in n]
-    assert len(forty) == 1 and "Kingston" in forty[0]
+    # the default fetch serves the full record now (#270), so no note claims a 40-year cap
+    assert not any("last 40 years" in n for n in res["notes"])
     assert any("daily is assumed" in n for n in res["notes"])
     assert any("ends in 2015" in n for n in res["notes"])  # the rain gauge stopped reporting
 

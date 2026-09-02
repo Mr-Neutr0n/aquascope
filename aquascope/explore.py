@@ -760,8 +760,6 @@ def to_csv(result: dict[str, Any]) -> str:
 RECORD_VARIABLES = ("discharge", "water_level", "precipitation", "groundwater_level", "water_quality")
 #: Sources whose live feed is a short window, whatever the catalog span says.
 SERVED_WINDOW = {"pegelonline": "the last 31 days", "ireland_opw": "the last month"}
-#: How far back a default fetch reaches (fetch_series years=40).
-DEFAULT_FETCH_YEARS = 40
 _NEAR_CANDIDATES = 400
 _MAX_STATIONS_LISTED = 25
 _DONOR_K = 10
@@ -935,10 +933,6 @@ def assess_site(
         if window:
             notes.append(f"{_label(st)} lists {st['years']:g} years of {what} but the source serves only {window}; "
                          "a computed answer will not see the full span.")
-        elif st["years"] > DEFAULT_FETCH_YEARS:
-            notes.append(f"The catalog lists {_label(st)} from {st['period_start']} ({st['years']:g} yr); a default "
-                         f"fetch serves the last {DEFAULT_FETCH_YEARS} years, so a computed answer covers fewer "
-                         "years than this span.")
         if st["years"] < 2:
             notes.append(f"The catalog span for {_label(st)} is only {st['years']:g} yr; suspiciously short, the "
                          "agency may hold more.")
