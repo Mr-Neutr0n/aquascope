@@ -9,6 +9,7 @@ Usage
     aquascope quality --file data/raw/water_data.json
     aquascope run --method trend_analysis --file data/raw/water_data.json
     aquascope agri plan --crop maize --planting-date 2026-04-01 --eto-file eto.csv --precip-file precip.csv
+    aquascope assess 51.415 -0.308 --problem flood_risk
     aquascope list-methods
     aquascope list-sources
     aquascope completion bash
@@ -891,6 +892,58 @@ def cmd_basins(args: argparse.Namespace) -> None:
         if isinstance(v, dict):
             print(f"  {v['label']:<48} {v['value']:>12,.2f} {v['unit']}")
     print(f"\n  {res['attribution']}")
+
+
+def _format_assessment(res: dict, *, radius_km: float) -> str:
+    """The assess_site result as a short table: defensible first, one line per method with its reason."""
+    from aquascope.methods import DEFENSIBLE, MARGINAL, NOT_DEFENSIBLE
+
+    ctx = res.get("context") or {}
+    catch = res.get("catchment") or {}
+    stations = res.get("stations") or []
+    rows = res.get("sufficiency") or []
+    head = [f"{res['point']['lat']:.4f}, {res['point']['lon']:.4f}",
+            f"{len(stations)} gauge{'' if len(stations) == 1 else 's'} within {radius_km:g} km"]
+    area = ctx.get("area_km2")
+    if area:
+        head.append(f"catchment {area:,.0f} km²" + (" (caller)" if catch.get("source") == "caller" else ""))
+    elif catch.get("error"):
+        head.append("catchment unknown")
+    if ctx.get("donors") is not None:
+        head.append(f"{ctx['donors']} donors")
+    lines = ["  " + "  ·  ".join(head)]
+    years = ctx.get("years_by_variable") or {}
+    if years:
+        for var, yr in years.items():
+            st = next((s for s in stations if var in (s.get("variables") or []) and s.get("years") == yr), None)
+            tail = f", {st.get('name') or st['station_id']} ({st['source']}/{st['station_id']})" if st else ""
+            lines.append(f"  {var.replace('_', ' ')}: {yr:g} yr{tail}")
+    else:
+        lines.append("  no gauge record within reach: ungauged")
+    width = max((len(r["label"]) for r in rows), default=20)
+    for status, title in ((DEFENSIBLE, "defensible"), (MARGINAL, "marginal"), (NOT_DEFENSIBLE, "not defensible")):
+        block = [r for r in rows if r["status"] == status]
+        if not block:
+            continue
+        lines.append(f"\n  {title}")
+        for r in block:
+            lines.append(f"    {r['label']:<{width}}  {r['reason']}")
+    if res.get("notes"):
+        lines.append("\n  notes")
+        lines.extend(f"    - {n}" for n in res["notes"])
+    return "\n".join(lines)
+
+
+def cmd_assess(args: argparse.Namespace) -> None:
+    """`aquascope assess LAT LON`: what can be answered at a place, from the catalog and BasinATLAS, no agency call."""
+    from aquascope.explore import assess_site
+
+    res = assess_site(args.lat, args.lon, radius_km=args.radius_km, problem=args.problem,
+                      return_period=args.return_period)
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return
+    print(_format_assessment(res, radius_km=args.radius_km))
 
 
 def cmd_gym(args: argparse.Namespace) -> None:
@@ -1837,6 +1890,19 @@ def main() -> None:
     p_bbuild.add_argument("--fgb", action="store_true", help="Also write lev12.fgb from Python (needs memory)")
 
     # ── gym (HydroGym) ───────────────────────────────────────────────
+    from aquascope.methods import METHODS as _METHODS
+
+    p_assess = sub.add_parser(
+        "assess", help="What can be answered at a place: gauges in reach, catchment, which methods the record supports"
+    )
+    p_assess.add_argument("lat", type=float)
+    p_assess.add_argument("lon", type=float, help="Longitude (a negative value is fine as a positional)")
+    p_assess.add_argument("--problem", choices=sorted({p for m in _METHODS.values() for p in m.problems}), default=None,
+                          help="Only the methods for this problem kind")
+    p_assess.add_argument("--radius-km", type=float, default=50.0, help="How far a gauge may be to count (default 50)")
+    p_assess.add_argument("--return-period", type=float, default=None, help="The T (years) the question asks for")
+    p_assess.add_argument("--json", action="store_true")
+
     p_gym = sub.add_parser("gym", help="HydroGym: a gym-style calibration environment over real basins (#175)")
     gym_sub = p_gym.add_subparsers(dest="gym_cmd", required=True)
     p_gb = gym_sub.add_parser("basins", help="Suggest gauged basins from the Archive that make good tasks")
@@ -2083,6 +2149,7 @@ def main() -> None:
         "harvest": cmd_harvest,
         "mcp": cmd_mcp,
         "basins": cmd_basins,
+        "assess": cmd_assess,
         "gym": cmd_gym,
         "caravan": cmd_caravan,
         "ask": cmd_ask,

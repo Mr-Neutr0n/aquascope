@@ -207,3 +207,28 @@ def test_station_view_passes_an_error_straight_through() -> None:
         result = station_view("usgs", "nope")
     assert result["error"] == "no such station"
     assert "_meta" not in result
+
+
+def test_find_stations_multi_word_query_reaches_the_river():
+    """A live run: query="Kingston Thames" found nothing, only a near search reached the Thames at Kingston."""
+    with patch.object(catalog, "load_stations", return_value=CATALOG), \
+         patch("aquascope.archive.catalog.load_stations", return_value=CATALOG):
+        out = m.find_stations(query="Kingston Thames")
+        assert out["n_returned"] == 1 and out["stations"][0]["station_id"] == "abc"
+        assert m.find_stations(query="Thames at Kingston")["stations"][0]["river"] == "River Thames"
+
+
+def test_assess_site_tool_wraps_the_engine_and_reports_bad_input():
+    desc = {"sub_basin": {"hybas_id": 1, "up_area": 9948.0}, "upstream": {"n_sub_basins": 4},
+            "attributes": {"area_km2": 9900.0, "upstream_area_km2": 9948.0}}
+    sim = {"k": 3, "n_candidates": 30, "stations": [{"source": "x", "station_id": "1"}] * 3}
+    with patch.object(catalog, "load_stations", return_value=CATALOG), \
+         patch("aquascope.archive.catalog.load_stations", return_value=CATALOG), \
+         patch.object(m, "describe_catchment", return_value=desc), \
+         patch.object(m, "similar_basins", return_value=sim):
+        out = m.assess_site(51.41, -0.31, problem="flood_risk", return_period=100)
+    assert set(out) == {"point", "stations", "catchment", "context", "sufficiency", "notes"}
+    assert out["stations"][0]["station_id"] == "abc" and out["context"]["donors"] == 3
+    ffa = next(r for r in out["sufficiency"] if r["method"] == "at_site_flood_frequency")
+    assert ffa["status"] == "defensible" and ffa["station"] == {"source": "uk_ea", "station_id": "abc"}
+    assert "error" in m.assess_site(0, 0, problem="lava")

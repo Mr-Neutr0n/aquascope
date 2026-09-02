@@ -84,6 +84,58 @@ What happens:
 Nothing in `ingest` needs a key or a network connection unless you ask for
 `--llm`.
 
+## Reconnaissance first: `aquascope assess`
+
+Before any analysis, inventory what exists at the place and what that record
+supports. `assess_site(lat, lon)` in `aquascope.explore` reads the published
+station catalog (true record spans, no agency call), asks BasinATLAS for the
+catchment and the similarity search for donors, and scores every method in
+`aquascope.methods` as defensible, marginal or not defensible here, with the
+reason. One engine, every face: `aquascope assess`, the `assess_site` MCP
+tool, the Analyst's first tool call for any question about a place or a
+station (it will not run a method the table marks not defensible, and says
+why), and the "What can be answered here" card in the Explorer.
+
+```
+$ aquascope assess 51.4150 -0.3080 --problem flood_risk --return-period 100
+  51.4150, -0.3080  ·  25 gauges within 50 km  ·  catchment 9,991 km²  ·  10 donors
+  discharge: 142.9 yr, Kingston (uk_ea/8496ce69-482c-406a-a2f0-ac418ef8f099)
+  water level: 142.9 yr, Kingston (uk_ea/8496ce69-482c-406a-a2f0-ac418ef8f099)
+  groundwater level: 16.9 yr, Teddington (uk_ea/9eaa9d56-ef35-4029-972b-404da217bf90)
+  precipitation: 37.7 yr, Hogsmill (uk_ea/a04aa8e8-45a2-4d8d-9983-7a55330693b0)
+
+  defensible
+    At-site flood frequency (GEV, LP3 / Bulletin 17C)  the record supports it
+    GloFAS modelled discharge as an independent check  the record supports it
+    Flow signatures transferred from donors            the record supports it
+    Mann-Kendall trend with Sen's slope                the record supports it
+
+  marginal
+    Donor gauges by catchment similarity               meant for an ungauged point; a gauge is available here
+
+  notes
+    - Record resolution is not in the catalog; daily is assumed for every variable.
+    - The catalog lists Kingston (uk_ea/8496ce69-482c-406a-a2f0-ac418ef8f099) from 1883-10-01 (142.9 yr); a default fetch serves the last 40 years, so a computed answer covers fewer years than this span.
+    - 10 donor gauges from a pool of 37,053 gauged catchments.
+    - ERA5 temperature and forcing and GloFAS discharge are assumed reachable for any point on land (Open-Meteo); not checked here.
+    - CMIP6 change factors need model output you supply (aquascope.climate works on downloaded data); not counted.
+```
+
+The same point with a 12-year record would put the 100-year flood in
+*marginal* ("T = 100 years is beyond about 36 years, 3 times the record"); an
+ungauged point marks every at-site method not defensible and leaves the
+regionalisation path (`similar_basins`, `regionalize_signatures`) and the
+GloFAS cross-check. `--radius-km` sets how far a gauge may be to count
+(default 50), `--problem` narrows the table to one kind of question
+(`flood_risk`, `ungauged_flow`, `drought`, `groundwater_decline`,
+`supply_reliability`, `climate_change`, `irrigation`, `water_quality`), and
+`--json` prints the full result: `point`, `stations` (nearest first),
+`catchment`, `context` (years per variable, area, donors, what else is
+available), `sufficiency` (one row per method, with the station it would
+use) and `notes`. The notes are the honest part: the catalog does not record
+resolution, so daily is assumed and said; a fetch serves the last 40 years
+whatever the span; a source that publishes only the last month is named.
+
 ## Level 3: code, checks and a study you can run again
 
 Three things were added in #234, and they change what an answer *is*.

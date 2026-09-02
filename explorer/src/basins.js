@@ -243,6 +243,31 @@ async function subBasinAt(lat, lon) {
   };
 }
 
+// One FlatGeobuf read per point: the basin card and the "what can be answered
+// here" card both ask for the sub-basin of the same click.
+let subBasinCache = { key: null, promise: null };
+function subBasinAtCached(lat, lon) {
+  const key = `${lat},${lon}`;
+  if (subBasinCache.key !== key) {
+    const promise = subBasinAt(lat, lon);
+    subBasinCache = { key, promise };
+    promise.catch(() => { if (subBasinCache.promise === promise) subBasinCache = { key: null, promise: null }; });
+  }
+  return subBasinCache.promise;
+}
+
+// The upstream area of the sub-basin containing a point (km²), or null.
+export async function catchmentAreaAt(lat, lon) {
+  const sb = await subBasinAtCached(lat, lon);
+  return sb && Number.isFinite(sb.up_area) ? sb.up_area : null;
+}
+
+// How many gauged catchments the similarity search can draw donors from.
+export async function donorPoolSize() {
+  const { rows } = await ensureSimilarTable();
+  return rows.filter((r) => r.area_km2 !== null && r.area_km2 !== undefined).length;
+}
+
 async function ensureTopology() {
   if (topoLoaded) return topoLoaded;
   topoLoaded = (async () => {
@@ -289,7 +314,7 @@ export async function requestBasin(lat, lon, target) {
   setCard(el, "loading", { message: "Finding the sub-basin (BasinATLAS)…" });
   setTab(r, "catchment", { enabled: true });
   try {
-    const sb = await subBasinAt(lat, lon);
+    const sb = await subBasinAtCached(lat, lon);
     if (my !== basinReq) return;
     if (!sb || sb.hybas_id === null) {
       setCard(el, "empty", { message: "No BasinATLAS sub-basin here (open sea, or outside the level-12 layer)." });

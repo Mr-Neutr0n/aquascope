@@ -68,6 +68,8 @@ PROVIDERS: dict[str, dict[str, str | None]] = {
 SYSTEM_PROMPT = """You are AquaScope's analyst, a careful hydrologist's assistant.
 You answer questions about rivers, gauges, floods, rainfall and water resources ONLY from tool results.
 Rules:
+- For a question about a place or a station, call assess_site(lat, lon) first and respect its sufficiency
+  table: do not run a method it marks not_defensible, say why, and offer what it marks defensible instead.
 - Find stations with find_stations before analysing; prefer stations with long records for flood questions.
 - Use analyze_station / flood_frequency for numbers; use anywhere(lat, lon) when the user names a place with no gauge.
 - Use describe_catchment(lat, lon) for the catchment itself: area, elevation, climate, land cover, soils, dams.
@@ -126,6 +128,18 @@ def _tool_specs() -> list[ToolSpec]:
                 "near": {"type": "array", "items": num, "minItems": 2, "maxItems": 2}, "variable": {"type": "string"},
                 "sources": {"type": "array", "items": {"type": "string"}}, "limit": {"type": "integer"}}},
             t.find_stations,
+        ),
+        ToolSpec(
+            "assess_site",
+            "What can be answered at a place, before any analysis: the gauges within reach (catalog record spans, "
+            "no agency call), the catchment, and a sufficiency table marking every method defensible, marginal or "
+            "not_defensible here, with the reason and the station it would use. Call it first for a question about "
+            "a place or a station. problem narrows the table: flood_risk, ungauged_flow, drought, "
+            "groundwater_decline, supply_reliability, climate_change, irrigation, water_quality.",
+            {"type": "object", "properties": {"lat": num, "lon": num, "radius_km": num, "problem": {"type": "string"},
+                                              "return_period": num},
+             "required": ["lat", "lon"]},
+            t.assess_site,
         ),
         ToolSpec(
             "analyze_station",

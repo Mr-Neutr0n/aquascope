@@ -89,6 +89,34 @@ analysis.to_csv(_STORE["result"])
   post("result", { id, result: out });
 }
 
+// "What can be answered here": aquascope.explore.assess_site over the catalog
+// the page handed over (send it first with "catalog"). The page passes the
+// catchment area and donor count it already holds, since BasinATLAS and the
+// similarity table are read by DuckDB-WASM on the main thread, not here.
+async function assess({ id, lat, lon, radius_km, problem, area_km2, donors }) {
+  post("progress", { text: "Checking what the record here supports…" });
+  self.__aqAssess = JSON.stringify({
+    lat: Number(lat), lon: Number(lon), radius_km: Number(radius_km) || 50, problem: problem || null,
+    area_km2: Number.isFinite(Number(area_km2)) && area_km2 !== null ? Number(area_km2) : null,
+    donors: Number.isFinite(Number(donors)) && donors !== null ? Number(donors) : null,
+  });
+  const code = `
+import json
+from js import __aqAssess
+_a = json.loads(__aqAssess)
+json.dumps(analysis.assess_site(
+    _a["lat"], _a["lon"], radius_km=_a["radius_km"], problem=_a.get("problem"),
+    area_km2=_a.get("area_km2"), donors=_a.get("donors"),
+))
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqAssess = null;
+  }
+}
+
 // The main thread already holds the station catalog (DuckDB-WASM); hand it to
 // Python once so find_stations() answers from memory instead of the Hub
 // (httpx / pyarrow do not run here).
@@ -264,6 +292,7 @@ self.onmessage = async (e) => {
     await ready;
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
+    if (m.type === "assess") return await assess(m);
     if (m.type === "flood_ci") return await floodCi(m);
     if (m.type === "csv") return await csv(m);
     if (m.type === "catalog") return await catalog(m);

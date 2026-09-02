@@ -626,3 +626,285 @@ def to_csv(result: dict[str, Any]) -> str:
     lines = [f"date,{result.get('variable', 'value')}_{unit}".replace("/", "_per_")]
     lines += [f"{t},{'' if v is None else v}" for t, v in zip(series["t"], series["v"])]
     return "\n".join(lines) + "\n"
+
+
+# ── reconnaissance ──────────────────────────────────────────────────────────
+# What exists at a place, and what that supports, before any analysis runs.
+# The catalog gives the record spans (no agency call), BasinATLAS the
+# catchment, the similarity search the donors; aquascope.methods turns them
+# into the sufficiency table. Same function behind `aquascope assess`, the
+# MCP tool, the Analyst tool and the Explorer card.
+
+#: Variables a method in the registry can consume.
+RECORD_VARIABLES = ("discharge", "water_level", "precipitation", "groundwater_level", "water_quality")
+#: Sources whose live feed is a short window, whatever the catalog span says.
+SERVED_WINDOW = {"pegelonline": "the last 31 days", "ireland_opw": "the last month"}
+#: How far back a default fetch reaches (fetch_series years=40).
+DEFAULT_FETCH_YEARS = 40
+_NEAR_CANDIDATES = 400
+_MAX_STATIONS_LISTED = 25
+_DONOR_K = 10
+_STALE_AFTER_YEARS = 5
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = p2 - p1
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _parse_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _span_years(start: Any, end: Any, today: date) -> float | None:
+    """Record length in years from the catalog span; an open end runs to today."""
+    s = _parse_date(start)
+    if s is None:
+        return None
+    e = _parse_date(end) or today
+    return max(0.0, round((e - s).days / 365.25, 1))
+
+
+def _station_entry(row: dict[str, Any], lat: float, lon: float, today: date) -> dict[str, Any]:
+    return {
+        "source": row.get("source"),
+        "station_id": row.get("station_id"),
+        "name": row.get("name"),
+        "distance_km": round(_haversine_km(lat, lon, float(row["latitude"]), float(row["longitude"])), 1),
+        "variables": [v for v in (row.get("variables") or []) if v],
+        "period_start": row.get("period_start"),
+        "period_end": row.get("period_end"),
+        "years": _span_years(row.get("period_start"), row.get("period_end"), today),
+        "url": row.get("url"),
+    }
+
+
+def _label(st: dict[str, Any]) -> str:
+    name = st.get("name") or st.get("station_id")
+    return f"{name} ({st['source']}/{st['station_id']})"
+
+
+def _catchment_subset(desc: dict[str, Any]) -> dict[str, Any]:
+    """The few catchment facts the sufficiency table and a card need, from describe_catchment."""
+    sb = desc.get("sub_basin") or {}
+    attrs = desc.get("attributes") or {}
+
+    def value(key: str) -> Any:
+        entry = attrs.get(key)
+        return entry.get("value") if isinstance(entry, dict) else entry
+
+    up_area = attrs.get("upstream_area_km2")
+    if not isinstance(up_area, (int, float)):
+        up_area = sb.get("up_area")
+    area = attrs.get("area_km2") if isinstance(attrs.get("area_km2"), (int, float)) else up_area
+    return {
+        "hybas_id": sb.get("hybas_id"),
+        "area_km2": _clean(float(area)) if isinstance(area, (int, float)) else None,
+        "upstream_area_km2": _clean(float(up_area)) if isinstance(up_area, (int, float)) else None,
+        "n_sub_basins": (desc.get("upstream") or {}).get("n_sub_basins"),
+        "elevation_m": value("elevation_m"),
+        "precipitation_mm_yr": value("precipitation_mm_yr"),
+        "aridity": value("aridity_index"),
+        "dams": value("degree_of_regulation_pct"),
+        "source": "BasinATLAS (HydroATLAS v1.0)",
+    }
+
+
+def assess_site(
+    lat: float,
+    lon: float,
+    *,
+    radius_km: float = 50.0,
+    problem: str | None = None,
+    return_period: float | None = None,
+    area_km2: float | None = None,
+    donors: int | None = None,
+) -> dict[str, Any]:
+    """What can be answered at a place: the gauges in reach, the catchment, and what the record supports.
+
+    Reads the published station catalog only (true catalog spans, no agency
+    call), asks BasinATLAS for the catchment and the similarity search for
+    donors, builds a :class:`aquascope.methods.SiteContext` and returns the
+    sufficiency table for every method (or those for one ``problem``), each
+    row carrying the station it would use. ``area_km2`` and ``donors`` let a
+    caller that already knows them (the Explorer page holds both) skip those
+    lookups. Everything returned is plain JSON.
+
+    Returns ``{"point", "stations", "catchment", "context", "sufficiency", "notes"}``.
+    """
+    from aquascope.archive.catalog import load_stations, search_stations
+    from aquascope.methods import METHODS, SiteContext, sufficiency_table
+
+    lat, lon = float(lat), float(lon)
+    radius_km = float(radius_km)
+    known_problems = sorted({p for m in METHODS.values() for p in m.problems})
+    if problem is not None and problem not in known_problems:
+        raise ValueError(f"unknown problem {problem!r}; one of {known_problems}")
+    notes: list[str] = []
+    today = datetime.now(timezone.utc).date()
+
+    # ── inventory: the nearest catalog stations, true spans, honest distances
+    rows = load_stations()
+    nearby = [
+        _station_entry(r, lat, lon, today)
+        for r in search_stations(rows, near=(lat, lon), limit=_NEAR_CANDIDATES)
+        if r.get("latitude") is not None and r.get("longitude") is not None
+    ]
+    nearby.sort(key=lambda s: s["distance_km"])
+    within = [s for s in nearby if s["distance_km"] <= radius_km]
+
+    years_by: dict[str, float] = {}
+    resolution_by: dict[str, str] = {}
+    station_by: dict[str, dict[str, Any]] = {}
+    unspanned: dict[str, dict[str, Any]] = {}
+    for st in within:
+        for var in st["variables"]:
+            if var not in RECORD_VARIABLES or var in station_by:
+                continue
+            if st["years"] is None:
+                unspanned.setdefault(var, st)
+                continue
+            years_by[var] = st["years"]
+            resolution_by[var] = "daily"
+            station_by[var] = st
+    # Only the variables a method in the table consumes deserve a "nearest gauge is too far" note.
+    wanted = {m.variable for m in METHODS.values() if m.variable and (problem is None or problem in m.problems)}
+    for var in RECORD_VARIABLES:
+        if var in station_by or var not in wanted:
+            continue
+        if var in unspanned:
+            st = unspanned[var]
+            notes.append(f"{_label(st)} measures {var.replace('_', ' ')} but the catalog has no record span for it; "
+                         "not counted.")
+            continue
+        farther = next((s for s in nearby if var in s["variables"] and s["years"] is not None), None)
+        if within and farther is not None and farther["distance_km"] > radius_km:
+            notes.append(
+                f"Nearest {var.replace('_', ' ')} gauge is {_label(farther)} at {farther['distance_km']:,.0f} km, "
+                f"beyond the {radius_km:g} km radius; not counted."
+            )
+    if not within:
+        if nearby:
+            notes.append(f"No catalog gauge within {radius_km:g} km; the nearest is {_label(nearby[0])} at "
+                         f"{nearby[0]['distance_km']:,.0f} km.")
+        else:
+            notes.append("No catalog gauge near this point.")
+    if years_by:
+        notes.append("Record resolution is not in the catalog; daily is assumed for every variable.")
+    used: dict[tuple[str, str], list[str]] = {}
+    for var, st in station_by.items():
+        used.setdefault((st["source"], st["station_id"]), []).append(var)
+    for key, vars_ in used.items():
+        st = station_by[vars_[0]]
+        what = " and ".join(v.replace("_", " ") for v in vars_)
+        window = SERVED_WINDOW.get(st["source"])
+        if window:
+            notes.append(f"{_label(st)} lists {st['years']:g} years of {what} but the source serves only {window}; "
+                         "a computed answer will not see the full span.")
+        elif st["years"] > DEFAULT_FETCH_YEARS:
+            notes.append(f"The catalog lists {_label(st)} from {st['period_start']} ({st['years']:g} yr); a default "
+                         f"fetch serves the last {DEFAULT_FETCH_YEARS} years, so a computed answer covers fewer "
+                         "years than this span.")
+        if st["years"] < 2:
+            notes.append(f"The catalog span for {_label(st)} is only {st['years']:g} yr; suspiciously short, the "
+                         "agency may hold more.")
+        end = _parse_date(st["period_end"])
+        if end is not None and (today - end).days > _STALE_AFTER_YEARS * 365:
+            notes.append(f"The {what} record at {_label(st)} ends in {end.year}.")
+
+    # ── catchment (BasinATLAS), unless the caller already knows the area
+    catchment: dict[str, Any]
+    if area_km2 is not None:
+        catchment = {"area_km2": _clean(float(area_km2)), "upstream_area_km2": _clean(float(area_km2)),
+                     "source": "caller"}
+        notes.append("Catchment area supplied by the caller; BasinATLAS was not consulted.")
+    else:
+        from aquascope.mcp_server import describe_catchment
+
+        desc = describe_catchment(lat, lon)
+        if desc.get("error"):
+            catchment = {"error": str(desc["error"])}
+            notes.append(f"Catchment not described: {desc['error']}")
+        else:
+            catchment = _catchment_subset(desc)
+    ctx_area = catchment.get("upstream_area_km2") or catchment.get("area_km2")
+
+    # ── donors for the regionalisation path
+    ctx_donors: int | None
+    if donors is not None:
+        ctx_donors = int(donors)
+        notes.append("Donor count supplied by the caller.")
+    else:
+        from aquascope.mcp_server import similar_basins
+
+        sim = similar_basins(lat=lat, lon=lon, k=_DONOR_K)
+        if sim.get("error"):
+            ctx_donors = None
+            notes.append(f"Donor search not available: {sim['error']}")
+        else:
+            ctx_donors = len(sim.get("stations") or [])
+            pool = sim.get("n_candidates")
+            if isinstance(pool, int):
+                notes.append(f"{ctx_donors} donor gauges from a pool of {pool:,} gauged catchments.")
+
+    # ── point products: the ERA5 / GloFAS path applies to any point on land
+    available = {"glofas", "temperature", "forcing"}
+    notes.append("ERA5 temperature and forcing and GloFAS discharge are assumed reachable for any point on land "
+                 "(Open-Meteo); not checked here.")
+    notes.append("CMIP6 change factors need model output you supply (aquascope.climate works on downloaded data); "
+                 "not counted.")
+
+    ctx = SiteContext(
+        years_by_variable=years_by,
+        resolution_by_variable=resolution_by,
+        area_km2=float(ctx_area) if isinstance(ctx_area, (int, float)) else None,
+        return_period=float(return_period) if return_period is not None else None,
+        donors=ctx_donors,
+        available=available,
+    )
+    if ctx.ungauged:
+        notes.append(f"No gauge with a usable record within {radius_km:g} km: at-site methods are not defensible; "
+                     "what remains is the regionalisation path (similar_basins, regionalize_signatures) and the "
+                     "GloFAS cross-check.")
+
+    # ── the table, each row with the station it would use
+    longest = max(years_by, key=years_by.get) if years_by else None
+    table = sufficiency_table(ctx, problem=problem)
+    for row in table:
+        pre = METHODS[row["method"]]
+        st = None
+        if pre.variable is not None:
+            st = station_by.get(pre.variable)
+        elif pre.min_years is not None and not pre.ungauged and longest is not None:
+            st = station_by[longest]
+        row["station"] = {"source": st["source"], "station_id": st["station_id"]} if st else None
+
+    return {
+        "point": {"lat": round(lat, 5), "lon": round(lon, 5)},
+        "stations": within[:_MAX_STATIONS_LISTED],
+        "catchment": catchment,
+        "context": {
+            "years_by_variable": years_by,
+            "resolution_by_variable": resolution_by,
+            "area_km2": ctx.area_km2,
+            "return_period": ctx.return_period,
+            "donors": ctx.donors,
+            "available": sorted(available),
+            "ungauged": ctx.ungauged,
+        },
+        "sufficiency": table,
+        "notes": notes,
+    }

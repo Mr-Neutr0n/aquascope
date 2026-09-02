@@ -38,8 +38,9 @@ SERVER_NAME = "aquascope"
 INSTRUCTIONS = (
     "AquaScope gives you the world's public water gauges (USGS, UK EA, Hub'Eau, PEGELONLINE, Ireland OPW, "
     "Taiwan CWA and more) behind one schema. Start with find_stations (no agency call), then get_timeseries or "
-    "analyze_station for a specific station. Flood frequency needs at least 10 complete years of daily flow. "
-    "Always show the licence/attribution returned with the data."
+    "analyze_station for a specific station. For a place or a station, assess_site(lat, lon) first says which "
+    "methods the record there supports; do not run one it marks not_defensible. Flood frequency needs at least "
+    "10 complete years of daily flow. Always show the licence/attribution returned with the data."
 )
 
 MAX_STATIONS = 200
@@ -106,7 +107,8 @@ def find_stations(
 ) -> dict[str, Any]:
     """Search the published station catalog (no agency call).
 
-    query: substring of the station name or id. bbox: [west, south, east, north] in degrees.
+    query: words from the station name, id or river, accent-insensitive ("Kingston Thames" finds the Thames at
+    Kingston). bbox: [west, south, east, north] in degrees.
     near: [lat, lon]; results are ordered nearest-first. variable: one of the registry vocabulary
     (discharge, water_level, precipitation, groundwater_level, ...). Returns at most ``limit`` (<= 200)
     stations with ids you can pass to get_timeseries / analyze_station.
@@ -230,6 +232,31 @@ def flood_frequency(source: str, station_id: str, years: int = 40, bootstrap_ci:
     if not keep.get("ffa"):
         keep["error"] = "flood frequency not available (see notes)"
     return keep
+
+
+def assess_site(
+    lat: float,
+    lon: float,
+    radius_km: float = 50.0,
+    problem: str | None = None,
+    return_period: float | None = None,
+) -> dict[str, Any]:
+    """What can be answered at a place, before any analysis. Call this first for a question about a place or a
+    station. Returns the gauges within radius_km from the catalog (true record spans, no agency call), the
+    BasinATLAS catchment, the site context (years per variable, area, donors) and a sufficiency table: for every
+    method, defensible | marginal | not_defensible here, the reason (record length, resolution, catchment size
+    for a lumped model, return period against record length, donors), the tool that runs it and the station it
+    would use. Respect it: do not run a method marked not_defensible, say why, and offer what is defensible.
+    problem narrows the table: flood_risk, ungauged_flow, drought, groundwater_decline, supply_reliability,
+    climate_change, irrigation, water_quality. return_period is the T the question asks for, if any.
+    """
+    from aquascope.explore import assess_site as _assess
+
+    try:
+        return _assess(float(lat), float(lon), radius_km=float(radius_km), problem=problem or None,
+                       return_period=float(return_period) if return_period is not None else None)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
 
 def describe_methods() -> dict[str, Any]:
@@ -461,6 +488,7 @@ def build_server():
     server.tool()(analyze_station)
     server.tool()(flood_frequency)
     server.tool()(describe_methods)
+    server.tool()(assess_site)
     server.tool()(describe_catchment)
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)

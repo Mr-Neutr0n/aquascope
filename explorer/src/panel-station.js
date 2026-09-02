@@ -8,6 +8,7 @@ import {
   $, VAR_LABEL, actions, article, copyText, downloadBlob, escapeHtml, fmt, fmtP, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
 import { addTableDownload, emphasisColor, plot, surfaceColor } from "./charts.js?v=__BUILD__";
+import { requestAssess } from "./assess.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment, stationArea } from "./basins.js?v=__BUILD__";
 import { flyToStation, highlightStation, clearPointMarker } from "./map.js?v=__BUILD__";
 import { GR4J_METHODS, addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
@@ -48,7 +49,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   $("btn-csv").disabled = true;
 
   // Reset the tabs to "loading" so nothing from the last station lingers.
-  for (const id of ["st-kpis-card", "st-hydro-card", "st-ffa-card", "st-fdc-card", "st-trend-card", "st-gr4j-card", "st-notes-card"]) {
+  for (const id of ["st-kpis-card", "st-hydro-card", "st-ffa-card", "st-fdc-card", "st-trend-card", "st-gr4j-card", "st-notes-card", "st-assess-card"]) {
     hideCard($(id));
   }
   renderMethodList("methods", []);
@@ -70,6 +71,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   requestAnalysis(r, my);
   requestCatchment({ station: r, target: "st" });
   requestBasin(r.lat, r.lon, "st");
+  requestAssess({ lat: r.lat, lon: r.lon, target: "st", key });
 }
 
 function tabExists(name) {
