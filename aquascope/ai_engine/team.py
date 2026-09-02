@@ -103,6 +103,8 @@ each step; you are given the executed steps, their gate outcomes and their resul
 Write the answer as prose under 300 words, from these results only:
 - Answer the problem first, in one or two sentences, with the number(s) and their units and intervals.
 - Say which record each number comes from (station, source, period, years) and which method produced it.
+- Confidence intervals in the results are 90 % bands (Log-Pearson III analytical, GEV bootstrap) unless a result
+  says otherwise; quote them as 90 %, and write plain ASCII digits, hyphens and units (m3/s).
 - Report the gate outcomes that matter (a failed gate, a fallback that ran, a spread between fits).
 - Do not write headings or lists; do not add a Data or Methods section, the engine appends them.
 - Do not invent a number, a station, a citation or a cause. If something did not run, say so.
