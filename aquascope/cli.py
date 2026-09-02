@@ -1729,7 +1729,10 @@ def main() -> None:
         metavar="VAR",
         help="bundles: restrict to these variables (repeatable)",
     )
-    p_harvest.add_argument("--years", type=int, default=40, help="obs: how far back to ask (default 40)")
+    p_harvest.add_argument(
+        "--years", type=int, default=None,
+        help="obs: cap the record asked for, in years (default: the full record, from the catalog's first date)",
+    )
     p_harvest.add_argument("--max-stations", type=int, default=100, help="obs: stations per source per run")
     p_harvest.add_argument("--refresh-days", type=int, default=30, help="obs: re-harvest a station older than this")
     p_harvest.add_argument("--station", action="append", help="obs: only these station ids (repeatable)")

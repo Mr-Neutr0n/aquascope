@@ -47,12 +47,17 @@ _STORE = {}
   post("ready");
 }
 
-async function analyze({ id, source, station_id, years }) {
+// The full record is requested unless the page passes a cap in years (#270).
+// The catalog's first date for the station travels with the request so Python
+// can ask from it, and say in the note when the agency served less than that.
+async function analyze({ id, source, station_id, years, period_start }) {
   post("progress", { text: "Fetching the record from the agency…" });
+  const cap = Number(years) > 0 ? `years=${Math.round(Number(years))}, ` : "";
+  const since = period_start ? `period_start=${JSON.stringify(String(period_start).slice(0, 10))}, ` : "";
   const code = `
 import json
 _STORE.clear()
-_res = analysis.analyze_station(${JSON.stringify(source)}, ${JSON.stringify(station_id)}, years=${Number(years) || 40}, store=_STORE)
+_res = analysis.analyze_station(${JSON.stringify(source)}, ${JSON.stringify(station_id)}, ${cap}${since}store=_STORE)
 _STORE["result"] = _res
 json.dumps(_res)
 `;

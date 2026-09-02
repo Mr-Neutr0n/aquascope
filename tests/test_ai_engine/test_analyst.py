@@ -106,3 +106,17 @@ def test_tool_specs_cover_the_mcp_surface():
                      "run_python"}
     tools = analyst._openai_tools(analyst._tool_specs())
     assert all(t["type"] == "function" and "parameters" in t["function"] for t in tools)
+
+
+def test_the_prompt_forbids_facts_from_memory_and_names_the_label() -> None:
+    """#324: "the 2014 winter floods" and "heavily abstracted upstream" came from no tool."""
+    assert "from memory" in analyst.SYSTEM_PROMPT
+    assert "from general knowledge, not from the data" in analyst.SYSTEM_PROMPT
+
+
+def test_the_years_argument_is_described_as_an_optional_cap() -> None:
+    """#270: the model should know that leaving years out asks for the full record."""
+    specs = {s.name: s for s in analyst._tool_specs()}
+    for name in ("analyze_station", "flood_frequency"):
+        years = specs[name].parameters["properties"]["years"]
+        assert years["type"] == "integer" and "full record" in years["description"]

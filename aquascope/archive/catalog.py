@@ -25,6 +25,7 @@ DEFAULT_REPO_ID = "Rekin226/aquascope-gauges"
 CACHE_TTL_SECONDS = 24 * 3600
 
 _OVERRIDE: list[dict[str, Any]] | None = None
+_OVERRIDE_VERSION = 0  # bumped by set_catalog, so a derived index knows its rows changed
 
 
 def set_catalog(rows: list[dict[str, Any]] | None) -> None:
@@ -34,8 +35,9 @@ def set_catalog(rows: list[dict[str, Any]] | None) -> None:
     DuckDB-WASM and cannot use httpx or pyarrow; also handy in tests. Pass
     ``None`` to go back to the Hub.
     """
-    global _OVERRIDE
+    global _OVERRIDE, _OVERRIDE_VERSION
     _OVERRIDE = list(rows) if rows is not None else None
+    _OVERRIDE_VERSION += 1
 
 
 def catalog_url(repo_id: str = DEFAULT_REPO_ID, filename: str = "stations.parquet") -> str:
@@ -84,20 +86,30 @@ def load_stations(
         else:
             local = cache_dir() / f"{repo_id.replace('/', '__')}.parquet"
             dest = _download(catalog_url(repo_id, "stations.parquet"), local, refresh)
-        table = pq.read_table(dest, columns=[c for c in [
-            "source", "station_id", "name", "latitude", "longitude", "variables", "period_start", "period_end",
-            "url", "river", "country", "agency", "license", "redistributable", "extra",
-        ]])
-        rows = table.to_pylist()
-        for r in rows:
-            for k in ("period_start", "period_end"):
-                if r.get(k) is not None:
-                    r[k] = r[k].isoformat()
-            r["variables"] = list(r.get("variables") or [])
-            r["extra"] = json.loads(r["extra"]) if r.get("extra") else {}
-        return rows
+        return _rows_from_parquet(dest)
     local = cache_dir() / f"{repo_id.replace('/', '__')}.geojson"
     dest = _download(catalog_url(repo_id, "stations.geojson"), local, refresh)
+    return _rows_from_geojson(dest)
+
+
+def _rows_from_parquet(dest: Path) -> list[dict[str, Any]]:
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(dest, columns=[c for c in [
+        "source", "station_id", "name", "latitude", "longitude", "variables", "period_start", "period_end",
+        "url", "river", "country", "agency", "license", "redistributable", "extra",
+    ]])
+    rows = table.to_pylist()
+    for r in rows:
+        for k in ("period_start", "period_end"):
+            if r.get(k) is not None:
+                r[k] = r[k].isoformat()
+        r["variables"] = list(r.get("variables") or [])
+        r["extra"] = json.loads(r["extra"]) if r.get("extra") else {}
+    return rows
+
+
+def _rows_from_geojson(dest: Path) -> list[dict[str, Any]]:
     gj = json.loads(dest.read_text(encoding="utf-8"))
     rows = []
     for f in gj.get("features", []):
@@ -106,6 +118,55 @@ def load_stations(
         p.update({"latitude": lat, "longitude": lon, "variables": list(p.get("variables") or [])})
         rows.append(p)
     return rows
+
+
+# (what the index was built from, {(source, station_id): (period_start, period_end)})
+_PERIOD_INDEX: tuple[Any, dict[tuple[str, str], tuple[str | None, str | None]]] | None = None
+
+
+def _rows_at_hand(repo_id: str = DEFAULT_REPO_ID) -> tuple[Any, list[dict[str, Any]] | None]:
+    """The catalog rows already here, with a key that says which copy, or ``None``.
+
+    The rows handed over with :func:`set_catalog` come first, then a copy
+    :func:`load_stations` has cached on disk, whatever its age. Nothing is
+    downloaded: a fetch should not wait on the Hub for a date it can do without.
+    """
+    if _OVERRIDE is not None:
+        return ("override", _OVERRIDE_VERSION), _OVERRIDE
+    parquet = cache_dir() / f"{repo_id.replace('/', '__')}.parquet"
+    geojson = cache_dir() / f"{repo_id.replace('/', '__')}.geojson"
+    for dest, reader in ((parquet, _rows_from_parquet), (geojson, _rows_from_geojson)):
+        if not dest.exists():
+            continue
+        try:
+            return (str(dest), dest.stat().st_mtime), reader(dest)
+        except Exception as exc:  # noqa: BLE001 - a broken cache is a missing cache
+            logger.info("could not read the cached catalog %s: %s", dest, exc)
+    return None, None
+
+
+def catalog_period(source: str, station_id: str) -> tuple[str | None, str | None]:
+    """The catalog's ``(period_start, period_end)`` for one station, without a download.
+
+    Reads the rows handed over with :func:`set_catalog` (the Explorer's worker)
+    or the copy :func:`load_stations` already cached on disk (an MCP server or
+    a CLI that has searched the catalog). Returns ``(None, None)`` when neither
+    is at hand or the station is not listed, so the caller falls back to a
+    generous window rather than waiting on the Hub. ISO date strings.
+    """
+    global _PERIOD_INDEX
+    key, rows = _rows_at_hand()
+    if rows is None:
+        return None, None
+    if _PERIOD_INDEX is None or _PERIOD_INDEX[0] != key:
+        index: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+        for r in rows:
+            start, end = r.get("period_start"), r.get("period_end")
+            index[(str(r.get("source")), str(r.get("station_id")))] = (
+                str(start)[:10] if start else None, str(end)[:10] if end else None,
+            )
+        _PERIOD_INDEX = (key, index)
+    return _PERIOD_INDEX[1].get((source, station_id), (None, None))
 
 
 def search_stations(

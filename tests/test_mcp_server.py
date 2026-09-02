@@ -207,3 +207,23 @@ def test_station_view_passes_an_error_straight_through() -> None:
         result = station_view("usgs", "nope")
     assert result["error"] == "no such station"
     assert "_meta" not in result
+
+
+def test_analyze_station_asks_for_the_full_record_by_default_and_keeps_the_note():
+    """#270: the tool passed years=40 while the note said 'full period requested'."""
+    seen = {}
+
+    def fake_fetch(source, sid, *, years=None, variable=None, **kw):
+        seen["years"] = years
+        return {"series": _flow(12), "variable": "discharge", "unit": "m3/s",
+                "note": "fake; full record requested (from 1930-01-01, the catalog's first date for this station)",
+                "requested": {"start": "1930-01-01", "end": "2026-09-03", "years": None,
+                              "catalog_start": "1930-01-01"}}
+
+    with patch("aquascope.explore.fetch_series", side_effect=fake_fetch):
+        out = m.analyze_station("usgs", "USGS-1")
+        assert seen["years"] is None and "full record requested" in out["fetch_note"]
+        assert out["requested"]["years"] is None
+        ff = m.flood_frequency("usgs", "USGS-1", years=12)
+    assert seen["years"] == 12
+    assert "fetch_note" in ff and ff["requested"]["catalog_start"] == "1930-01-01"

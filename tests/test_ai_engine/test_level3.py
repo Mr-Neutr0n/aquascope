@@ -246,7 +246,7 @@ def test_a_study_is_built_from_what_the_model_actually_ran() -> None:
 
 KINGSTON_PAYLOAD = {
     "unit": "m3/s", "station_id": "8496ce69-482c-406a-a2f0-ac418ef8f099", "name": "Kingston",
-    "agency": "Environment Agency", "years": 40.0, "n": 14555,
+    "agency": "Environment Agency", "years": 40.0, "n": 14555, "start": "1986-08-21", "end": "2026-08-19",
     "ffa": {"return_periods": [100], "fits": {"gev": {"q": [497.0], "ci": [[453.0, 525.0]]}}},
 }
 
@@ -574,3 +574,75 @@ def test_a_counted_thing_is_not_mistaken_for_a_unit() -> None:
                 "payload": {"stations": [{"name": "A"}], "n_returned": 1}, "ok": True}]
     v = verify_mod.verify("Station A is gauge 3 of the set.", results)
     assert "numbers_come_from_tools" in {c.name for c in v.failed}, "3 is a claim, not a unit"
+
+
+# ── ranges, labels and years (#324) ──────────────────────────────────────────
+#
+# A live answer quoted "Q2 325 (297-348), Q10 433 (401-453)", en dashes in the
+# ranges, and the check read 2325, -348, 10433 and -453 out of it: the label's digits were glued onto the
+# next number by the grouping rule, and the dash of a range was taken for a
+# sign. The same answer added "the 2014 winter floods" from memory; nothing
+# checked that.
+
+
+@pytest.mark.parametrize("text", ["453 – 525", "297–348", "447 - 604"])
+def test_a_dash_between_two_numbers_is_a_range_not_a_sign(text) -> None:
+    assert verify_mod._numbers(verify_mod.normalise(text)) == [float(text[:3]), float(text[-3:])]
+
+
+@pytest.mark.parametrize("text, value", [("Q2 325", 325.0), ("Q10 433", 433.0), ("T100 495", 495.0)])
+def test_a_label_is_not_glued_onto_the_number_after_it(text, value) -> None:
+    assert verify_mod._numbers(verify_mod.normalise(text)) == [value]
+
+
+def test_a_real_negative_survives() -> None:
+    assert verify_mod._numbers("-0.864") == [-0.864]
+    assert verify_mod._numbers("skew = -0.864") == [-0.864]
+    assert verify_mod._numbers(verify_mod.normalise("tau = −0.14")) == [-0.14]
+
+
+RETURN_LEVELS = {
+    "unit": "m3/s", "station_id": "K",
+    "ffa": {"return_periods": [2, 10, 50], "fits": {
+        "gev_lmoments": {"q": [325.0, 433.0, 482.0]},
+        "lp3": {"q": [325.0, 433.0, 482.0], "ci": [[297.0, 348.0], [401.0, 453.0], [443.0, 507.0]]},
+    }},
+}
+
+
+def test_return_levels_with_their_intervals_are_not_reported_as_fabricated() -> None:
+    answer = "At K: Q2 325 (297–348), Q10 433 (401–453), Q50 482 (443–507) m³/s."
+    v = verify_mod.verify(answer, _one(RETURN_LEVELS))
+    assert "numbers_come_from_tools" not in {c.name for c in v.failed}, [c.detail for c in v.failed]
+
+
+def test_a_year_from_memory_is_listed_as_not_established() -> None:
+    v = verify_mod.verify("Kingston's peak in the 2014 winter floods was 497 m3/s.", _one(KINGSTON_PAYLOAD))
+    failed = {c.name: c.detail for c in v.failed}
+    assert "years_traceable" in failed and "2014" in failed["years_traceable"]
+
+
+def test_a_year_labelled_general_knowledge_is_allowed() -> None:
+    v = verify_mod.verify(
+        "Kingston flooded in the winter of 2014 (from general knowledge, not from the data). "
+        "The 100-year flood is 497 m3/s (453 to 525).",
+        _one(KINGSTON_PAYLOAD),
+    )
+    assert "years_traceable" not in {c.name for c in v.failed}
+
+
+def test_a_year_in_a_result_date_or_period_is_traceable() -> None:
+    v = verify_mod.verify("Kingston's record runs from 1986 to 2026, in m3/s.", _one(KINGSTON_PAYLOAD))
+    assert "years_traceable" not in {c.name for c in v.failed}
+
+
+def test_a_year_the_user_asked_about_is_not_the_models_memory() -> None:
+    v = verify_mod.verify("Kingston has no data for 1947, in m3/s.", _one(KINGSTON_PAYLOAD),
+                          question="What happened at Kingston in 1947?")
+    assert "years_traceable" not in {c.name for c in v.failed}
+
+
+def test_the_years_check_prints_with_the_others() -> None:
+    v = verify_mod.verify("The 2014 floods at Kingston.", _one(KINGSTON_PAYLOAD))
+    md = v.to_markdown()
+    assert "does not establish" in md and "2014" in md and "general knowledge" in md
