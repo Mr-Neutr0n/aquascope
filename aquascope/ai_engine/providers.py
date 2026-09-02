@@ -10,10 +10,12 @@ So: one registry here, read by the Python side, and written out as JSON for the
 Explorer by :func:`as_json` (``explorer/providers.json``, refreshed by
 ``python -m aquascope.ai_engine.providers``). A model id is edited once.
 
-Every provider listed here speaks the OpenAI chat-completions API, supports tool
-calling on the model named below, and (except Ollama, which is local) allows a
-browser to call it directly, which is what makes bring-your-own-key work on a
-static page with no server of ours.
+Every provider listed here supports tool calling on the model named below and
+(except Ollama, which is local) allows a browser to call it directly, which is
+what makes bring-your-own-key work on a static page with no server of ours.
+Most speak the OpenAI chat-completions API; Anthropic speaks its own Messages
+API, and ``api`` says which, so :func:`aquascope.ai_engine.llm_transport.make_client`
+can pick the transport.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ __all__ = ["PROVIDERS", "Provider", "as_json", "default_model", "env_var", "prov
 
 @dataclass(frozen=True)
 class Provider:
-    """One OpenAI-compatible endpoint."""
+    """One LLM endpoint the Analyst can use."""
 
     id: str
     label: str
@@ -42,6 +44,11 @@ class Provider:
     #: Reachable from a browser (CORS), so the Explorer can offer it.
     browser: bool = True
     note: str | None = None
+    #: The wire protocol: "openai" (chat completions) or "anthropic" (the Messages API).
+    api: str = "openai"
+    #: How much conversation (characters) the Analyst may keep before trimming old
+    #: tool results. None means the conservative free-tier default in the loop.
+    context_chars: int | None = None
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -56,6 +63,20 @@ PROVIDERS: dict[str, Provider] = {
         env="GROQ_API_KEY",
         free="Free tier: about 1,000 requests a day, 8k tokens a minute.",
         signup="https://console.groq.com/keys",
+    ),
+    "anthropic": Provider(
+        id="anthropic",
+        label="Anthropic (Claude)",
+        base_url="https://api.anthropic.com",
+        model="claude-opus-5",
+        models=["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+        env="ANTHROPIC_API_KEY",
+        signup="https://console.anthropic.com/settings/keys",
+        note="Pay as you go; the Messages API, translated by aquascope.",
+        api="anthropic",
+        # Roughly 50k tokens: plenty for a tool loop, a fraction of the window,
+        # and old tool results stop being trimmed to 400 characters.
+        context_chars=200_000,
     ),
     "huggingface": Provider(
         id="huggingface",
@@ -109,7 +130,7 @@ PROVIDERS: dict[str, Provider] = {
 }
 
 #: The order the CLI scans the environment in when no provider was named.
-ENV_SCAN_ORDER = ("openai", "groq", "huggingface", "mistral", "openrouter")
+ENV_SCAN_ORDER = ("anthropic", "openai", "groq", "huggingface", "mistral", "openrouter")
 
 
 def provider_ids(*, browser_only: bool = False) -> list[str]:
@@ -140,6 +161,7 @@ def as_json(*, browser_only: bool = True) -> str:
         "id": "custom", "label": "Custom OpenAI-compatible endpoint", "base_url": "", "model": "",
         "models": [], "free": None, "signup": None, "browser": True,
         "note": "Any endpoint that speaks /chat/completions with tool calling.",
+        "api": "openai", "context_chars": None,
     })
     return json.dumps(out, indent=2) + "\n"
 

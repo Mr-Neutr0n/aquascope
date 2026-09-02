@@ -4,6 +4,9 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Anthropic as a provider for the Analyst** (#322). `aquascope ask --provider anthropic` (or `ANTHROPIC_API_KEY` in the environment, now first in the scan order) runs the same tool loop on Claude, `claude-opus-5` by default with Sonnet 5 and Haiku 4.5 in the picker. The Messages API is a different protocol from chat completions, so `aquascope.ai_engine.llm_transport.AnthropicChatClient` translates both ways behind the surface the loop already uses: system messages, `input_schema` tools, `tool_result` blocks (all of a turn's results in one message), and the model's own content blocks replayed on every assistant turn so adaptive thinking survives tool calls. The `anthropic` SDK is used when installed and not in a browser; the Explorer's worker posts to `/v1/messages` directly with the header Anthropic requires from a page. The registry gained `api` (the wire protocol) and `context_chars` (how much conversation the loop may keep before trimming; 200k for Anthropic, so tool results stop being cut to 400 characters), `--provider` choices in `ask` and `ingest` now come from the registry, and "prompt is too long" is treated like any other too-large request. `AQUASCOPE_LLM_EFFORT` passes `output_config.effort` through.
+
 ### Changed
 - `CITATION.cff` lists the v0.13.0 version DOI `10.5281/zenodo.22152064` (concept DOI unchanged).
 - **WQP collector moved to the WQX 3.0 API** (#170). The old WQX 2.2 endpoint missed USGS data after 2024-03-11. `fetch_raw` now calls `/wqx3/Result/search` with `dataProfile=narrow`; a clean break from 2.2 — only WQX 3.0 field names are read (cross-walked from the official schema, e.g. `ResultMeasureValue` to `Result_Measure`, `CharacteristicName` to `Characteristic_Name`, `MonitoringLocationIdentifier` to `Location_Identifier`), with no dual-version support.

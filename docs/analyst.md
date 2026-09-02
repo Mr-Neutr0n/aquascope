@@ -6,8 +6,8 @@ and aquascope does the part that has to be right.
 ## `aquascope ask`: a question in, a cited report out
 
 ```bash
-pip install aquascope             # the openai SDK is optional (pip install "aquascope[llm]")
-export GROQ_API_KEY=...            # or OPENAI_API_KEY, HF_TOKEN, MISTRAL_API_KEY, OPENROUTER_API_KEY, or AQUASCOPE_LLM_API_KEY + _BASE_URL + _MODEL
+pip install aquascope             # the openai and anthropic SDKs are optional (pip install "aquascope[llm]")
+export ANTHROPIC_API_KEY=...       # or GROQ_API_KEY, OPENAI_API_KEY, HF_TOKEN, MISTRAL_API_KEY, OPENROUTER_API_KEY, or AQUASCOPE_LLM_API_KEY + _BASE_URL + _MODEL
 aquascope ask "What is the 100-year flood of the Seine at Paris, and how sure can we be?" -o seine.md
 ```
 
@@ -25,9 +25,12 @@ them against real data. The Markdown report has three parts:
    also assembled from the tool results (never from the model's memory).
 
 A footer records the model, provider, date and the tools called. `--provider`
-picks openai / groq / huggingface / ollama (defaults from the environment),
-`--model` overrides the default model, `--max-steps` bounds the tool loop.
-Works with any OpenAI-compatible endpoint that supports tool calling.
+picks anthropic / openai / groq / huggingface / mistral / openrouter / ollama
+(defaults from the environment, scanned in that order), `--model` overrides the
+default model, `--max-steps` bounds the tool loop. Works with any
+OpenAI-compatible endpoint that supports tool calling, and with Anthropic's
+Messages API: `--provider anthropic` defaults to `claude-opus-5`, and
+`AQUASCOPE_LLM_EFFORT` (`low` to `max`) sets how hard Claude thinks per step.
 
 This is deliberately not an autonomous agent: no memory, no planning beyond
 the tool loop, no writes. It is the "ask, get the work done, see the work"
@@ -39,9 +42,13 @@ button): the browser worker calls the provider directly with your key through
 `aquascope.ai_engine.llm_transport.UrllibChatClient`, a dependency-free
 OpenAI-compatible client that is also the fallback when the `openai` package
 is not installed, so `pip install aquascope` alone is enough for `aquascope
-ask`. Providers: `openai`, `groq`, `huggingface`, `mistral`, `openrouter`,
-`ollama`, or `AQUASCOPE_LLM_BASE_URL` for anything else that speaks the
-protocol.
+ask`. Claude goes through `AnthropicChatClient` in the same module, which
+speaks the Messages API behind the same surface (the `anthropic` SDK when it
+is installed, plain HTTP in the browser) and sends the model's own content
+blocks back on every tool turn so adaptive thinking carries across steps.
+Providers: `anthropic`, `openai`, `groq`, `huggingface`, `mistral`,
+`openrouter`, `ollama`, or `AQUASCOPE_LLM_BASE_URL` for anything else that
+speaks the chat-completions protocol.
 
 ## `aquascope ingest`: any export in, a clean series and a QA report out
 
