@@ -588,3 +588,14 @@ def test_running_before_the_provider_list_arrives_says_so() -> None:
     assert "ASK_PROVIDERS[provider]" in guard and "askStatus(" in guard, (
         "runAsk() must check the chosen provider exists and report it, not throw on undefined"
     )
+
+
+def test_the_explorer_asks_for_the_full_record_by_default() -> None:
+    """#270: the page passed a 40-year window while the note said 'full period requested'."""
+    config = (EXPLORER / "config.js").read_text(encoding="utf-8")
+    assert re.search(r"\byears:\s*null\b", config), "CONFIG.years is a cap; null asks for the full record"
+    worker = (EXPLORER / "worker.js").read_text(encoding="utf-8")
+    assert "|| 40" not in worker, "the worker must not fall back to a hard-coded window"
+    assert "period_start" in worker, "the catalog's first date travels with the request"
+    panel = (EXPLORER / "src" / "panel-station.js").read_text(encoding="utf-8")
+    assert "period_start: r.period_start" in panel

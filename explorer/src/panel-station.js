@@ -82,7 +82,9 @@ async function requestAnalysis(r, my) {
   const key = stationKey(r);
   setStatus("");
   try {
-    const result = await call("analyze", { source: r.source, station_id: r.station_id, years: CONFIG.years });
+    const result = await call("analyze", {
+      source: r.source, station_id: r.station_id, years: CONFIG.years, period_start: r.period_start || null,
+    });
     if (my !== analysisRun || !state.selected || stationKey(state.selected) !== key) return; // user moved on
     state.result = result;
     render(result, r);

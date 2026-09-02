@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
 from typing import Any
 
 from aquascope import __version__
@@ -190,13 +189,15 @@ def get_timeseries(
 
 
 def analyze_station(
-    source: str, station_id: str, years: int = 40, bootstrap_ci: bool = False, variable: str | None = None
+    source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False, variable: str | None = None
 ) -> dict[str, Any]:
     """Fetch and analyse one station: record summary, annual maxima, flood frequency (GEV L-moments and
     Log-Pearson III with 90 % CI; optional bootstrap GEV band), flow-duration percentiles, Mann-Kendall
     trend, and the method citations. Raw daily arrays are omitted; use get_timeseries for those.
     variable picks one of the station's variables (discharge by default; water_level, precipitation,
-    groundwater_level where the station has them).
+    groundwater_level where the station has them). By default the full record is requested, from the
+    catalog's first date for the station; years caps it to the last N years. fetch_note in the result says
+    what was requested and what the agency actually served.
     """
     from aquascope.explore import analyze_station as _analyze
     from aquascope.explore import flood_ci
@@ -206,7 +207,7 @@ def analyze_station(
     if variable and variable not in VARIABLES:
         return {"error": f"unknown variable {variable!r}; allowed: {list(VARIABLES)}"}
     store: dict[str, Any] = {}
-    res = _analyze(source, station_id, years=int(years), store=store, variable=variable)
+    res = _analyze(source, station_id, years=int(years) if years else None, store=store, variable=variable)
     res.pop("series", None)
     if "fdc" in res:
         res["fdc"] = {k: res["fdc"][k] for k in ("q95", "q50", "q10")}
@@ -222,13 +223,18 @@ def analyze_station(
     return res
 
 
-def flood_frequency(source: str, station_id: str, years: int = 40, bootstrap_ci: bool = False) -> dict[str, Any]:
-    """Return levels for T = 2, 5, 10, 25, 50, 100 years at a station (subset of analyze_station)."""
+def flood_frequency(
+    source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False
+) -> dict[str, Any]:
+    """Return levels for T = 2, 5, 10, 25, 50, 100 years at a station (subset of analyze_station).
+    years caps the record to the last N years; by default the full record is requested.
+    """
     res = analyze_station(source, station_id, years=years, bootstrap_ci=bootstrap_ci)
     if "error" in res:
         return res
     keep = {k: res.get(k) for k in ("source", "station_id", "agency", "license", "attribution", "unit",
-                                    "start", "end", "years", "n", "ffa", "notes", "methods")}
+                                    "start", "end", "years", "n", "ffa", "notes", "methods",
+                                    "fetch_note", "requested")}
     if not keep.get("ffa"):
         keep["error"] = "flood frequency not available (see notes)"
     return keep
@@ -344,11 +350,6 @@ def regionalize_signatures(lat: float, lon: float, k: int = 10, method: str = "s
         return {"error": f"regionalisation failed: {type(exc).__name__}: {exc}"}
 
 
-def _default_years_note() -> str:
-    today = date.today()
-    return f"Records are requested back to {(today - timedelta(days=int(40 * 365.25))).isoformat()} by default."
-
-
 def analyse_table(
     csv: str,
     analysis: str,
@@ -435,7 +436,7 @@ def _sparkline(values: list[float], width: int = 560, height: int = 120) -> str:
     )
 
 
-def station_view(source: str, station_id: str, years: int = 40) -> dict[str, Any]:
+def station_view(source: str, station_id: str, years: int | None = None) -> dict[str, Any]:
     """analyze_station, plus a small HTML view of it for clients that render one.
 
     The ``_meta`` block is what an MCP Apps client looks for; everything else is

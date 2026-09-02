@@ -77,6 +77,9 @@ Rules:
 - For "what flow to expect" at an ungauged place, use regionalize_signatures (mm/d estimates with a band and
   the leave-one-out skill); always quote the band and the skill, never a bare number.
 - Never invent values, station ids, or citations. If a tool returns an error or an empty record, say so.
+- Do not add facts about the site from memory: historic floods or droughts, dams, regulation or abstraction
+  upstream, geography, land use. Everything about the site comes from a tool result. If a fact did not, leave
+  it out or label it in the same sentence: "from general knowledge, not from the data".
 - Report units. Quote return levels with their confidence intervals when available.
 - Say which record (station, source, period, number of years) each number comes from.
 - Keep the answer under 300 words unless the user asks for a full report; the tool outputs already carry
@@ -113,6 +116,7 @@ def _tool_specs() -> list[ToolSpec]:
     from aquascope.explore import anywhere
 
     num = {"type": "number"}
+    years_cap = "Optional cap on the record: the last N years. Leave it out for the full record (the default)."
     return [
         ToolSpec(
             "list_sources", "Every data source with agency, country, variables and licence.",
@@ -145,9 +149,11 @@ def _tool_specs() -> list[ToolSpec]:
             "analyze_station",
             "Fetch one station's record and compute summary, annual maxima, flood frequency (GEV, LP3 with CI), "
             "FDC percentiles and trend. variable: discharge (default), water_level, precipitation or "
-            "groundwater_level for stations that have several.",
+            "groundwater_level for stations that have several. The full record is requested by default; "
+            "fetch_note in the result says what was asked for and what the agency served.",
             {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
-                                              "years": {"type": "integer"}, "bootstrap_ci": {"type": "boolean"},
+                                              "years": {"type": "integer", "description": years_cap},
+                                              "bootstrap_ci": {"type": "boolean"},
                                               "variable": {"type": "string"}},
              "required": ["source", "station_id"]},
             t.analyze_station,
@@ -156,7 +162,8 @@ def _tool_specs() -> list[ToolSpec]:
             "flood_frequency",
             "Return levels for T = 2..100 years at a station (subset of analyze_station).",
             {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
-                                              "years": {"type": "integer"}, "bootstrap_ci": {"type": "boolean"}},
+                                              "years": {"type": "integer", "description": years_cap},
+                                              "bootstrap_ci": {"type": "boolean"}},
              "required": ["source", "station_id"]},
             t.flood_frequency,
         ),

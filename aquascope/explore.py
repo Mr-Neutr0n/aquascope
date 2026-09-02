@@ -28,6 +28,17 @@ logger = logging.getLogger(__name__)
 RETURN_PERIODS = [2, 5, 10, 25, 50, 100]
 MIN_YEARS_FOR_FFA = 10
 
+#: How far back a full-record request reaches when the catalog has no start
+#: date for the station (#270). Generous on purpose: the agencies filter
+#: server-side, so asking for years that do not exist costs nothing, while a
+#: 40-year cap silently cut the Thames at Kingston (catalogued from 1883) to
+#: 39 annual maxima.
+FULL_RECORD_YEARS = 150
+
+#: CWA CODIS answers one calendar year per request and each takes several
+#: seconds at the source, so that fetch is capped rather than asked in full.
+CWA_MAX_YEARS = 10
+
 METHODS: dict[str, dict[str, str]] = {
     "gev_lmoments": {
         "name": "GEV fitted by L-moments",
@@ -159,13 +170,104 @@ def _records_to_series(records: list, prefer: str | None = None) -> tuple[pd.Ser
 _USGS_CODES = {"discharge": "00060", "water_level": "00065"}
 
 
+def _parse_date(value: Any) -> date | None:
+    """An ISO date (a date, a datetime or their string) as a date; ``None`` when it is not one."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def request_window(
+    source: str, station_id: str, *, years: int | None = None, period_start: Any = None,
+) -> dict[str, Any]:
+    """The window a fetch asks for, and the words that say so (#270).
+
+    ``years`` is an explicit cap: the last N years. Without it the whole record
+    is requested, from the catalog's first date for the station when that is
+    known (``period_start``, passed by a caller that holds the catalog row, else
+    looked up in the catalog at hand, never downloaded), and otherwise from
+    :data:`FULL_RECORD_YEARS` back. Returns ``start`` and ``end`` (dates),
+    ``years`` (the cap, or ``None``), ``catalog_start`` (ISO string or ``None``)
+    and ``asked``: the clause the fetch note carries, so the reader sees what
+    was actually requested rather than what happened to come back.
+    """
+    end = datetime.now(timezone.utc).date()
+    listed = _parse_date(period_start)
+    if listed is None:
+        from aquascope.archive.catalog import catalog_period
+
+        listed = _parse_date(catalog_period(source, station_id)[0])
+    if years is not None and years > 0:
+        start = end - timedelta(days=int(years * 365.25))
+        asked = f"last {int(years)} years requested (from {start.isoformat()})"
+    elif listed is not None and listed < end:
+        start = listed
+        asked = f"full record requested (from {start.isoformat()}, the catalog's first date for this station)"
+    else:
+        start = end - timedelta(days=int(FULL_RECORD_YEARS * 365.25))
+        asked = (
+            f"full record requested (back to {start.isoformat()}; the catalog has no start date for this station)"
+        )
+    return {
+        "start": start,
+        "end": end,
+        "years": int(years) if years else None,
+        "catalog_start": listed.isoformat() if listed else None,
+        "asked": asked,
+    }
+
+
+def _record_note(s: pd.Series | None, window: dict[str, Any]) -> str:
+    """One sentence when the served record starts well after the catalog's first date.
+
+    The Thames at Kingston is catalogued from 1883 and served from 1986: a
+    reader who sees "full record requested" next to 39 annual maxima is told
+    which of the two the agency actually answered with.
+    """
+    listed = _parse_date(window.get("catalog_start"))
+    if s is None or s.empty or listed is None:
+        return ""
+    first = s.index.min().date()
+    if (first - listed).days <= 366:
+        return ""
+    if window["start"] > listed:
+        return (
+            f" The catalog lists this station from {listed.isoformat()}; "
+            f"only the last {window['years']} years were requested."
+        )
+    return f" The catalog lists this station from {listed.isoformat()}; the served record starts {first.isoformat()}."
+
+
+def _fetched(s: pd.Series | None, var: str, unit: str, note: str, window: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "series": s,
+        "variable": var,
+        "unit": unit,
+        "note": note,
+        "requested": {
+            "start": window["start"].isoformat(),
+            "end": window["end"].isoformat(),
+            "years": window["years"],
+            "catalog_start": window["catalog_start"],
+        },
+    }
+
+
 def fetch_series(
     source: str,
     station_id: str,
     *,
-    years: int = 40,
+    years: int | None = None,
     prefer_archive: bool = True,
     variable: str | None = None,
+    period_start: Any = None,
 ) -> dict[str, Any]:
     """Fetch the observed record for one station.
 
@@ -176,14 +278,23 @@ def fetch_series(
     collector. ``variable`` asks for one variable (``discharge``,
     ``water_level``, ``precipitation``, ``groundwater_level``); by default the
     source's variables are tried in its preferred order (discharge first).
+
+    By default the full record is requested (#270): from the catalog's first
+    date for the station when it is known, else :data:`FULL_RECORD_YEARS` back.
+    ``years`` caps that to the last N years, and ``period_start`` is the
+    catalog's first date when the caller already holds the station's row (the
+    Explorer does), saving the lookup. See :func:`request_window`.
+
     Returns ``{"series": pd.Series | None, "variable": str, "unit": str,
-    "note": str}``; ``note`` says where the data came from and any
-    record-length limit of the source.
+    "note": str, "requested": dict}``; ``note`` says where the data came from,
+    what was requested and any record-length limit of the source, and
+    ``requested`` is ``{"start", "end", "years", "catalog_start"}`` as ISO
+    strings, so a page can show the request beside the record it got.
     """
     if source not in SOURCES:
         raise ValueError(f"Unknown source {source!r}")
-    end = datetime.now(timezone.utc).date()
-    start = end - timedelta(days=int(years * 365.25))
+    window = request_window(source, station_id, years=years, period_start=period_start)
+    start, end, asked = window["start"], window["end"], window["asked"]
     note = ""
 
     if prefer_archive:
@@ -194,23 +305,24 @@ def fetch_series(
             if var not in harvestable_variables(source):
                 continue
             archived = fetch_archived_series(source, station_id, var)
-            if archived is not None and not archived.empty:
+            if archived is None or archived.empty:
+                continue
+            if window["years"]:
                 archived = archived[archived.index >= pd.Timestamp(start)]
-                return {
-                    "series": archived,
-                    "variable": var,
-                    "unit": ARCHIVE_UNITS.get(var, ""),
-                    "note": (
-                        f"From the AquaScope archive (daily {var.replace('_', ' ')} harvested from "
-                        f"{SOURCES[source].agency}; {archived.index.min().date()} to {archived.index.max().date()})."
-                    ),
-                }
+                if archived.empty:
+                    continue  # nothing in the capped window: let the agency say the same
+            note = (
+                f"From the AquaScope archive (daily {var.replace('_', ' ')} harvested from "
+                f"{SOURCES[source].agency}; {archived.index.min().date()} to {archived.index.max().date()}); "
+                f"{asked}."
+            ) + _record_note(archived, window)
+            return _fetched(archived, var, ARCHIVE_UNITS.get(var, ""), note, window)
 
     if source == "usgs":
         # Pass the catalog id as-is ("USGS-01646500" or another agency's "CA574-09527500");
         # the collector maps it onto NWIS (number + agencyCd) or the OGC monitoring_location_id.
         c = build_collector("usgs")
-        span = int(years * 365.25)
+        span = (end - start).days
         s, var, unit = None, "", ""
         for want in (variable,) if variable else ("discharge", "water_level"):
             code = _USGS_CODES.get(want or "")
@@ -220,7 +332,7 @@ def fetch_series(
             s, var, unit = _records_to_series(recs)
             if s is not None:
                 break
-        note = "USGS daily values (NWIS), full period requested."
+        note = f"USGS daily values (NWIS); {asked}."
     elif source == "uk_ea":
         c = build_collector("uk_ea")
         measure, measure_var = _uk_ea_pick_measure(c, station_id, variable=variable)
@@ -231,7 +343,7 @@ def fetch_series(
             s, var, unit = _records_to_series(recs)
             if s is not None and measure_var == "groundwater_level":
                 var = "groundwater_level"  # WaterLevelReading, but the measure is a borehole / tubewell
-        note = f"Environment Agency Hydrology API, measure {measure or 'n/a'}."
+        note = f"Environment Agency Hydrology API, measure {measure or 'n/a'}; {asked}."
     elif source == "hubeau_hydrometrie":
         c = build_collector("hubeau_hydrometrie")
         s, var, unit = None, "", ""
@@ -243,7 +355,7 @@ def fetch_series(
                 date_fin_obs=end.isoformat(), size=20_000, max_items=None,
             )
             s, var, unit = _records_to_series(recs)
-            note = "Hub'Eau elaborated daily mean discharge (obs_elab QmnJ), full period requested."
+            note = f"Hub'Eau elaborated daily mean discharge (obs_elab QmnJ); {asked}."
         if s is None and variable in (None, "discharge"):
             recs = c.collect(code_station=station_id, grandeur_hydro="Q", days=30)
             s, var, unit = _records_to_series(recs)
@@ -266,22 +378,25 @@ def fetch_series(
         note = "waterlevel.ie month file (15-minute levels, last month)."
     elif source == "taiwan_cwa":
         # CODIS answers one calendar year per request and each takes several
-        # seconds at the source; ten years keeps the click-to-chart wait tolerable.
-        cwa_years = min(years, 10)
+        # seconds at the source, so the full record is never asked for here:
+        # CWA_MAX_YEARS keeps the click-to-chart wait tolerable, and the note
+        # says so rather than claiming the whole record was requested.
+        cwa_years = min(int(years), CWA_MAX_YEARS) if years else CWA_MAX_YEARS
         cwa_start = end - timedelta(days=int(cwa_years * 365.25))
+        window.update(start=cwa_start, years=cwa_years)
         c = build_collector("taiwan_cwa")
         recs = c.collect(station_ids=[station_id], start=cwa_start.isoformat(), end=end.isoformat())
         s, var, unit = _records_to_series(recs)
         note = (
-            f"CWA CODIS daily rainfall, last {cwa_years} years "
-            "(one request per year at the source, a few seconds each)."
+            f"CWA CODIS daily rainfall, last {cwa_years} years requested, not the full record "
+            f"(one request per year at the source, a few seconds each; capped at {CWA_MAX_YEARS} years)."
         )
     else:
         raise ValueError(f"{source} has no Explorer fetch path yet")
 
     if variable and s is not None and var != variable:
         s, var, unit = None, "", ""  # the station has no record of the variable asked for
-    return {"series": s, "variable": var, "unit": unit, "note": note}
+    return _fetched(s, var, unit, note + _record_note(s, window), window)
 
 
 # EA stations publish several measures per property (daily min / mean / max,
@@ -485,9 +600,10 @@ def analyze_station(
     source: str,
     station_id: str,
     *,
-    years: int = 40,
+    years: int | None = None,
     store: dict[str, Any] | None = None,
     variable: str | None = None,
+    period_start: Any = None,
 ) -> dict[str, Any]:
     """Fetch + analyse one station. The entry point the browser worker calls.
 
@@ -495,9 +611,13 @@ def analyze_station(
     ``store["series"]`` for follow-up calls such as :func:`flood_ci` and
     :func:`to_csv` without a second fetch. ``variable`` picks one of the
     station's variables (default: the source's preferred one, discharge first).
+    By default the full record is requested (#270); ``years`` caps it to the
+    last N years, and ``period_start`` is the catalog's first date when the
+    caller already holds the station's row. ``fetch_note`` in the result says
+    what was requested and what came back; ``requested`` carries the window.
     """
     meta = SOURCES[source]
-    fetched = fetch_series(source, station_id, years=years, variable=variable)
+    fetched = fetch_series(source, station_id, years=years, variable=variable, period_start=period_start)
     if store is not None:
         store["series"] = fetched["series"]
         store["source"], store["station_id"] = source, station_id
@@ -508,6 +628,7 @@ def analyze_station(
         "license": meta.license,
         "attribution": meta.attribution,
         "fetch_note": fetched["note"],
+        "requested": fetched.get("requested"),
     }
     s = fetched["series"]
     if s is None or s.empty:
