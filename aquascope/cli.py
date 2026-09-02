@@ -13,6 +13,7 @@ Usage
     aquascope list-sources
     aquascope completion bash
 """
+
 # PYTHON_ARGCOMPLETE_OK
 from __future__ import annotations
 
@@ -466,9 +467,7 @@ def cmd_stations(args: argparse.Namespace) -> None:
         api_key=args.api_key,
     )
     if not catalogs:
-        logger.error(
-            "No station-capable source matches. Sources with a catalog: %s", station_sources(args.variable)
-        )
+        logger.error("No station-capable source matches. Sources with a catalog: %s", station_sources(args.variable))
         sys.exit(1)
 
     stations = [s for key in sorted(catalogs) for s in catalogs[key].stations]
@@ -492,15 +491,31 @@ def cmd_stations(args: argparse.Namespace) -> None:
         features = []
         for props in rows:
             lon, lat = props.pop("longitude"), props.pop("latitude")
-            features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": props})
-        out_path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2))
+            features.append(
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": props}
+            )
+        out_path.write_text(
+            json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2)
+        )
     elif fmt == "json":
         out_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2))
     else:
         import csv
 
-        fields = ["source", "station_id", "name", "latitude", "longitude", "variables", "period_start", "period_end",
-                  "url", "river", "country", "extra"]
+        fields = [
+            "source",
+            "station_id",
+            "name",
+            "latitude",
+            "longitude",
+            "variables",
+            "period_start",
+            "period_end",
+            "url",
+            "river",
+            "country",
+            "extra",
+        ]
         with out_path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=fields)
             writer.writeheader()
@@ -563,8 +578,12 @@ def _cmd_harvest_obs(args: argparse.Namespace) -> None:
         if args.variable:
             bad = [s for s in sources if args.variable not in HARVESTABLE[s]]
             if bad:
-                logger.error("%s is not harvested for %s (they mirror %s)", args.variable, bad,
-                             {s: list(HARVESTABLE[s]) for s in bad})
+                logger.error(
+                    "%s is not harvested for %s (they mirror %s)",
+                    args.variable,
+                    bad,
+                    {s: list(HARVESTABLE[s]) for s in bad},
+                )
                 sys.exit(2)
     report = harvest_observations(
         args.out,
@@ -620,8 +639,13 @@ def cmd_ask(args: argparse.Namespace) -> None:
 
     try:
         result = ask(
-            args.question, provider=args.provider, model=args.model, api_key=args.api_key, base_url=args.base_url,
-            max_steps=args.max_steps, on_event=on_event,
+            args.question,
+            provider=args.provider,
+            model=args.model,
+            api_key=args.api_key,
+            base_url=args.base_url,
+            max_steps=args.max_steps,
+            on_event=on_event,
         )
     except (RuntimeError, ValueError, ImportError) as exc:
         logger.error("%s", exc)
@@ -643,7 +667,6 @@ def cmd_ask(args: argparse.Namespace) -> None:
         print("\n  Checks this answer did not meet:", file=sys.stderr)
         for c in unmet:
             print(f"   · {c.get('detail') or c.get('name')}", file=sys.stderr)
-
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -702,20 +725,33 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             logger.warning("LLM mapping unavailable (%s); using heuristics", exc)
     try:
         result = ingest(
-            args.file, variable=args.variable, date_column=args.date_column, value_column=args.value_column,
-            unit=args.unit, station=args.station, sheet=args.sheet, llm_client=client, llm_model=model,
+            args.file,
+            variable=args.variable,
+            date_column=args.date_column,
+            value_column=args.value_column,
+            unit=args.unit,
+            station=args.station,
+            sheet=args.sheet,
+            llm_client=client,
+            llm_model=model,
             description=args.describe or "",
         )
     except (ValueError, FileNotFoundError) as exc:
         logger.error("%s", exc)
         sys.exit(1)
     m, q = result["mapping"], result["qa"]
-    print(f"  mapping  : {m['datetime_column']} + {m['value_column']} -> {m['variable']} [{m['unit']}] "
-          f"(x{m['to_si_factor']}, {m['method']}, confidence {m['confidence']:.0%})")
-    print(f"  values   : {q['n_values']:,} kept of {q['n_rows_in']:,} rows; {q['start']} -> {q['end']}; "
-          f"coverage {q['coverage_pct']}%")
-    print(f"  dropped  : {q['n_duplicates_dropped']} duplicates, {q['n_sentinels_dropped']} sentinels; "
-          f"flagged {q['n_negative']} negative, {q['n_spikes_flagged']} spikes")
+    print(
+        f"  mapping  : {m['datetime_column']} + {m['value_column']} -> {m['variable']} [{m['unit']}] "
+        f"(x{m['to_si_factor']}, {m['method']}, confidence {m['confidence']:.0%})"
+    )
+    print(
+        f"  values   : {q['n_values']:,} kept of {q['n_rows_in']:,} rows; {q['start']} -> {q['end']}; "
+        f"coverage {q['coverage_pct']}%"
+    )
+    print(
+        f"  dropped  : {q['n_duplicates_dropped']} duplicates, {q['n_sentinels_dropped']} sentinels; "
+        f"flagged {q['n_negative']} negative, {q['n_spikes_flagged']} spikes"
+    )
     for w in q["warnings"]:
         print(f"  warning  : {w}")
     stem = args.out or str(Path(args.file).with_suffix("")) + "_clean"
@@ -765,12 +801,16 @@ def cmd_basins(args: argparse.Namespace) -> None:
         if res.get("error"):
             print(f"  {res['error']}")
             sys.exit(1)
-        print(f"  {res['k']} of {res['n_candidates']} gauged basins, method {res['method']}, "
-              f"features {', '.join(res['features_used'])}")
+        print(
+            f"  {res['k']} of {res['n_candidates']} gauged basins, method {res['method']}, "
+            f"features {', '.join(res['features_used'])}"
+        )
         for i, st in enumerate(res["stations"], 1):
             dist = f"{st['distance_km']:,.0f} km" if st.get("distance_km") is not None else ""
-            print(f"  {i:>2}. {st['source']:<20} {st['station_id']:<40} {(st.get('name') or '')[:38]:<38} "
-                  f"area {st['up_area_km2']:>9,.0f} km2  score {st['score']:.3f} {dist}")
+            print(
+                f"  {i:>2}. {st['source']:<20} {st['station_id']:<40} {(st.get('name') or '')[:38]:<38} "
+                f"area {st['up_area_km2']:>9,.0f} km2  score {st['score']:.3f} {dist}"
+            )
         return
     if args.basins_cmd == "regionalize":
         from aquascope.archive.regionalize import regionalize_point
@@ -783,8 +823,10 @@ def cmd_basins(args: argparse.Namespace) -> None:
             print(f"  {res['error']}")
             sys.exit(1)
         est = res.get("estimates", {})
-        print(f"  {len(est)} signatures from {res.get('n_donors_available', 0):,} donors, method {res['method']}"
-              + (f", k={res['similarity']['k']}" if "similarity" in res else ""))
+        print(
+            f"  {len(est)} signatures from {res.get('n_donors_available', 0):,} donors, method {res['method']}"
+            + (f", k={res['similarity']['k']}" if "similarity" in res else "")
+        )
         skill = (res.get("skill") or {}).get("by_signature", {})
         for name, e in est.items():
             sk = skill.get(name) or {}
@@ -839,8 +881,10 @@ def cmd_basins(args: argparse.Namespace) -> None:
         print(f"  {res['error']}")
         sys.exit(1)
     sb = res["sub_basin"]
-    print(f"  Sub-basin {sb['hybas_id']} (Pfafstetter {sb.get('pfaf_id')}), {sb.get('sub_area', 0):,.1f} km², "
-          f"upstream area {sb.get('up_area', 0):,.1f} km²")
+    print(
+        f"  Sub-basin {sb['hybas_id']} (Pfafstetter {sb.get('pfaf_id')}), {sb.get('sub_area', 0):,.1f} km², "
+        f"upstream area {sb.get('up_area', 0):,.1f} km²"
+    )
     print(f"  {res['upstream']['note']}")
     attrs = res.get("attributes", {})
     for key, v in attrs.items():
@@ -854,8 +898,12 @@ def cmd_gym(args: argparse.Namespace) -> None:
     from aquascope import gym as hg
 
     if args.gym_cmd == "basins":
-        rows = hg.suggest_basins(args.n, sources=args.source or None, min_years=args.min_years,
-                                 max_snow_pct=None if args.allow_snow else 20.0)
+        rows = hg.suggest_basins(
+            args.n,
+            sources=args.source or None,
+            min_years=args.min_years,
+            max_snow_pct=None if args.allow_snow else 20.0,
+        )
         if args.json:
             print(json.dumps(rows, indent=2, default=str))
             return
@@ -865,8 +913,10 @@ def cmd_gym(args: argparse.Namespace) -> None:
         print(f"  {len(rows)} basins with long archived discharge and a catchment area (use SOURCE/ID with `gym run`)")
         for r in rows:
             snow = f"snow {r['snow_cover_pct']:.0f} %" if r.get("snow_cover_pct") is not None else ""
-            print(f"  {r['source']}/{r['station_id']:<42} {r['area_km2']:>9,.0f} km2  {r['n_years']:>4.0f} yr  "
-                  f"q {r['q_mean_mm']:.2f} mm/d  RR {r['runoff_ratio'] if r['runoff_ratio'] is not None else float('nan'):.2f}  {snow}")
+            print(
+                f"  {r['source']}/{r['station_id']:<42} {r['area_km2']:>9,.0f} km2  {r['n_years']:>4.0f} yr  "
+                f"q {r['q_mean_mm']:.2f} mm/d  RR {r['runoff_ratio'] if r['runoff_ratio'] is not None else float('nan'):.2f}  {snow}"
+            )
         return
 
     def _basins():
@@ -880,8 +930,9 @@ def cmd_gym(args: argparse.Namespace) -> None:
 
     if args.gym_cmd == "leaderboard":
         basins = _basins()
-        table = hg.run_leaderboard(basins, args.agent or None, objective=args.objective, max_steps=args.steps,
-                                   seeds=tuple(range(args.seeds)))
+        table = hg.run_leaderboard(
+            basins, args.agent or None, objective=args.objective, max_steps=args.steps, seeds=tuple(range(args.seeds))
+        )
         if args.json:
             print(table.to_json(orient="records", indent=2))
             return
@@ -901,8 +952,10 @@ def cmd_gym(args: argparse.Namespace) -> None:
         print(json.dumps({**res, "history": hg.episode_table(env).to_dict("records")}, indent=2, default=str))
         return
     print(env.render())
-    print(f"  {res['agent']}: {res['steps']} steps, {res.get('simulator_calls', res['steps'])} simulator calls, "
-          f"{res['seconds']} s")
+    print(
+        f"  {res['agent']}: {res['steps']} steps, {res.get('simulator_calls', res['steps'])} simulator calls, "
+        f"{res['seconds']} s"
+    )
     val = res.get("validation") or {}
     print(f"  validation: NSE {val.get('nse')}, KGE {val.get('kge')}, PBIAS {val.get('pbias')}")
 
@@ -926,20 +979,37 @@ def cmd_caravan(args: argparse.Namespace) -> None:
 
     try:
         report = caravan.export_caravan(
-            args.source, args.out, station_ids=args.station or None, max_stations=args.max_stations,
-            min_years=args.min_years, start=args.start, end=args.end, prefix=args.prefix,
-            forcing=not args.no_forcing, forcing_models=None if args.era5 else "best_match",
-            fetch_missing=args.fetch_missing, write_netcdf=args.netcdf, pause=args.pause, on_event=say,
+            args.source,
+            args.out,
+            station_ids=args.station or None,
+            max_stations=args.max_stations,
+            min_years=args.min_years,
+            start=args.start,
+            end=args.end,
+            prefix=args.prefix,
+            forcing=not args.no_forcing,
+            forcing_models=None if args.era5 else "best_match",
+            fetch_missing=args.fetch_missing,
+            write_netcdf=args.netcdf,
+            pause=args.pause,
+            on_event=say,
         )
     except ValueError as exc:
         logger.error("%s", exc)
         sys.exit(2)
     for g in report.gauges:
-        status = f"{g.n_days:>6} days, {g.n_streamflow:>6} with flow, area {g.area_km2:,.0f} km2 ({g.area_source})" \
-            if g.ok else f"skipped: {g.error}"
+        status = (
+            f"{g.n_days:>6} days, {g.n_streamflow:>6} with flow, area {g.area_km2:,.0f} km2 ({g.area_source})"
+            if g.ok
+            else f"skipped: {g.error}"
+        )
         print(f"  {g.gauge_id:<48} {status}")
     print(f"\n  {report.n_ok}/{len(report.gauges)} gauges written under {report.out_dir} (prefix {report.prefix})")
-    res = caravan.validate_caravan(args.out, report.prefix) if report.n_ok else {"ok": False, "problems": ["nothing written"]}
+    res = (
+        caravan.validate_caravan(args.out, report.prefix)
+        if report.n_ok
+        else {"ok": False, "problems": ["nothing written"]}
+    )
     print(f"  validation: {'OK' if res['ok'] else '; '.join(res['problems'][:5])}")
     if report.n_ok == 0:
         sys.exit(1)
@@ -948,6 +1018,7 @@ def cmd_caravan(args: argparse.Namespace) -> None:
 def cmd_completion(args: argparse.Namespace) -> None:
     """Print the shell activation line for tab-completion."""
     from argcomplete.shell_integration import shellcode
+
     print(shellcode(["aquascope"], shell=args.shell))
 
 
@@ -1225,12 +1296,13 @@ def cmd_groundwater(args: argparse.Namespace) -> None:
 
     if analysis == "trend":
         from aquascope.groundwater.wells import trend_detection
+        from aquascope.utils.formatting import format_p_value
 
         result = trend_detection(levels)
         print("\nWell Trend Analysis (Mann-Kendall)")
         print(f"  Trend: {result.trend}")
         print(f"  Slope: {result.slope:.6f} per time-step")
-        print(f"  p-value: {result.p_value:.4f}")
+        print(f"  p-value: {format_p_value(result.p_value)}")
     elif analysis == "recession":
         from aquascope.groundwater.wells import recession_analysis
 
@@ -1484,9 +1556,7 @@ def main() -> None:
     from aquascope.registry import source_keys
     from aquascope.schemas.station import VARIABLES
 
-    parser = argparse.ArgumentParser(
-        description="AquaScope — Water data collection, analysis & AI research recomm..."
-    )
+    parser = argparse.ArgumentParser(description="AquaScope — Water data collection, analysis & AI research recomm...")
     sub = parser.add_subparsers(dest="command")
 
     # — collect ——————————————————————————————
@@ -1517,9 +1587,9 @@ def main() -> None:
     p_collect.add_argument("--measure", default=None, help="Measure identifier (UKEA)")
     p_collect.add_argument("--variables", default=None, help="Comma-separated variable IDs (AQUASTAT)")
     p_collect.add_argument(
-      "--bbox",
-      default=None,
-      help="Bounding box west,south,east,north (WaPOR), or min_lon, min_lat, max_lon, max_lat (USGS/UKEA)"
+        "--bbox",
+        default=None,
+        help="Bounding box west,south,east,north (WaPOR), or min_lon, min_lat, max_lon, max_lat (USGS/UKEA)",
     )
     p_collect.add_argument(
         "--mode", default=None, help="Collector mode (openmeteo: weather/forecast/flood; grdc: in_situ/satellite)"
@@ -1590,8 +1660,9 @@ def main() -> None:
         "run",
         help="Run a study file (the steps behind an answer, reproducibly), or a methodology pipeline on data",
     )
-    p_run.add_argument("study", nargs="?", default=None,
-                       help="A study.yaml from `aquascope ask --study` or written by hand (#54)")
+    p_run.add_argument(
+        "study", nargs="?", default=None, help="A study.yaml from `aquascope ask --study` or written by hand (#54)"
+    )
     p_run.add_argument("--method", default=None, help="Pipeline method ID (use list-methods to see available)")
     p_run.add_argument("--file", default=None, help="Path to JSON or CSV data file")
     p_run.add_argument("--config", default=None, help="Pipeline config as JSON string")
@@ -1619,7 +1690,8 @@ def main() -> None:
         help="Source to search (repeatable). Default: every source with a station catalog",
     )
     p_stations.add_argument(
-        "--bbox", default=None,
+        "--bbox",
+        default=None,
         help="Bounding box west,south,east,north (WGS84). Write --bbox=-77,38,-76,39 when it starts with a minus",
     )
     p_stations.add_argument(
@@ -1635,42 +1707,63 @@ def main() -> None:
 
     # ── harvest ──────────────────────────────────────────────────────
     p_harvest = sub.add_parser("harvest", help="Harvest catalogs into GeoParquet for the open archive (#188)")
-    p_harvest.add_argument("what", choices=["stations", "obs", "bundles"],
-                           help="stations: the catalog; obs: daily series per station; bundles: one Parquet per "
-                                "variable and source rolled up from obs/")
+    p_harvest.add_argument(
+        "what",
+        choices=["stations", "obs", "bundles"],
+        help="stations: the catalog; obs: daily series per station; bundles: one Parquet per "
+        "variable and source rolled up from obs/",
+    )
     p_harvest.add_argument("--out", default="archive", help="Output folder (default: ./archive)")
     p_harvest.add_argument("--source", action="append", choices=source_keys(), help="Restrict to a source (repeatable)")
     p_harvest.add_argument("--max-items", type=int, default=None, help="stations: cap per source (for smoke tests)")
-    p_harvest.add_argument("--variable", default=None, dest="variable",
-                           help="obs: harvest only this variable (default: every harvestable variable per source)")
-    p_harvest.add_argument("--variables", action="append", dest="variable_list", metavar="VAR",
-                           help="bundles: restrict to these variables (repeatable)")
+    p_harvest.add_argument(
+        "--variable",
+        default=None,
+        dest="variable",
+        help="obs: harvest only this variable (default: every harvestable variable per source)",
+    )
+    p_harvest.add_argument(
+        "--variables",
+        action="append",
+        dest="variable_list",
+        metavar="VAR",
+        help="bundles: restrict to these variables (repeatable)",
+    )
     p_harvest.add_argument("--years", type=int, default=40, help="obs: how far back to ask (default 40)")
     p_harvest.add_argument("--max-stations", type=int, default=100, help="obs: stations per source per run")
     p_harvest.add_argument("--refresh-days", type=int, default=30, help="obs: re-harvest a station older than this")
     p_harvest.add_argument("--station", action="append", help="obs: only these station ids (repeatable)")
-    p_harvest.add_argument("--sync-from", default=None, metavar="REPO_ID",
-                           help="obs: download the existing obs/ tree from this dataset first (incremental runs)")
+    p_harvest.add_argument(
+        "--sync-from",
+        default=None,
+        metavar="REPO_ID",
+        help="obs: download the existing obs/ tree from this dataset first (incremental runs)",
+    )
     p_harvest.add_argument("--api-key", default=None)
     p_harvest.add_argument("--workers", type=int, default=4)
     p_harvest.add_argument("--no-geojson", action="store_true", help="Skip stations.geojson")
-    p_harvest.add_argument("--publish", default=None, metavar="REPO_ID",
-                           help="Upload the folder to this Hugging Face dataset (needs HF_TOKEN)")
+    p_harvest.add_argument(
+        "--publish",
+        default=None,
+        metavar="REPO_ID",
+        help="Upload the folder to this Hugging Face dataset (needs HF_TOKEN)",
+    )
 
     # ── ask ──────────────────────────────────────────────────────────
     p_ask = sub.add_parser("ask", help="Ask a water question in plain language; get a cited answer from real data")
     p_ask.add_argument("question")
-    p_ask.add_argument("--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"],
-                       default=None)
+    p_ask.add_argument(
+        "--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"], default=None
+    )
     p_ask.add_argument("--model", default=None)
     p_ask.add_argument("--api-key", default=None)
     p_ask.add_argument("--base-url", default=None, help="Any OpenAI-compatible endpoint")
     p_ask.add_argument("--max-steps", type=int, default=8, help="Tool-call rounds allowed (default 8)")
     p_ask.add_argument("--out", "-o", default=None, help="Save the Markdown report here")
     p_ask.add_argument("--quiet", "-q", action="store_true", help="Do not print tool calls as they happen")
-    p_ask.add_argument("--study", default=None,
-                       help="Write the steps behind the answer here, to re-run with `aquascope run`")
-
+    p_ask.add_argument(
+        "--study", default=None, help="Write the steps behind the answer here, to re-run with `aquascope run`"
+    )
 
     # ── ingest ───────────────────────────────────────────────────────
     p_ingest = sub.add_parser("ingest", help="Map + QA any CSV/Excel export into a clean daily series with a report")
@@ -1683,8 +1776,9 @@ def main() -> None:
     p_ingest.add_argument("--sheet", default=None, help="Excel sheet name or index")
     p_ingest.add_argument("--describe", default=None, help="A sentence about the file (helps the LLM mapping)")
     p_ingest.add_argument("--llm", action="store_true", help="Let a configured LLM propose the column mapping")
-    p_ingest.add_argument("--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"],
-                          default=None)
+    p_ingest.add_argument(
+        "--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"], default=None
+    )
     p_ingest.add_argument("--model", default=None)
     p_ingest.add_argument("--api-key", default=None)
     p_ingest.add_argument("--out", "-o", default=None, help="Output stem (default: <file>_clean)")
@@ -1698,10 +1792,14 @@ def main() -> None:
     p_bat.add_argument("lon", type=float)
     p_bat.add_argument("--local", action="store_true", help="Only the level-12 sub-basin containing the point")
     p_bat.add_argument("--json", action="store_true")
-    p_bsim = basins_sub.add_parser("similar", help="Gauged basins whose catchments most resemble a point's or a station's")
+    p_bsim = basins_sub.add_parser(
+        "similar", help="Gauged basins whose catchments most resemble a point's or a station's"
+    )
     p_bsim.add_argument("lat", type=float, nargs="?", default=None)
     p_bsim.add_argument("lon", type=float, nargs="?", default=None)
-    p_bsim.add_argument("--station", default=None, metavar="SOURCE/ID", help="Use a station's own catchment as the target")
+    p_bsim.add_argument(
+        "--station", default=None, metavar="SOURCE/ID", help="Use a station's own catchment as the target"
+    )
     p_bsim.add_argument("--k", type=int, default=10)
     p_bsim.add_argument("--method", choices=["similarity", "proximity", "combined"], default="combined")
     p_bsim.add_argument("--source", action="append", help="Restrict donors to these sources (repeatable)")
@@ -1716,12 +1814,16 @@ def main() -> None:
     p_breg.add_argument("--k", type=int, default=10)
     p_breg.add_argument("--method", choices=["similarity", "regression", "both"], default="similarity")
     p_breg.add_argument("--json", action="store_true")
-    p_bsig = basins_sub.add_parser("signatures", help="Build basins/station_signatures.parquet from the discharge bundles")
+    p_bsig = basins_sub.add_parser(
+        "signatures", help="Build basins/station_signatures.parquet from the discharge bundles"
+    )
     p_bsig.add_argument("--archive", default="archive", help="Local archive folder holding obs/discharge/*.parquet")
     p_bsig.add_argument("--catchments", default=None, help="Local station_catchments.parquet (default: from the Hub)")
     p_bsig.add_argument("--out", default="archive/basins/station_signatures.parquet")
     p_bsig.add_argument("--min-years", type=float, default=10.0)
-    p_bloo = basins_sub.add_parser("loo", help="Leave-one-out regionalisation skill -> basins/regionalization_skill.json")
+    p_bloo = basins_sub.add_parser(
+        "loo", help="Leave-one-out regionalisation skill -> basins/regionalization_skill.json"
+    )
     p_bloo.add_argument("--signatures", default=None, help="Local station_signatures.parquet (default: from the Hub)")
     p_bloo.add_argument("--catchments", default=None, help="Local station_catchments.parquet (default: from the Hub)")
     p_bloo.add_argument("--out", default="archive/basins/regionalization_skill.json")
@@ -1745,14 +1847,20 @@ def main() -> None:
     p_gb.add_argument("--min-years", type=float, default=15.0)
     p_gb.add_argument("--allow-snow", action="store_true", help="Keep snowy catchments (GR4J has no snow routine)")
     p_gb.add_argument("--json", action="store_true")
-    for name, help_ in (("run", "Play one baseline agent on a basin"),
-                        ("leaderboard", "Play the baselines on one or more basins, one row per run")):
+    for name, help_ in (
+        ("run", "Play one baseline agent on a basin"),
+        ("leaderboard", "Play the baselines on one or more basins, one row per run"),
+    ):
         p_g = gym_sub.add_parser(name, help=help_)
         p_g.add_argument("--basin", action="append", metavar="SOURCE/ID", help="Archive station (repeatable)")
         p_g.add_argument("--synthetic", action="store_true", help="Use synthetic GR4J basins (no network)")
         p_g.add_argument("--n-synthetic", type=int, default=1)
-        p_g.add_argument("--agent", action="append", choices=["random_search", "nelder_mead", "differential_evolution"],
-                         help="Baseline agent(s); default: differential_evolution for run, all three for leaderboard")
+        p_g.add_argument(
+            "--agent",
+            action="append",
+            choices=["random_search", "nelder_mead", "differential_evolution"],
+            help="Baseline agent(s); default: differential_evolution for run, all three for leaderboard",
+        )
         p_g.add_argument("--objective", choices=["nse", "kge", "log_nse"], default="nse")
         p_g.add_argument("--steps", type=int, default=30, help="Step budget per episode")
         p_g.add_argument("--seed", type=int, default=0)
@@ -1761,7 +1869,9 @@ def main() -> None:
         p_g.add_argument("--json", action="store_true")
 
     # ── caravan ──────────────────────────────────────────────────────
-    p_car = sub.add_parser("caravan", help="Caravan-format sub-datasets (forcing + mm/day streamflow + attributes) from the Archive")
+    p_car = sub.add_parser(
+        "caravan", help="Caravan-format sub-datasets (forcing + mm/day streamflow + attributes) from the Archive"
+    )
     car_sub = p_car.add_subparsers(dest="caravan_cmd", required=True)
     p_cex = car_sub.add_parser("export", help="Export one source's discharge stations in the Caravan layout")
     p_cex.add_argument("--source", required=True, choices=["usgs", "uk_ea", "hubeau_hydrometrie"])
@@ -1773,8 +1883,9 @@ def main() -> None:
     p_cex.add_argument("--end", type=date.fromisoformat, default=None, help="Forcing end (default last observation)")
     p_cex.add_argument("--prefix", default=None, help="Sub-dataset prefix (default aquascope_<source>)")
     p_cex.add_argument("--no-forcing", action="store_true", help="Streamflow and attributes only, no Open-Meteo calls")
-    p_cex.add_argument("--era5", action="store_true",
-                       help="Use plain ERA5 (25 km) instead of Open-Meteo's ERA5-Land + ERA5 blend")
+    p_cex.add_argument(
+        "--era5", action="store_true", help="Use plain ERA5 (25 km) instead of Open-Meteo's ERA5-Land + ERA5 blend"
+    )
     p_cex.add_argument("--fetch-missing", action="store_true", help="Fetch stations the archive lacks from the agency")
     p_cex.add_argument("--netcdf", action="store_true", help="Also write timeseries/netcdf (needs xarray + netCDF4)")
     p_cex.add_argument("--pause", type=float, default=3.0, help="Seconds between Open-Meteo calls (default 3)")
