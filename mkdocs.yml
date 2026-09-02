@@ -114,6 +114,8 @@ nav:
     - The Explorer (click any gauge): explorer.md
     - MCP server (tools for assistants): mcp.md
     - The Analyst (ask, ingest): analyst.md
+    - Solve (a problem at a place, planned first): solve.md
+    - Solve design contract: solve-design.md
     - HydroGym (an environment for hydrologic agents): gym.md
     - Use cases: use_cases.md
   - Examples:

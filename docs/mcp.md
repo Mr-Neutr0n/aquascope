@@ -49,6 +49,10 @@ If `aquascope` is not on the client's PATH, use the interpreter explicitly:
 | `archive_health()` | per-source status of the last catalog harvest | no |
 | `list_analyses()` | the sixteen `aquascope.workbench` analyses with their parameters: quality, preprocessing, insights, the WHO drinking-water screen, flow duration, three baseflow separations, recession, GEV flood frequency, flow signatures, return periods, FAO-56 ET0 and irrigation, SGI drought, WTF recharge, Theis drawdown | no |
 | `analyse_table(csv, analysis, params)` | run one of those on a table the assistant already has (a user's own export, for instance): the date and value columns are detected, units converted to SI, and the result carries its methods and citations | no |
+| `list_playbooks()` | the problem playbooks (flood risk, ungauged flow, groundwater decline): id, title, branches, intake fields | no |
+| `describe_playbook(id)` | one playbook in full: intake, branches with conditions and steps, gates, fallbacks, declines, caveats, citations | no |
+| `solve_plan(problem, lat, lon, playbook, intake)` | reconnaissance of the point, the playbook and branch the tree picks, and the study (version 2) it fills, with a gate per step; nothing is executed and no model is called; `declined` carries the playbook's reason when it refuses | no (the catalog) |
+| `solve_run(study)` | execute a study from `solve_plan` (edited or not): every gate outcome, the report, the study with its results, which `aquascope run` reproduces | yes (the study's tools) |
 | `station_view(source, station_id, years)` | the `analyze_station` result plus a self-contained HTML view (inline hydrograph, headline numbers, attribution) under `_meta["mcp/view"]`, for clients that support the MCP Apps extension; clients that do not simply ignore the extra key | yes |
 
 Resources: `aquascope://sources` and `aquascope://methods` (JSON).

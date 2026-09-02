@@ -721,6 +721,7 @@ def solve(
 
     def declined(reason: str, kind_: str, study: Study | None = None) -> SolveResult:
         say({"role": "coordinator", "step": None, "event": "declined", "detail": reason})
+        problem_dict["params"] = dict(intake)
         st = study or Study(question=text or "declined", version=2, author="playbook",
                             problem={"kind": kind, "site": site, "params": dict(intake), "text": text},
                             plan={"playbook": kind, "declined": reason, "kind": kind_})

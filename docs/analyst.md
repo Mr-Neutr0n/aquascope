@@ -54,6 +54,29 @@ Providers: `anthropic`, `openai`, `groq`, `huggingface`, `mistral`,
 `openrouter`, `ollama`, or `AQUASCOPE_LLM_BASE_URL` for anything else that
 speaks the chat-completions protocol.
 
+## From a question to a problem: `aquascope solve`
+
+`ask` improvises: the model decides the next tool call after seeing the last
+result, and the checks run on the finished answer. `solve` plans first. The
+problem and the coordinates go through a reconnaissance of the site, a
+playbook's decision tree fills a study with a gate per step, you see the
+plan before it runs, the engine executes it with the gates, and a failed
+gate runs the fallback or replans once:
+
+```
+intake ──► recon ──► plan ──► [you review] ──► execute ──► report
+                                                 │  ▲
+                                                 ▼  │ gate fails
+                                               verify ─► replan (once)
+```
+
+What the gates establish: that a number was computed from a record long
+enough for it, that a return period is within the record's reach, that an
+interval is finite, that two fits agree, that a transfer had donors. What
+they do not: that the record is right, that the catchment is the one the
+question means, or anything about the future. Everything the gates and the
+checks did not establish is listed under the answer. See [solve.md](solve.md).
+
 ## `aquascope ingest`: any export in, a clean series and a QA report out
 
 ```bash

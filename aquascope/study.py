@@ -402,7 +402,10 @@ def _parse_yaml(text: str) -> Any:
         import yaml  # noqa: PLC0415 - optional
     except ImportError:
         return parse_block_yaml(text)
-    return yaml.safe_load(text) or {}
+    try:
+        return yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"not valid YAML: {exc}") from None
 
 
 # ── a YAML subset reader, so PyYAML stays optional (the browser worker has none) ──

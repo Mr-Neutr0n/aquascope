@@ -169,3 +169,53 @@ declines. `aquascope gym bench --tasks tasks.jsonl --agent team|ask|tree
 --provider … --model …` runs an agent per task and records branch match,
 gates respected, declined-when-unsolvable, tokens and seconds; results as
 JSONL plus a Markdown leaderboard.
+
+## Implementation notes and deviations
+
+The pieces above are implemented in `aquascope/gates.py`, `aquascope/study.py`
+(version 2), `aquascope/playbooks/`, `aquascope/ai_engine/team.py`, the CLI
+(`playbooks`, `solve`), the MCP server and the Analyst's tool specs. Where
+the implementation goes beyond or beside the contract:
+
+- **Conditions see more than the recon dict.** `when` conditions and
+  placeholders are evaluated over the recon extended with `intake`, `station`
+  (the nearest station carrying the branch's variable), `site` and `derived`
+  (`discharge_years`, `groundwater_years`, `donors`, `dams`,
+  `return_period_cap` from the registry's factor, `return_period_beyond_cap`,
+  `area_km2`). A decline such as "T beyond three times the record without
+  regional information" is not expressible over the raw recon alone.
+- **Steps may name their `method`** (a registry id) and be `optional`. At
+  plan time the registry is asked whether the method is defensible at the
+  site (record length, resolution, area ceiling); a required step that is not
+  is refused with the reason (#273), an optional one is dropped with a note.
+  What the reconnaissance did not find out (a donor count of `None`, an
+  absent `available` set) is left to the run-time gate rather than held
+  against the method.
+- **Gate paths** take list indexes (`q[5]`, `q.5`) and a selector over lists
+  of dicts (`sufficiency[method=gr4j_calibration].status`); `ci_finite` and
+  `spread_within` take `return_period` and look the index up in the payload's
+  own `return_periods`. `max_return_period_factor` carries `return_period` as
+  well as `value` (the factor).
+- **Caveats may be conditional** (`{say, when}`) next to plain strings, and
+  the plan records the recon's notes (`plan.recon_notes`) apart from its own
+  (`plan.notes`, the dropped steps).
+- **A workbench step takes `from_step`**: the runner builds the table from the
+  `points` or `series` of an earlier step's payload.
+- **The runner reuses a prior run** (`run_study(study, prior=run)`): steps
+  that succeeded and passed their gates are not fetched again on a replan.
+- **A version-1 study stays version 1**: results are written back only into
+  a plan (a study with `version: 2` or any v2 field).
+- **`solve` is keyless unless asked**: a model is used only when `provider`,
+  `model`, `api_key`, `base_url` or a `client` is given, even when a key is
+  in the environment; `execute=False` returns the plan without running it
+  (the MCP `solve_plan` face). `SolveResult.declined` is a bool with the
+  reason in `declined_reason`; `cost` is `{role: {calls, prompt_tokens,
+  completion_tokens}}`.
+- **`aquascope solve` keeps its older meaning** without `--lat`/`--lon` (the
+  challenge agent over a data file); with them it is the team.
+- **`describe_playbook`** is exposed next to `list_playbooks` (issue #307).
+- **`assess_site`** is called by the Scout through `aquascope.explore`; when
+  it is unreachable the plan goes regional and says why in `recon_notes`.
+- **Not done here**: the Explorer worker face, `src/solve.js`, and the gym
+  benchmark (`tasks_from_playbooks`) are separate pieces of work.
+
