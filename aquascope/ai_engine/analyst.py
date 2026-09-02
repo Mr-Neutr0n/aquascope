@@ -220,6 +220,34 @@ def _tool_specs() -> list[ToolSpec]:
             "describe_methods", "What each analysis computes and the reference to cite.",
             {"type": "object", "properties": {}}, t.describe_methods,
         ),
+        ToolSpec(
+            "list_playbooks",
+            "The problem playbooks (flood risk, ungauged flow, groundwater decline): the method chain aquascope "
+            "follows for the data that exists at a site. Use solve_plan when the user has a problem at a place "
+            "rather than a question about a station.",
+            {"type": "object", "properties": {}}, t.list_playbooks,
+        ),
+        ToolSpec(
+            "describe_playbook", "One playbook in full: intake, branches, steps with gates, declines, caveats.",
+            {"type": "object", "properties": {"playbook": {"type": "string"}}, "required": ["playbook"]},
+            t.describe_playbook,
+        ),
+        ToolSpec(
+            "solve_plan",
+            "Plan (not run) a problem at a point with a playbook: reconnaissance, branch, and the study with its "
+            "gates, with zero model calls. Show the plan to the user, then call solve_run with the study.",
+            {"type": "object", "properties": {"problem": {"type": "string"}, "lat": num, "lon": num,
+                                              "playbook": {"type": "string"}, "intake": {"type": "object"}},
+             "required": ["problem", "lat", "lon"]},
+            t.solve_plan,
+        ),
+        ToolSpec(
+            "solve_run",
+            "Execute a study from solve_plan with its gates (a failed gate runs the fallback once or stops with "
+            "the reason); returns the gate outcomes, the report and the re-runnable study.",
+            {"type": "object", "properties": {"study": {"type": "object"}}, "required": ["study"]},
+            t.solve_run,
+        ),
     ]
 
 

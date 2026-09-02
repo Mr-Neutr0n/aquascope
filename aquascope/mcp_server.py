@@ -372,6 +372,89 @@ def list_analyses() -> dict[str, Any]:
     }
 
 
+# ── Solve: playbooks, a plan to review, a study to run (#307, #308) ─────────
+
+
+def list_playbooks() -> dict[str, Any]:
+    """The problem playbooks: for each class of problem (flood risk, ungauged flow, groundwater decline), the
+    method chain aquascope follows for the data that exists at a site, as data. Each has intake fields, branches
+    over the reconnaissance, gates per step, the sentences it prints when it declines, caveats and citations.
+    Use solve_plan to get the study a playbook fills for a problem at a point, and solve_run to execute it.
+    """
+    from aquascope import playbooks as pbk
+
+    rows = pbk.list_playbooks()
+    return {"n": len(rows), "playbooks": rows,
+            "note": "describe_playbook(id) shows the whole tree; solve_plan(problem, lat, lon) fills it."}
+
+
+def describe_playbook(playbook: str) -> dict[str, Any]:
+    """One playbook in full: intake fields, branches with their conditions and steps (tool, arguments with
+    placeholders, gates, fallback), decline rules, caveats and citations."""
+    from aquascope import playbooks as pbk
+
+    try:
+        return pbk.describe(playbook)
+    except pbk.PlaybookError as exc:
+        return {"error": str(exc), "known": [p["id"] for p in pbk.list_playbooks()]}
+
+
+def solve_plan(
+    problem: str, lat: float, lon: float, playbook: str | None = None, intake: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Plan (do not run) a problem at a point: reconnaissance of the site (assess_site), the playbook the
+    keyword rules pick (or the one named), the branch its tree selects for the data that exists, and the
+    study-v2 it fills: steps with arguments, rationale and gates. Zero model calls. Review the study, edit it
+    if you like, then pass it to solve_run. `declined` with a reason means the playbook refuses this ask
+    (record too short for the return period, cause attribution without pumping data, out of scope).
+    intake: the playbook's intake fields, for example {"return_period": 100}.
+    """
+    from aquascope.ai_engine.team import _recon_summary, solve
+
+    res = solve(problem, lat=float(lat), lon=float(lon), playbook=playbook, intake=intake, execute=False)
+    plan = res.study.plan or {}
+    return {
+        "declined": res.declined,
+        "reason": res.declined_reason,
+        "playbook": plan.get("playbook"),
+        "branch": plan.get("branch"),
+        "rationale": plan.get("rationale"),
+        "n_steps": len(res.study.steps),
+        "study": res.study.to_dict(),
+        "study_yaml": res.study_yaml,
+        "recon": _recon_summary(res.recon),
+        "timeline": res.timeline,
+        "note": "Review the study (edit arguments or drop steps), then solve_run(study) executes it with its gates.",
+    }
+
+
+def solve_run(study: dict[str, Any] | str) -> dict[str, Any]:
+    """Execute a study (the dict from solve_plan, or study YAML text) with no model in the loop: every step
+    runs in order, its gates are evaluated, a failed gate runs the step's fallback once or stops the study
+    with the reason. Returns the gate outcomes, the report and the study with its results written in, which
+    `aquascope run` reproduces.
+    """
+    from aquascope.study import Study, loads, run_study
+
+    try:
+        st = loads(study) if isinstance(study, str) else Study.from_dict(dict(study))
+    except (ValueError, TypeError) as exc:
+        return {"error": f"could not read the study: {exc}"}
+    if not st.steps:
+        return {"error": "the study has no steps"}
+    run = run_study(st)
+    return {
+        "ok": run.ok,
+        "stopped_at": run.stopped_at,
+        "stop_reason": run.stop_reason,
+        "gates": run.gates,
+        "report": run.to_markdown(),
+        "manifest": run.manifest(),
+        "study": st.to_dict(),
+        "study_yaml": st.to_yaml(),
+    }
+
+
 # ── inline views (MCP Apps) ─────────────────────────────────────────────────
 # A client that supports the MCP Apps extension (SEP-1865, in the 2026-07 spec)
 # can render HTML a server returns, inline in the conversation. A hydrograph is
@@ -468,6 +551,10 @@ def build_server():
     server.tool()(list_analyses)
     server.tool()(analyse_table)
     server.tool()(station_view)
+    server.tool()(list_playbooks)
+    server.tool()(describe_playbook)
+    server.tool()(solve_plan)
+    server.tool()(solve_run)
 
     @server.resource("aquascope://sources")
     def sources_resource() -> str:

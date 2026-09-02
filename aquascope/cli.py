@@ -690,23 +690,89 @@ def cmd_run_study(args: argparse.Namespace) -> None:
         logger.error("Could not read %s: %s", args.study, exc)
         sys.exit(1)
 
-    def on_event(msg: str) -> None:
+    def on_event(event: dict) -> None:
         if not args.quiet:
-            print(f"  · {msg}", file=sys.stderr)
+            print(f"  · {_format_event(event)}", file=sys.stderr)
 
     if args.dry_run:
         print(f"{len(study.steps)} step(s) in {args.study}:")
         for i, step in enumerate(study.steps, 1):
-            print(f"  {i}. {step.tool}({', '.join(f'{k}={v!r}' for k, v in step.arguments.items())})")
+            label = f"{step.id}: " if step.id else ""
+            print(f"  {i}. {label}{step.tool}({', '.join(f'{k}={v!r}' for k, v in step.arguments.items())})")
+            for g in step.expects:
+                print(f"       gate {g.get('check')} {g.get('path') or g.get('paths') or ''} {g.get('value', '')}")
         return
     run = run_study(study, on_event=on_event)
     if args.out:
         paths = write_outputs(run, args.out)
         print(f"\n  Report saved to {paths['report.md']}")
+        for g in run.gates:
+            print(f"  gate {g['step']} {g['check']}: {'passed' if g['passed'] else 'FAILED'}, {g.get('detail', '')}")
+        if run.stop_reason:
+            print(f"  stopped at {run.stopped_at}: {run.stop_reason}")
     else:
         print(run.to_markdown())
     if not run.ok:
         sys.exit(1)
+
+
+def _format_event(event: dict) -> str:
+    """One line for a runner or team event ({role, step, event, detail})."""
+    if not isinstance(event, dict):
+        return str(event)
+    step = f" {event['step']}" if event.get("step") else ""
+    return f"{event.get('role', '')}{step}: {event.get('event', '')} {event.get('detail', '')}".strip()
+
+
+def cmd_playbooks(args: argparse.Namespace) -> None:
+    """`aquascope playbooks [list | show ID]`: the method chains `aquascope solve` follows (#307)."""
+    from aquascope import playbooks as pbk
+
+    if getattr(args, "playbooks_cmd", None) == "show":
+        try:
+            pb = pbk.load(args.id)
+        except pbk.PlaybookError as exc:
+            logger.error("%s", exc)
+            sys.exit(1)
+        print(f"{pb.id}: {pb.title}")
+        print(f"  problem: {pb.problem}")
+        if pb.description:
+            print(f"  {pb.description}")
+        if pb.intake:
+            print("  intake:")
+            for f in pb.intake:
+                kind = f.type + (" " + " | ".join(str(o) for o in f.options) if f.options else "")
+                print(f"    {f.name} ({kind}; default {f.default!r}): {f.label or ''}")
+        print("  branches (first match wins):")
+        for br in pb.branches:
+            cond = " and ".join(f"{c.path} {c.op} {c.value!r}" for c in br.when) or "otherwise"
+            print(f"    {br.id}: when {cond}")
+            for s in br.steps:
+                gates = ", ".join(str(g.get("check")) for g in s.expects)
+                extra = f"  [gates: {gates}]" if gates else ""
+                opt = " (optional)" if s.optional else ""
+                print(f"      {s.id} {s.tool}{opt}{extra}")
+        if pb.declines:
+            print("  declines:")
+            for d in pb.declines:
+                print(f"    - {d.say}")
+        if pb.caveats:
+            print("  caveats:")
+            for c in pb.caveats:
+                print(f"    - {c if isinstance(c, str) else c.say}")
+        if pb.citations:
+            print("  citations:")
+            for c in pb.citations:
+                print(f"    - {c}")
+        return
+    rows = pbk.list_playbooks()
+    for r in rows:
+        if r.get("error"):
+            print(f"  {r['id']:<22} (broken: {r['error']})")
+            continue
+        print(f"  {r['id']:<22} {r['title']}  (branches: {', '.join(r['branches'])})")
+    print(f"\n  {len(rows)} playbook(s); `aquascope playbooks show ID` prints one, "
+          "`aquascope solve \"PROBLEM\" --lat LAT --lon LON` runs one.")
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -1023,7 +1089,11 @@ def cmd_completion(args: argparse.Namespace) -> None:
 
 
 def cmd_solve(args: argparse.Namespace) -> None:
-    """Solve a water challenge using NL description (agent mode)."""
+    """`aquascope solve`: a problem at a point through the plan-first team (with --lat/--lon), or the legacy
+    challenge agent over a data file."""
+    if args.lat is not None or args.lon is not None or args.playbook:
+        cmd_solve_team(args)
+        return
     from aquascope.ai_engine.agent import HydroAgent
 
     agent = HydroAgent(default_model=args.model)
@@ -1041,6 +1111,93 @@ def cmd_solve(args: argparse.Namespace) -> None:
     result = agent.solve(args.query, data=data)
     explanation = agent.explain(result)
     print(explanation)
+
+
+def _parse_intake(pairs: list[str] | None) -> dict:
+    out: dict = {}
+    for pair in pairs or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise ValueError(f"--intake expects KEY=VALUE, got {pair!r}")
+        out[key.strip()] = value.strip()
+    return out
+
+
+def cmd_solve_team(args: argparse.Namespace) -> None:
+    """The plan-first Analyst (#308): recon, plan, your review, execution with gates, report."""
+    from aquascope.ai_engine.team import solve
+
+    if args.lat is None or args.lon is None:
+        logger.error("solve needs both --lat and --lon (or neither, for the legacy challenge agent).")
+        sys.exit(1)
+    try:
+        intake = _parse_intake(args.intake)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+
+    def on_event(event: dict) -> None:
+        if not args.quiet:
+            print(f"  · {_format_event(event)}", file=sys.stderr)
+
+    def review(study):
+        plan = study.plan or {}
+        print(f"\nPlan: playbook {plan.get('playbook')}, branch {plan.get('branch')}, {len(study.steps)} step(s)")
+        if plan.get("rationale"):
+            print(f"  {plan['rationale']}")
+        for n in (plan.get("recon_notes") or []) + (plan.get("notes") or []):
+            print(f"  note: {n}")
+        for i, step in enumerate(study.steps, 1):
+            print(f"  {i}. {step.tool}({', '.join(f'{k}={v!r}' for k, v in step.arguments.items())})")
+            if step.rationale:
+                print(f"     {step.rationale}")
+            for g in step.expects:
+                where = g.get("path") or ", ".join(g.get("paths") or [])
+                value = f" {g['value']}" if g.get("value") is not None else ""
+                print(f"     gate {g.get('check')}{value} on {where}")
+            if isinstance(step.fallback, dict) and step.fallback.get("step"):
+                print(f"     fallback: {step.fallback['step'].get('tool')}")
+        if plan.get("caveats"):
+            print(f"  {len(plan['caveats'])} caveat(s) will be printed verbatim in the report.")
+        if args.yes:
+            return study
+        if not sys.stdin.isatty():
+            print("  Not a terminal: pass --yes to run the plan.", file=sys.stderr)
+            return None
+        try:
+            answer = input("Run this plan? [y/N] ")
+        except EOFError:
+            return None
+        return study if answer.strip().lower() in ("y", "yes") else None
+
+    try:
+        result = solve(
+            args.query, lat=args.lat, lon=args.lon, playbook=args.playbook, intake=intake,
+            provider=args.provider, model=args.model, api_key=args.api_key, base_url=args.base_url,
+            review=review, on_event=on_event,
+        )
+    except (RuntimeError, ValueError, ImportError) as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+    md = result.to_markdown()
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(md, encoding="utf-8")
+        print(f"\n  Report saved to {args.out}")
+        if result.answer:
+            print(result.answer)
+    else:
+        print(md)
+    if args.study and result.study.steps:
+        Path(args.study).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.study).write_text(result.study_yaml, encoding="utf-8")
+        print(f"  Study saved to {args.study}; re-run it with `aquascope run {args.study}`")
+    if result.declined:
+        print(f"\n  Declined: {result.declined_reason}", file=sys.stderr)
+    elif result.not_established and not args.quiet:
+        print("\n  What this answer does not establish:", file=sys.stderr)
+        for line in result.not_established:
+            print(f"   · {line}", file=sys.stderr)
 
 
 def cmd_forecast(args: argparse.Namespace) -> None:
@@ -1895,14 +2052,39 @@ def main() -> None:
     p_mcp = sub.add_parser("mcp", help="Serve find_stations / get_timeseries / analyze_station over MCP (#113)")
     p_mcp.add_argument("--transport", choices=["stdio", "sse", "streamable-http"], default="stdio")
 
+    # ── playbooks ─────────────────────────────────────────────────────
+    p_playbooks = sub.add_parser("playbooks", help="The problem playbooks `aquascope solve` follows (#307)")
+    playbooks_sub = p_playbooks.add_subparsers(dest="playbooks_cmd")
+    playbooks_sub.add_parser("list", help="List the playbooks")
+    p_pb_show = playbooks_sub.add_parser("show", help="Print one playbook: intake, branches, gates, declines")
+    p_pb_show.add_argument("id")
+
     # ── solve ─────────────────────────────────────────────────────────
-    p_solve = sub.add_parser("solve", help="Solve a water challenge from a natural-language description")
+    p_solve = sub.add_parser(
+        "solve",
+        help="Solve a problem at a point: recon, plan, your review, execution with gates, report (#308); "
+        "without --lat/--lon, the legacy challenge agent",
+    )
     p_solve.add_argument(
         "query",
-        help="Natural-language challenge description (e.g. 'Forecast flooding at lat 13.5, lon 2.1')",
+        help="The problem in plain language (e.g. 'Design flow for a road crossing, 100-year return period')",
     )
-    p_solve.add_argument("--model", default=None, help="Override model (e.g. prophet, arima, random_forest)")
-    p_solve.add_argument("--file", default=None, help="Optional data file (JSON/CSV) to use instead of fetching")
+    p_solve.add_argument("--lat", type=float, default=None, help="Latitude of the site (with --lon: the team)")
+    p_solve.add_argument("--lon", type=float, default=None, help="Longitude of the site")
+    p_solve.add_argument("--playbook", default=None, help="Playbook id (see `aquascope playbooks`); else keyword rules")
+    p_solve.add_argument("--intake", action="append", default=[], metavar="KEY=VALUE",
+                         help="An intake field, e.g. --intake return_period=200 (repeatable)")
+    p_solve.add_argument("--yes", "-y", action="store_true", help="Run the plan without asking")
+    p_solve.add_argument("--provider", choices=provider_ids(), default=None,
+                         help="Use a model for the rationale, fallbacks and prose (keyless otherwise)")
+    p_solve.add_argument("--model", default=None,
+                         help="Model name (with --lat/--lon: the LLM; otherwise the legacy forecast model)")
+    p_solve.add_argument("--api-key", default=None)
+    p_solve.add_argument("--base-url", default=None, help="Any OpenAI-compatible endpoint (or Anthropic's)")
+    p_solve.add_argument("--out", "-o", default=None, help="Save the Markdown report here")
+    p_solve.add_argument("--study", default=None, help="Write the executed study here, to re-run with `aquascope run`")
+    p_solve.add_argument("--quiet", "-q", action="store_true", help="Do not print the timeline as it happens")
+    p_solve.add_argument("--file", default=None, help="Legacy agent: a data file (JSON/CSV) instead of fetching")
 
     # ── forecast ──────────────────────────────────────────────────────
     p_forecast = sub.add_parser("forecast", help="Run a predictive model on time-series data")
@@ -2089,6 +2271,7 @@ def main() -> None:
         "run": cmd_run,
         "ingest": cmd_ingest,
         "solve": cmd_solve,
+        "playbooks": cmd_playbooks,
         "forecast": cmd_forecast,
         "plot": cmd_plot,
         "hydro": cmd_hydro,

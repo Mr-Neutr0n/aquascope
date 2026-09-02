@@ -263,7 +263,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 25-command CLI (`agri`, `basins`, `caravan` and `gym` carry subcommands) for the most common workflows:
+AquaScope ships a 26-command CLI (`agri`, `basins`, `caravan`, `gym` and `playbooks` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -289,7 +289,7 @@ aquascope agri plan --crop maize --planting-date 2026-04-01 --lat 30.0 --lon 31.
 
 # AI recommendation + natural-language problem solving
 aquascope recommend --parameters DO,BOD5,COD --goal "pollution trend detection"
-aquascope solve --problem "Assess flood risk for a 100-year return period"
+aquascope solve "Design flow for a road crossing, 100-year return period" --lat 51.415 --lon -0.308
 
 # Interactive Streamlit dashboard — multipage workspace with 21 live sources,
 # smart auto-insights, and fully interactive Plotly charts

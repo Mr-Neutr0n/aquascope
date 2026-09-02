@@ -103,6 +103,8 @@ def test_tool_specs_cover_the_mcp_surface():
                      # the workbench: analyses of the user's own table (#235)
                      "list_analyses", "analyse_table", "describe_methods",
                      # code for the questions no fixed tool covers (#234)
-                     "run_python"}
+                     "run_python",
+                     # Ask hands a problem at a place to Solve (#307, #308)
+                     "list_playbooks", "describe_playbook", "solve_plan", "solve_run"}
     tools = analyst._openai_tools(analyst._tool_specs())
     assert all(t["type"] == "function" and "parameters" in t["function"] for t in tools)

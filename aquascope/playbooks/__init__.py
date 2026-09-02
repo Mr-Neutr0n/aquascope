@@ -567,7 +567,7 @@ def plan(
                 kind="no_branch", playbook=pb.id,
             )
     ctx = evaluation_context(pb, recon, intake, station_variable=chosen.station_variable)
-    notes: list[str] = list(recon.get("notes") or [])
+    notes: list[str] = []
     steps: list[Step] = []
     dropped: set[str] = set()
     for t in chosen.steps:
@@ -609,6 +609,8 @@ def plan(
         plan_block["station"] = {k: station.get(k) for k in ("source", "station_id", "name", "years", "distance_km")}
     if notes:
         plan_block["notes"] = notes
+    if recon.get("notes"):
+        plan_block["recon_notes"] = [str(n) for n in recon["notes"]]
     return Study(
         question=question,
         title=f"{pb.title}: {where}",
