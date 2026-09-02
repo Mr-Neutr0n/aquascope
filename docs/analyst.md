@@ -7,7 +7,7 @@ and aquascope does the part that has to be right.
 
 ```bash
 pip install aquascope             # the openai SDK is optional (pip install "aquascope[llm]")
-export GROQ_API_KEY=...            # or OPENAI_API_KEY, HF_TOKEN, MISTRAL_API_KEY, OPENROUTER_API_KEY, or AQUASCOPE_LLM_API_KEY + _BASE_URL + _MODEL
+export GROQ_API_KEY=...            # or OPENAI_API_KEY, NVIDIA_API_KEY, HF_TOKEN, MISTRAL_API_KEY, OPENROUTER_API_KEY, or AQUASCOPE_LLM_API_KEY + _BASE_URL + _MODEL
 aquascope ask "What is the 100-year flood of the Seine at Paris, and how sure can we be?" -o seine.md
 ```
 
@@ -25,7 +25,7 @@ them against real data. The Markdown report has three parts:
    also assembled from the tool results (never from the model's memory).
 
 A footer records the model, provider, date and the tools called. `--provider`
-picks openai / groq / huggingface / ollama (defaults from the environment),
+picks openai / groq / nvidia / huggingface / mistral / openrouter / ollama (defaults from the environment),
 `--model` overrides the default model, `--max-steps` bounds the tool loop.
 Works with any OpenAI-compatible endpoint that supports tool calling.
 
@@ -39,9 +39,21 @@ button): the browser worker calls the provider directly with your key through
 `aquascope.ai_engine.llm_transport.UrllibChatClient`, a dependency-free
 OpenAI-compatible client that is also the fallback when the `openai` package
 is not installed, so `pip install aquascope` alone is enough for `aquascope
-ask`. Providers: `openai`, `groq`, `huggingface`, `mistral`, `openrouter`,
+ask`. Providers: `openai`, `groq`, `nvidia` (CLI only), `huggingface`, `mistral`, `openrouter`,
 `ollama`, or `AQUASCOPE_LLM_BASE_URL` for anything else that speaks the
 protocol.
+
+### Supported Providers
+
+| Provider | ID | Environment Variable | Default Model | Free Tier / Trial | Browser (Explorer) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | Paid | Yes |
+| **Groq** | `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | Free tier (~1,000 req/day) | Yes |
+| **NVIDIA Build** | `nvidia` | `NVIDIA_API_KEY` | `openai/gpt-oss-120b` | 1,000 trial credits on signup | No (CORS restricted; CLI only) |
+| **Hugging Face** | `huggingface` | `HF_TOKEN` | `Qwen/Qwen2.5-72B-Instruct` | Monthly free tier credit | Yes |
+| **Mistral** | `mistral` | `MISTRAL_API_KEY` | `mistral-small-latest` | Paid | Yes |
+| **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` | `:free` models available | Yes |
+| **Ollama** | `ollama` | Local (`None`) | `qwen2.5:7b` | Free (runs locally) | No (requires local daemon) |
 
 ## `aquascope ingest`: any export in, a clean series and a QA report out
 
