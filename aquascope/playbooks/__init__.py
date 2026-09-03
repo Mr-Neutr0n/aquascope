@@ -46,6 +46,7 @@ __all__ = [
     "Playbook",
     "PlaybookError",
     "as_json",
+    "coerce_intake",
     "describe",
     "evaluation_context",
     "fill_intake",
@@ -101,6 +102,9 @@ class IntakeField(BaseModel):
     options: list[Any] = Field(default_factory=list)
     required: bool = False
     help: str | None = None
+    #: Bounds for an int or float field (inclusive); a value outside them is out of range.
+    min: float | None = None
+    max: float | None = None
 
 
 class StepTemplate(BaseModel):
@@ -254,6 +258,10 @@ def validate(playbook: str | Playbook | dict[str, Any]) -> list[str]:
             errors.append(f"intake {f.name}: default {f.default!r} is not among its options")
         if f.type == "list" and f.default is not None and not isinstance(f.default, (list, tuple, str)):
             errors.append(f"intake {f.name}: a list default is a list or a comma-separated string")
+        if (f.min is not None or f.max is not None) and f.type not in ("int", "float"):
+            errors.append(f"intake {f.name}: min/max apply to int and float fields only")
+        if f.min is not None and f.max is not None and f.min > f.max:
+            errors.append(f"intake {f.name}: min {f.min!r} is above max {f.max!r}")
     if not pb.branches:
         errors.append("a playbook needs at least one branch")
     seen_branches: set[str] = set()
@@ -349,11 +357,43 @@ def fill_intake(pb: Playbook, intake: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def coerce_intake(pb: str | Playbook | dict[str, Any], values: dict[str, Any] | None) -> dict[str, Any]:
+    """The intake a model (or any untrusted source) wrote, made safe: the lenient twin of :func:`fill_intake`.
+
+    Every field of the playbook comes back: a value the field can take is
+    coerced to its type, a field the values do not name gets its default, and
+    so does a value the field cannot take (the wrong type, a choice outside
+    the options, a number outside ``min``/``max``, a non-finite number).
+    Fields the playbook does not have are dropped. Nothing raises here: the
+    Explorer's on-device model fills the intake through this, and a small
+    model's mistake should cost a default, not the plan.
+    """
+    pb = load(pb)
+    out: dict[str, Any] = {}
+    for f in pb.intake:
+        raw = values.get(f.name) if isinstance(values, dict) else None
+        if raw is None:
+            out[f.name] = f.default
+            continue
+        try:
+            out[f.name] = _coerce(raw, f)
+        except (TypeError, ValueError, OverflowError):
+            out[f.name] = f.default
+    return out
+
+
 def _coerce(raw: Any, f: IntakeField) -> Any:
-    if f.type == "int":
-        return int(float(raw))
-    if f.type == "float":
-        return float(raw)
+    if f.type in ("int", "float"):
+        if isinstance(raw, bool):
+            raise ValueError(f"{raw!r} is not a number")
+        number = float(raw)
+        if number != number or number in (float("inf"), float("-inf")):
+            raise ValueError(f"{raw!r} is not a finite number")
+        if f.min is not None and number < f.min:
+            raise ValueError(f"{raw!r} is below the minimum {f.min:g}")
+        if f.max is not None and number > f.max:
+            raise ValueError(f"{raw!r} is above the maximum {f.max:g}")
+        return int(number) if f.type == "int" else number
     if f.type == "bool":
         if isinstance(raw, str):
             if raw.strip().lower() in ("true", "yes", "y", "1", "on"):

@@ -18,6 +18,7 @@ intake:
     label: Years of recent record to compare with the full record
     type: int
     default: 10
+    min: 1
   - name: concern
     label: Why it matters
     type: choice

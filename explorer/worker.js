@@ -223,6 +223,33 @@ json.dumps(_res.to_dict(), default=str)
   }
 }
 
+// The intake a small model wrote on the reader's device, made safe by the
+// package's own rules (aquascope.playbooks.coerce_intake): a field the playbook
+// has not got is dropped, a value the field cannot take becomes its default.
+// An unknown playbook comes back as null, and the page falls back to the
+// keyword rules solve_plan applies anyway.
+async function coerceIntake({ id, playbook, intake }) {
+  self.__aqIntake = JSON.stringify({ playbook: playbook || null, intake: intake || null });
+  const code = `
+import json
+from js import __aqIntake
+from aquascope import playbooks as _pbk
+_a = json.loads(__aqIntake)
+try:
+    _pb = _pbk.load(_a["playbook"] or "")
+    _out = {"playbook": _pb.id, "intake": _pbk.coerce_intake(_pb, _a.get("intake"))}
+except _pbk.PlaybookError as exc:
+    _out = {"playbook": None, "intake": None, "error": str(exc)}
+json.dumps(_out, default=str)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqIntake = null;
+  }
+}
+
 // The run half: the reviewed study (edited or not) with its gates, one bounded
 // replan, the Reviewer's "not established" list and the Narrator. Every
 // timeline event is posted as it happens, the way ask() streams its tool log.
@@ -377,6 +404,7 @@ self.onmessage = async (e) => {
     if (m.type === "catalog") return await catalog(m);
     if (m.type === "ask") return await ask(m);
     if (m.type === "solve_plan") return await solvePlan(m);
+    if (m.type === "coerce_intake") return await coerceIntake(m);
     if (m.type === "solve_run") return await solveRun(m);
     if (m.type === "ingest") return await ingestText(m);
     if (m.type === "load_table") return await loadTable(m);

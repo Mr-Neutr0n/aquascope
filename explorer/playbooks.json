@@ -18,7 +18,9 @@
           ],
           "options": [],
           "required": false,
-          "help": "Accumulation periods for SPI and SPEI, in months (1 for the month, 3 for the season, 12 for the year)."
+          "help": "Accumulation periods for SPI and SPEI, in months (1 for the month, 3 for the season, 12 for the year).",
+          "min": null,
+          "max": null
         },
         {
           "name": "drought_concern",
@@ -32,7 +34,9 @@
             "other"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "flash_drought",
@@ -41,7 +45,9 @@
           "default": false,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -65,7 +71,9 @@
           "default": 100,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": 2.0,
+          "max": null
         },
         {
           "name": "decision",
@@ -79,7 +87,9 @@
             "inundation extent"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -102,7 +112,9 @@
           "default": 10,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": 1.0,
+          "max": null
         },
         {
           "name": "concern",
@@ -116,7 +128,9 @@
             "other"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "attribute_cause",
@@ -125,7 +139,9 @@
           "default": false,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -171,7 +187,9 @@
             "wheat_winter"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "area_ha",
@@ -180,7 +198,9 @@
           "default": 10,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "planting_month",
@@ -189,7 +209,9 @@
           "default": 4,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "efficiency",
@@ -198,7 +220,9 @@
           "default": 0.7,
           "options": [],
           "required": false,
-          "help": "Gross depth is the net requirement divided by this (0.7 for sprinkler, 0.9 for drip, 0.5 for surface)."
+          "help": "Gross depth is the net requirement divided by this (0.7 for sprinkler, 0.9 for drip, 0.5 for surface).",
+          "min": null,
+          "max": null
         },
         {
           "name": "share",
@@ -207,7 +231,9 @@
           "default": 0.1,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "decision",
@@ -219,7 +245,9 @@
             "daily schedule"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -241,7 +269,9 @@
           "default": null,
           "options": [],
           "required": false,
-          "help": "The abstraction wanted, in cubic metres per second; or give demand_ml_day."
+          "help": "The abstraction wanted, in cubic metres per second; or give demand_ml_day.",
+          "min": null,
+          "max": null
         },
         {
           "name": "demand_ml_day",
@@ -250,7 +280,9 @@
           "default": null,
           "options": [],
           "required": false,
-          "help": "The abstraction wanted, in megalitres a day (1 ML/day is 0.01157 m3/s)."
+          "help": "The abstraction wanted, in megalitres a day (1 ML/day is 0.01157 m3/s).",
+          "min": null,
+          "max": null
         },
         {
           "name": "use",
@@ -264,7 +296,9 @@
             "other"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "share",
@@ -273,7 +307,9 @@
           "default": 0.1,
           "options": [],
           "required": false,
-          "help": "The largest fraction of the day's flow the abstraction may take (a screening rule)."
+          "help": "The largest fraction of the day's flow the abstraction may take (a screening rule).",
+          "min": null,
+          "max": null
         },
         {
           "name": "storage",
@@ -282,7 +318,9 @@
           "default": false,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -311,7 +349,9 @@
             "other"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "statistic",
@@ -325,7 +365,9 @@
             "all"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [

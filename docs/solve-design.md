@@ -18,7 +18,10 @@ Every capability is a plain Python function in the package (one engine,
 three faces): the CLI, the MCP server and the Explorer's worker call the
 same functions. No agent framework: the loop must run inside Pyodide and
 within free-tier token budgets, and the value is in the scaffold (playbooks)
-and the gates, not in orchestration machinery.
+and the gates, not in orchestration machinery. The same fact makes the roles
+portable: `examples/langgraph_team.py` drives them from a LangGraph
+`StateGraph` (one node per role, the review as an interrupt) without the
+package gaining a dependency; see [solve.md](solve.md#using-the-team-from-langgraph-or-your-own-orchestrator).
 
 ## The team
 
@@ -29,7 +32,7 @@ sees the study, its own step and its inputs, never the whole transcript.
 | Role | Does | Model needed? |
 | --- | --- | --- |
 | Scout | reconnaissance: `assess_site`, the sufficiency table | no |
-| Coordinator | intake → chooses the playbook branch → fills the plan; explains the choice | optional (the tree alone fills a plan) |
+| Coordinator | intake → chooses the playbook branch → fills the plan; explains the choice | optional (the tree alone fills a plan; in the Explorer a model already on the reader's device may read the sentence into the intake, through `playbooks.coerce_intake`) |
 | Specialist (one per problem kind: flood, ungauged flow, groundwater, drought, supply, climate, irrigation) | interprets a step's result, proposes the fallback when a gate fails | optional |
 | Reviewer | evaluates gates, runs the deterministic checks, writes "what this does not establish" | no |
 | Narrator | writes the prose of the report from the executed study | optional (a template otherwise) |

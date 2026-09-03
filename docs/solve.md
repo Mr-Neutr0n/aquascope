@@ -205,6 +205,41 @@ key, unsolvable tasks included) and scores the plan-first team, the older
 `ask` loop, or any agent against them (`aquascope gym tasks | bench |
 leaderboard`).
 
+## Using the team from LangGraph or your own orchestrator
+
+The roles are plain functions with no framework between them: the Scout is
+`aquascope.explore.assess_site`, the Coordinator and the tree are
+`aquascope.ai_engine.team.solve(execute=False)` (or `aquascope.playbooks.plan`
+when you already hold the recon), the review is whatever you put there, and
+the runner with its gates, the Reviewer and the Narrator are
+`aquascope.ai_engine.team.run_reviewed`. The browser runs these same functions
+in a worker with no agent framework at all, which is why the package does not
+depend on one; it also means they drop into the orchestrator your stack
+already has.
+
+`examples/langgraph_team.py` is that mapping for LangGraph, one node per role:
+
+| Team role | Graph node | Calls |
+| --- | --- | --- |
+| Scout | `scout` | `assess_site(lat, lon, problem=...)` |
+| Coordinator (tree, keyword rules) | `plan` | `solve(..., recon=recon, execute=False)` |
+| You | `review` | LangGraph's `interrupt()` with the plan; resume with the study (edited or not) or `None` to decline |
+| Runner, Reviewer, Narrator | `run` | `run_reviewed(study, recon=recon)` |
+| Report | `report` | the Markdown report, or the decline in the playbook's words |
+
+A declined plan (a decline rule, no branch, a refused method) skips the review
+and the run and goes to the report. The graph needs a checkpointer for the
+interrupt to pause; the example uses the in-memory one. Run it keyless:
+
+```bash
+pip install langgraph langchain-core     # not aquascope dependencies
+python examples/langgraph_team.py --lat 51.415 --lon -0.308 --playbook flood_risk
+```
+
+The same mapping holds for CrewAI-style roles: a scout, a planner, a reviewer
+and a runner agent whose tools are these four functions, in that order, with
+the study as the artefact each hands to the next.
+
 ## The other faces
 
 Over MCP (`aquascope mcp`): `list_playbooks()`, `describe_playbook(id)`,
