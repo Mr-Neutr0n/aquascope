@@ -289,12 +289,33 @@ async function upstreamIds(hybasId, limit = 20000) {
   return res.toArray().map((r) => Number(r.hybas_id));
 }
 
-async function basinAttributes(hybasId) {
+// The outlet sub-basin's raw BasinATLAS row, as stored.
+async function basinRow(hybasId) {
   const { conn } = await duck();
   const res = await conn.query(`SELECT * FROM read_parquet('${basinsUrl("lev12_attributes.parquet")}') WHERE hybas_id = ${Number(hybasId)} LIMIT 1`);
   const rows = res.toArray().map((r) => r.toJSON());
-  if (!rows.length) return null;
-  const row = rows[0];
+  return rows.length ? rows[0] : null;
+}
+
+// DuckDB hands 64-bit integers back as BigInt, which JSON cannot carry.
+const plain = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === "bigint" ? Number(v) : v]));
+
+// What a Solve run needs to describe the catchment in the worker, where
+// BasinATLAS cannot be read: the sub-basin the page found and the outlet's raw
+// row, for aquascope.archive.basins.describe_catchment_from_row. The outlet
+// row's upstream fields already describe the whole catchment, so the upstream
+// walk (a topology download on a fresh page) is not repeated here.
+export async function catchmentForWorker(lat, lon) {
+  const sb = await subBasinAtCached(lat, lon);
+  if (!sb || sb.hybas_id === null) return null;
+  const row = await basinRow(sb.hybas_id).catch(() => null);
+  const { geometry, ...rest } = sb;
+  return { sub_basin: plain(rest), row: row ? plain(row) : null };
+}
+
+async function basinAttributes(hybasId) {
+  const row = await basinRow(hybasId);
+  if (!row) return null;
   const out = {};
   for (const [key, label, uf, sf, unit, div] of BASIN_FIELDS) {
     const raw = row[uf] ?? row[sf];

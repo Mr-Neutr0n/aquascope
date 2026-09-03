@@ -3,6 +3,8 @@
 // and the MCP tool), as one quiet card: three counts on a line, the rows
 // behind a disclosure. The page passes the catchment area and donor count it
 // already holds, since the worker cannot read BasinATLAS or the donor table.
+// Solve reuses the card (target "solve", narrowed to its problem) and takes
+// the reconnaissance back, so the plan is filled from the same dict.
 
 import { $, VAR_LABEL, escapeHtml, fmt, state } from "./core.js?v=__BUILD__";
 import { catchmentAreaAt, donorPoolSize, stationArea } from "./basins.js?v=__BUILD__";
@@ -16,12 +18,13 @@ const STATUS = {
   marginal: ["warn", "marginal"],
   not_defensible: ["no", "not defensible"],
 };
-let assessRun = 0;
+// One counter per card: Solve's request must not cancel the inspector's.
+const runs = {};
 
-export async function requestAssess({ lat, lon, target, key = null }) {
-  const my = ++assessRun;
+export async function requestAssess({ lat, lon, target, key = null, problem = null }) {
+  const my = (runs[target] = (runs[target] || 0) + 1);
   const el = $(`${target}-assess-card`);
-  if (!el) return;
+  if (!el) return null;
   setCard(el, "loading", {
     message: state.workerReady ? "Checking what the record here supports…" : "Loading Python in your browser (about 15 MB, once)…",
   });
@@ -30,19 +33,21 @@ export async function requestAssess({ lat, lon, target, key = null }) {
       (key ? stationArea(key).then((a) => (a ? a.area : null)) : catchmentAreaAt(lat, lon)).catch(() => null),
       donorPoolSize().catch(() => 0),
     ]);
-    if (my !== assessRun) return;
+    if (my !== runs[target]) return null;
     await ensureCatalogInWorker();
     const res = await call("assess", {
-      lat, lon, radius_km: RADIUS_KM, area_km2: area, donors: area ? Math.min(DONOR_K, pool) : null,
+      lat, lon, radius_km: RADIUS_KM, area_km2: area, donors: area ? Math.min(DONOR_K, pool) : null, problem,
     });
-    if (my !== assessRun) return;
+    if (my !== runs[target]) return null;
     render(el, res, key);
+    return res;
   } catch (err) {
-    if (my !== assessRun) return;
+    if (my !== runs[target]) return null;
     setCard(el, "error", {
       message: `Could not assess this site: ${err.message}`,
-      retry: () => requestAssess({ lat, lon, target, key }),
+      retry: () => requestAssess({ lat, lon, target, key, problem }),
     });
+    return null;
   }
 }
 
