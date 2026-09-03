@@ -94,6 +94,35 @@ METHODS: dict[str, dict[str, str]] = {
         "citation": "Mann, H. B. (1945). Nonparametric tests against trend. Econometrica, 13, 245-259; "
         "Sen, P. K. (1968). J. Am. Stat. Assoc., 63, 1379-1389.",
     },
+    "who_screen": {
+        "name": "WHO drinking-water guideline screen",
+        "text": "Share of samples outside the WHO guideline range per recognised parameter; over 10 % is an alert, "
+        "any exceedance a warning.",
+        "citation": "World Health Organization (2022). Guidelines for drinking-water quality, 4th edition, "
+        "incorporating the first and second addenda.",
+    },
+    "ccme_wqi": {
+        "name": "CCME Water Quality Index 1.0",
+        "text": "Scope (F1), frequency (F2) and amplitude (F3) of guideline exceedances over the sampled parameters, "
+        "combined as 100 - sqrt(F1^2 + F2^2 + F3^2) / 1.732; Excellent 95-100, Good 80-94, Fair 65-79, "
+        "Marginal 45-64, Poor 0-44. Guidelines: WHO 2022 (drinking), FAO 29 (irrigation) or CCME (aquatic life).",
+        "citation": "CCME (2001). CCME Water Quality Index 1.0, User's Manual. Canadian Council of Ministers of the "
+        "Environment, Winnipeg.",
+    },
+    "nsf_wqi": {
+        "name": "NSF Water Quality Index",
+        "text": "Nine parameters rated on their sub-index curves (digitised approximations of the published ones) and "
+        "combined with the published weights; weights renormalised when parameters are missing.",
+        "citation": "Brown, R. M., McClelland, N. I., Deininger, R. A. and Tozer, R. G. (1970). A water quality "
+        "index: do we dare? Water and Sewage Works 117, 339-343.",
+    },
+    "iwqi": {
+        "name": "Irrigation water quality (FAO 29)",
+        "text": "SAR, sodium percentage and residual sodium carbonate (meq/L) with the USSL, Wilcox and Eaton classes, "
+        "and the FAO 29 degree of restriction on use (none, slight to moderate, severe) per component.",
+        "citation": "Ayers, R. S. and Westcot, D. W. (1985). Water quality for agriculture. FAO Irrigation and "
+        "Drainage Paper 29, Rev. 1. FAO, Rome.",
+    },
 }
 
 
@@ -635,6 +664,145 @@ def analyze_station(
         result.update({"n": 0, "error": "The source returned no observations for this station."})
         return result
     result.update(analyze_series(s, fetched["variable"], fetched["unit"]))
+    return result
+
+
+# ── water-quality samples ───────────────────────────────────────────────────
+# The archive carries no water-quality variables until Phase 3 (#188), so the
+# samples come straight from the agency: USGS daily water-quality values and
+# the Water Quality Portal's discrete samples. A screening, not a bulk
+# download: the window and the parameter list are capped by default.
+
+#: The USGS daily-value parameter codes the catalog's ``water_quality`` flag stands for.
+USGS_WQ_CODES: dict[str, str] = {"temperature": "00010", "conductivity": "00095", "dissolved_oxygen": "00300",
+                                 "ph": "00400"}
+_USGS_WQ_NAMES = {"temperature": "temperature", "temp": "temperature", "water temperature": "temperature",
+                  "conductivity": "conductivity", "specific conductance": "conductivity", "ec": "conductivity",
+                  "dissolved oxygen": "dissolved_oxygen", "dissolved_oxygen": "dissolved_oxygen",
+                  "do": "dissolved_oxygen", "ph": "ph"}
+#: WQP characteristic names asked for by default, per use: a screening list, not the portal's whole catalogue.
+WQP_CHARACTERISTICS: dict[str, tuple[str, ...]] = {
+    "drinking": ("pH", "Dissolved oxygen (DO)", "Temperature, water", "Specific conductance", "Turbidity",
+                 "Nitrate", "Escherichia coli", "Arsenic", "Lead", "Fluoride"),
+    "irrigation": ("Specific conductance", "Sodium", "Calcium", "Magnesium", "Potassium", "Bicarbonate",
+                   "Chloride", "Boron", "pH", "Nitrate", "Total dissolved solids"),
+    "aquatic life": ("pH", "Dissolved oxygen (DO)", "Temperature, water", "Nitrate", "Chloride", "Arsenic",
+                     "Lead", "Copper", "Zinc", "Cadmium"),
+}
+WQ_DEFAULT_YEARS = 5
+WQ_MAX_SAMPLES = 20_000
+
+
+def water_quality_samples(
+    source: str,
+    station_id: str,
+    *,
+    years: int | None = None,
+    parameters: list[str] | None = None,
+    use: str | None = None,
+    max_samples: int = WQ_MAX_SAMPLES,
+) -> dict[str, Any]:
+    """Sampled water-quality parameters at one station, as tidy rows with counts, units, period and licence.
+
+    ``years`` caps the window (default :data:`WQ_DEFAULT_YEARS`, the last
+    five years; ``0`` asks for the full record from the catalog's first date).
+    ``parameters`` names what to fetch (USGS: temperature, conductivity,
+    dissolved oxygen, pH, or their codes; WQP: characteristic names); without
+    it the USGS four are fetched, or the WQP screening list for ``use``
+    (``drinking`` by default, ``irrigation``, ``aquatic life``). The ``samples``
+    rows (``datetime``, ``parameter``, ``value``, ``unit``) feed the workbench's
+    ``wqi``, ``iwqi`` and ``who_screen`` directly, or a study step through
+    ``from_step``.
+    """
+    if source not in SOURCES:
+        raise ValueError(f"Unknown source {source!r}")
+    meta = SOURCES[source]
+    if "water_quality" not in meta.variables:
+        raise ValueError(f"{source} carries no water-quality samples")
+    cap = WQ_DEFAULT_YEARS if years is None else int(years)
+    window = request_window(source, station_id, years=cap if cap > 0 else None)
+    start, end, asked = window["start"], window["end"], window["asked"]
+    use_key = str(use or "drinking").strip().lower().replace("_", " ")
+    if use_key not in WQP_CHARACTERISTICS:
+        use_key = "drinking"
+
+    if source == "usgs":
+        codes: list[str] = []
+        for p in parameters or list(USGS_WQ_CODES):
+            key = str(p).strip().lower()
+            if key in USGS_WQ_CODES.values():
+                codes.append(key)
+            elif _USGS_WQ_NAMES.get(key) in USGS_WQ_CODES:
+                codes.append(USGS_WQ_CODES[_USGS_WQ_NAMES[key]])
+        if not codes:
+            raise ValueError(f"USGS daily water-quality values cover {sorted(USGS_WQ_CODES)} only; got {parameters}")
+        c = build_collector("usgs")
+        recs = c.collect(station_id=station_id, days=(end - start).days, collection="daily",
+                         parameter=",".join(sorted(set(codes))), statCd="00003", max_items=None)
+        note = (f"USGS daily mean values (NWIS, statistic 00003) for parameter codes "
+                f"{', '.join(sorted(set(codes)))}; {asked}.")
+    elif source == "wqp":
+        names = list(parameters) if parameters else list(WQP_CHARACTERISTICS[use_key])
+        c = build_collector("wqp")
+        recs = c.collect(site_id=station_id, characteristic_name=names, start_date=start.strftime("%m-%d-%Y"),
+                         end_date=end.strftime("%m-%d-%Y"), max_results=int(max_samples))
+        note = (f"Water Quality Portal (WQX 3.0) discrete samples for {len(names)} characteristics; {asked}. "
+                "The portal is slow on large windows, so the window and the characteristic list are capped.")
+    else:
+        raise ValueError(
+            f"{meta.label} has no water-quality fetch path yet; samples are served through aquascope for USGS and "
+            "the Water Quality Portal (United States). The archive carries no water-quality variables until Phase 3 "
+            "(#188)."
+        )
+
+    samples = [r for r in recs if type(r).__name__ == "WaterQualitySample"]
+    rows = [
+        {"datetime": r.sample_datetime.isoformat(), "parameter": r.parameter, "value": float(r.value),
+         "unit": r.unit or ""}
+        for r in samples
+    ]
+    rows.sort(key=lambda r: (r["parameter"], r["datetime"]))
+    rows = rows[: int(max_samples)]
+    result: dict[str, Any] = {
+        "source": source,
+        "station_id": station_id,
+        "agency": meta.agency,
+        "license": meta.license,
+        "attribution": meta.attribution,
+        "fetch_note": note,
+        "requested": {"start": start.isoformat(), "end": end.isoformat(), "years": window["years"],
+                      "catalog_start": window["catalog_start"]},
+    }
+    if not rows:
+        result.update({"n_samples": 0, "n_parameters": 0, "samples": [], "sample_counts": {},
+                       "error": "The source returned no water-quality samples for this station in the window."})
+        return result
+    frame = pd.DataFrame(rows)
+    frame["t"] = pd.to_datetime(frame["datetime"], errors="coerce", utc=True).dt.tz_localize(None)
+    per: dict[str, dict[str, Any]] = {}
+    for name, g in frame.groupby("parameter", sort=True):
+        units = g["unit"].astype(str).replace("", pd.NA).dropna()
+        unit = str(units.mode().iloc[0]) if not units.empty else ""
+        vals = g["value"].astype(float)
+        per[str(name)] = {
+            "n": int(len(g)), "unit": unit,
+            "start": _iso(g["t"].min()), "end": _iso(g["t"].max()),
+            "min": _clean(float(vals.min())), "median": _clean(float(vals.median())), "max": _clean(float(vals.max())),
+        }
+    units_all = [p["unit"] for p in per.values() if p["unit"]]
+    t0, t1 = frame["t"].min(), frame["t"].max()
+    result.update({
+        "n_samples": int(len(rows)),
+        "n_parameters": len(per),
+        "parameters": per,
+        "sample_counts": {k: v["n"] for k, v in per.items()},
+        "units": {k: v["unit"] for k, v in per.items()},
+        "unit": max(set(units_all), key=units_all.count) if units_all else "",
+        "start": _iso(t0), "end": _iso(t1),
+        "years": round((t1 - t0).days / 365.25, 2) if pd.notna(t0) and pd.notna(t1) else None,
+        "samples": rows,
+        "methods": [],
+    })
     return result
 
 

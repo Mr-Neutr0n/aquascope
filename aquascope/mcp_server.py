@@ -188,6 +188,30 @@ def get_timeseries(
     }
 
 
+def water_quality_samples(
+    source: str,
+    station_id: str,
+    years: int | None = None,
+    parameters: list[str] | None = None,
+    use: str | None = None,
+) -> dict[str, Any]:
+    """Sampled water-quality parameters at one station: USGS daily water-quality values (temperature,
+    conductivity, dissolved oxygen, pH) or Water Quality Portal discrete samples, as tidy rows (datetime,
+    parameter, value, unit) with per-parameter counts, units and period, plus licence and attribution. A
+    screening, not a bulk download: the last 5 years and a short parameter list by default (the WQP is slow on
+    large windows); years=0 asks for the full record. use (drinking, irrigation, aquatic life) picks the WQP
+    parameter list. Feed the rows to analyse_table(csv, "wqi" | "iwqi" | "who_screen").
+    """
+    from aquascope.explore import water_quality_samples as _samples
+
+    if source not in SOURCES:
+        return {"error": f"unknown source {source!r}"}
+    try:
+        return _samples(source, station_id, years=years, parameters=parameters, use=use)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
 def analyze_station(
     source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False, variable: str | None = None
 ) -> dict[str, Any]:
@@ -359,8 +383,11 @@ def analyse_table(
 
     The analyses are the ones the dashboard pages offer, and they are the same
     code the Explorer runs in the browser: eda, quality, preprocess, insights,
-    who_screen, flow_duration, baseflow, recession, flood_frequency, signatures,
-    return_periods, sgi_drought, recharge, aquifer_drawdown.
+    who_screen, wqi (CCME WQI 1.0 against WHO drinking-water, FAO 29 irrigation or
+    CCME aquatic-life guidelines, plus the NSF WQI; params use, variant,
+    guidelines), iwqi (FAO 29 irrigation suitability), flow_duration, baseflow,
+    recession, flood_frequency, signatures, return_periods, sgi_drought,
+    recharge, aquifer_drawdown.
 
     Pass the data as CSV text (a header row and one row per observation) and the
     parameters of the analysis as a dict, for example
@@ -577,6 +604,7 @@ def build_server():
     server.tool()(list_sources)
     server.tool()(find_stations)
     server.tool()(get_timeseries)
+    server.tool()(water_quality_samples)
     server.tool()(analyze_station)
     server.tool()(flood_frequency)
     server.tool()(describe_methods)

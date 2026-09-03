@@ -177,6 +177,19 @@ def _tool_specs() -> list[ToolSpec]:
             t.get_timeseries,
         ),
         ToolSpec(
+            "water_quality_samples",
+            "Sampled water-quality parameters at a station (USGS daily values: temperature, conductivity, dissolved "
+            "oxygen, pH; Water Quality Portal discrete samples): tidy rows with per-parameter counts, units, period, "
+            "licence and attribution. A screening: the last 5 years and a short parameter list by default. Run "
+            "analyse_table with wqi, iwqi or who_screen on the rows.",
+            {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
+                                              "years": {"type": "integer"},
+                                              "parameters": {"type": "array", "items": {"type": "string"}},
+                                              "use": {"type": "string"}},
+             "required": ["source", "station_id"]},
+            t.water_quality_samples,
+        ),
+        ToolSpec(
             "anywhere",
             "Climate and modelled discharge for a point with no gauge: ERA5 rainfall/temperature, FAO-56 ET0, "
             "aridity, GloFAS.",
@@ -230,8 +243,10 @@ def _tool_specs() -> list[ToolSpec]:
         ToolSpec(
             "analyse_table",
             "Run one workbench analysis on a table the user supplied as CSV text: eda, quality, who_screen, "
-            "flow_duration, baseflow, recession, flood_frequency, signatures, return_periods, sgi_drought, "
-            "recharge, aquifer_drawdown. params carries the analysis's own options.",
+            "wqi (CCME WQI 1.0 against WHO drinking-water, FAO 29 irrigation or CCME aquatic-life guidelines, "
+            "plus the NSF WQI; params use, variant), iwqi (FAO 29 irrigation suitability), flow_duration, "
+            "baseflow, recession, flood_frequency, signatures, return_periods, sgi_drought, recharge, "
+            "aquifer_drawdown. params carries the analysis's own options.",
             {"type": "object", "properties": {"csv": {"type": "string"}, "analysis": {"type": "string"},
                                               "params": {"type": "object"}},
              "required": ["analysis"]},
@@ -385,7 +400,8 @@ def _harvest_provenance(name: str, args: dict[str, Any], result: Any, res: AskRe
         if isinstance(m, dict) and m.get("name") and m["name"] not in seen:
             res.methods.append({k: str(m.get(k, "")) for k in ("name", "text", "citation")})
             seen.add(m["name"])
-    if name in ("analyze_station", "flood_frequency", "get_timeseries") and result.get("source"):
+    record_tools = ("analyze_station", "flood_frequency", "get_timeseries", "water_quality_samples")
+    if name in record_tools and result.get("source"):
         label = f"{result.get('source')} / {result.get('station_id')}"
         period = None
         if result.get("start") and result.get("end"):

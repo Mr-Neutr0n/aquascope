@@ -41,6 +41,7 @@ __all__ = [
     "flow_duration",
     "insights",
     "irrigation",
+    "iwqi",
     "jsonable",
     "pick_column",
     "profile",
@@ -53,6 +54,7 @@ __all__ = [
     "sgi_drought",
     "signatures",
     "who_screen",
+    "wqi",
 ]
 
 # ── making results safe to serialise ────────────────────────────────────────
@@ -436,6 +438,113 @@ def who_screen(df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+WQI_USES = ("drinking", "irrigation", "aquatic life")
+WQI_VARIANTS = ("auto", "ccme", "nsf", "both")
+
+_WQI_METHODS: dict[str, dict[str, str]] = {
+    "ccme": {
+        "name": "CCME Water Quality Index 1.0",
+        "text": "Three factors over the sampled parameters that have a guideline: scope (F1, the share of parameters "
+                "that fail), frequency (F2, the share of tests that fail) and amplitude (F3, from the normalised sum "
+                "of excursions), combined as 100 - sqrt(F1^2 + F2^2 + F3^2) / 1.732; categories Excellent (95-100), "
+                "Good (80-94), Fair (65-79), Marginal (45-64), Poor (0-44). Only over sampled parameters.",
+        "citation": "CCME (2001). CCME Water Quality Index 1.0, User's Manual. Canadian Council of Ministers of the "
+                    "Environment, Winnipeg.",
+    },
+    "nsf": {
+        "name": "NSF Water Quality Index",
+        "text": "Nine parameters (dissolved-oxygen saturation, fecal coliform, pH, BOD, temperature change, total "
+                "phosphate, nitrate, turbidity, total solids) rated 0-100 on their sub-index curves and combined with "
+                "the published weights; the curves are digitised approximations of the published ones, and weights "
+                "are renormalised when parameters are missing.",
+        "citation": "Brown, R. M., McClelland, N. I., Deininger, R. A. and Tozer, R. G. (1970). A water quality "
+                    "index: do we dare? Water and Sewage Works 117, 339-343.",
+    },
+    "iwqi": {
+        "name": "Irrigation water quality (FAO 29)",
+        "text": "Sodium adsorption ratio, sodium percentage and residual sodium carbonate (ions in meq/L) with the "
+                "USSL, Wilcox and Eaton classes, and the FAO 29 degree of restriction on use (none, slight to "
+                "moderate, severe) for salinity, infiltration, ion toxicity and miscellaneous effects; the overall "
+                "restriction is the worst component.",
+        "citation": "Ayers, R. S. and Westcot, D. W. (1985). Water quality for agriculture. FAO Irrigation and "
+                    "Drainage Paper 29, Rev. 1; Richards, L. A. (1954). USDA Handbook 60; Wilcox, L. V. (1955). USDA "
+                    "Circular 969; Eaton, F. M. (1950). Soil Science 69, 123-134.",
+    },
+}
+
+_GUIDELINE_METHOD_TEXT = {
+    "drinking": ("WHO 2022 drinking-water guideline values",
+                 "World Health Organization (2022). Guidelines for drinking-water quality, 4th edition, "
+                 "incorporating the first and second addenda."),
+    "irrigation": ("FAO 29 thresholds above which the restriction on irrigation use is severe",
+                   "Ayers, R. S. and Westcot, D. W. (1985). FAO Irrigation and Drainage Paper 29, Rev. 1."),
+    "aquatic life": ("CCME freshwater aquatic-life guidelines (long-term)",
+                     "CCME. Canadian Water Quality Guidelines for the Protection of Aquatic Life."),
+}
+
+
+def wqi(df: pd.DataFrame, *, use: str = "drinking", variant: str = "auto",
+        guidelines: dict[str, dict[str, Any]] | None = None,
+        reference_temperature: float | None = None) -> dict[str, Any]:
+    """Water quality indices over the sampled parameters (#62).
+
+    ``use`` picks the guideline set the CCME index is computed against
+    (``drinking``: WHO 2022; ``irrigation``: FAO 29; ``aquatic life``: CCME),
+    unless ``guidelines`` brings a table of your own (``{parameter: {min?,
+    max?, unit?}}``). ``variant``: ``ccme``, ``nsf``, ``both``, or ``auto``
+    (CCME always, NSF as well when enough of its nine parameters are present).
+    The headline ``score`` and ``category`` are the CCME's when it was
+    computed, else the NSF's.
+    """
+    from aquascope.analysis.water_quality import wqi_ccme, wqi_nsf
+
+    use_key = str(use or "drinking").strip().lower().replace("_", " ")
+    if use_key in ("aquatic", "ecology", "ecological"):
+        use_key = "aquatic life"
+    if use_key not in WQI_USES:
+        raise ValueError(f"Unknown use {use!r}; choose from {list(WQI_USES)}")
+    variant = str(variant or "auto").lower()
+    if variant not in WQI_VARIANTS:
+        raise ValueError(f"Unknown variant {variant!r}; choose from {list(WQI_VARIANTS)}")
+    out: dict[str, Any] = {"use": use_key, "variant": variant, "guideline_set": "custom" if guidelines else use_key,
+                           "methods": []}
+    headline: dict[str, Any] | None = None
+    if variant in ("auto", "ccme", "both"):
+        ccme = jsonable(wqi_ccme(df, guidelines if guidelines else use_key))
+        out["ccme"] = ccme
+        if ccme.get("score") is not None:
+            headline = {"index": "ccme_wqi", "score": ccme["score"], "category": ccme["category"]}
+            out["methods"].append(dict(_WQI_METHODS["ccme"]))
+            if not guidelines:
+                label, cite = _GUIDELINE_METHOD_TEXT[use_key]
+                out["methods"].append({"name": f"Guideline values: {label}",
+                                       "text": "The bounds each sampled parameter is compared with.", "citation": cite})
+    if variant in ("auto", "nsf", "both"):
+        nsf = jsonable(wqi_nsf(df, reference_temperature=reference_temperature))
+        out["nsf"] = nsf
+        if nsf.get("score") is not None:
+            out["methods"].append(dict(_WQI_METHODS["nsf"]))
+            if headline is None:
+                headline = {"index": "nsf_wqi", "score": nsf["score"], "category": nsf["category"]}
+    block = out.get("ccme") or out.get("nsf") or {}
+    out.update(headline or {"index": None, "score": None, "category": None})
+    out["period"] = block.get("period")
+    out["sample_counts"] = block.get("sample_counts") or {}
+    out["n_samples"] = int(sum(out["sample_counts"].values()))
+    out["unit"] = "index, 0 to 100"
+    return out
+
+
+def iwqi(df: pd.DataFrame, *, statistic: str = "median") -> dict[str, Any]:
+    """Irrigation suitability after FAO 29: SAR, sodium percentage, RSC and the degree of restriction on use."""
+    from aquascope.analysis.water_quality import iwqi as _iwqi
+
+    res = jsonable(_iwqi(df, statistic=statistic))
+    res["methods"] = [dict(_WQI_METHODS["iwqi"])]
+    res["unit"] = "meq/L"
+    return res
+
+
 # ── hydrology ───────────────────────────────────────────────────────────────
 
 
@@ -779,6 +888,11 @@ TOOLS: dict[str, dict[str, Any]] = {
     "preprocess": {"func": preprocess, "needs": "frame", "summary": "Clean a table with a list of steps."},
     "insights": {"func": insights, "needs": "frame", "summary": "Quality score, WHO screen and next steps."},
     "who_screen": {"func": who_screen, "needs": "frame", "summary": "WHO drinking-water guideline screen."},
+    "wqi": {"func": wqi, "needs": "frame",
+        "summary": "Water quality index over sampled parameters: CCME WQI 1.0 against WHO 2022 drinking-water, "
+                   "FAO 29 irrigation or CCME aquatic-life guidelines; the NSF WQI when its parameters are present."},
+    "iwqi": {"func": iwqi, "needs": "frame",
+        "summary": "Irrigation suitability (FAO 29): SAR, sodium percentage, RSC and the degree of restriction."},
     "flow_duration": {"func": flow_duration, "needs": "frame", "summary": "Flow-duration curve and percentiles."},
     "baseflow": {"func": baseflow, "needs": "frame", "summary": "Baseflow separation and the baseflow index."},
     "recession": {"func": recession, "needs": "frame", "summary": "Recession segments and constant."},

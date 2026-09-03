@@ -39,6 +39,7 @@ CHECKS: dict[str, str] = {
     "max_area_km2": "the catchment area at path is at most value km2",
     "min_donors": "the donor count (or list) at path has at least value entries",
     "status_is": "the status at path equals value (or is in the list value)",
+    "min_samples": "every sample count at path (a number, a list, or a dict of counts per parameter) is at least value",
 }
 
 _DEFAULT_PATH = {
@@ -46,6 +47,7 @@ _DEFAULT_PATH = {
     "max_return_period_factor": "years",
     "unit_present": "unit",
     "max_area_km2": "area_km2",
+    "min_samples": "sample_counts",
 }
 
 _MISSING = object()
@@ -303,5 +305,26 @@ def _run_check(name: str, gate: dict[str, Any], payload: Any) -> tuple[bool, str
         allowed = [str(v) for v in value] if isinstance(value, (list, tuple)) else [str(value)]
         ok = got is not None and str(got) in allowed
         return ok, f"status {got!r}, wanted {' or '.join(allowed)}"
+
+    if name == "min_samples":
+        got = resolve_path(payload, path)
+        need = _number(value)
+        counts: dict[str, float | None]
+        if isinstance(got, dict):
+            counts = {str(k): (float(len(v)) if isinstance(v, (list, tuple, dict)) else _number(v))
+                      for k, v in got.items()}
+        elif isinstance(got, (list, tuple)):
+            counts = {str(i): (float(len(v)) if isinstance(v, (list, tuple, dict)) else _number(v))
+                      for i, v in enumerate(got)}
+        else:
+            n = _number(got)
+            counts = {"samples": n} if n is not None else {}
+        known = {k: v for k, v in counts.items() if v is not None}
+        if not known or need is None:
+            return False, f"no sample counts at {path!r}"
+        thin = [f"{k} ({v:g})" for k, v in known.items() if v < need]
+        ok = not thin
+        return ok, (f"{len(known)} parameter(s) with at least {need:g} samples each" if ok else
+                    f"{need:g} samples per parameter needed, too few for {', '.join(thin[:6])}")
 
     return False, f"unknown check {name!r}; known: {', '.join(CHECKS)}"
