@@ -380,20 +380,43 @@ def _with_timeout(fn: Callable[[], Any], seconds: float | None) -> Any:
 
 
 def select_tasks(tasks: Iterable[Task], *, limit: int | None = None, unsolvable: int | None = None,
-                 task_ids: Iterable[str] | None = None) -> list[Task]:
-    """The tasks a run plays: by id, or the first ``limit`` with at most ``unsolvable`` unsolvable among them."""
+                 task_ids: Iterable[str] | None = None, spread: bool = False) -> list[Task]:
+    """The tasks a run plays: by id, or the first ``limit`` with at most ``unsolvable`` unsolvable among them.
+
+    A tasks file is site-major (every task of site 1, then site 2, ...), so
+    "the first N" is the first few sites. ``spread`` takes them round robin
+    over the sites instead (the first task of every site, then the second,
+    ...), so a subset covers the suite's sites and branches evenly; the order
+    of the file is kept in the result either way.
+    """
     pool = list(tasks)
     if task_ids:
         wanted = set(task_ids)
         return [t for t in pool if t.id in wanted]
     if limit is None:
         return pool
+    order = _spread_over_sites(pool) if spread else pool
     if unsolvable is None:
-        return pool[:limit]
-    hard = [t for t in pool if t.unsolvable][:unsolvable]
-    easy = [t for t in pool if not t.unsolvable][: max(0, limit - len(hard))]
+        chosen = {t.id for t in order[:limit]}
+        return [t for t in pool if t.id in chosen]
+    hard = [t for t in order if t.unsolvable][:unsolvable]
+    easy = [t for t in order if not t.unsolvable][: max(0, limit - len(hard))]
     chosen = {t.id for t in hard + easy}
     return [t for t in pool if t.id in chosen]
+
+
+def _spread_over_sites(pool: list[Task]) -> list[Task]:
+    """The tasks round robin over their sites, in file order within a site."""
+    from aquascope.gym.tasks import site_key
+
+    by_site: dict[str, list[Task]] = {}
+    for t in pool:
+        by_site.setdefault(site_key(t.site), []).append(t)
+    out: list[Task] = []
+    rounds = max((len(v) for v in by_site.values()), default=0)
+    for i in range(rounds):
+        out += [group[i] for group in by_site.values() if i < len(group)]
+    return out
 
 
 def run_bench(
@@ -413,21 +436,28 @@ def run_bench(
     max_steps: int = ASK_MAX_STEPS,
     context_chars: int | None = ASK_CONTEXT_CHARS,
     on_event: Callable[[str], None] | None = None,
+    spread: bool = False,
+    resume: bool = False,
 ) -> list[Result]:
     """Play ``agent`` (``tree``, ``team`` or ``ask``) on the tasks and score each against its key.
 
     ``tasks`` is a list or a JSONL path. ``limit`` takes the first N tasks
-    (with at most ``unsolvable`` unsolvable ones among them when given);
-    ``task_ids`` picks tasks by id instead. A model is used only when one is
-    named (``provider``, ``model``, ``api_key``, ``base_url`` or ``client``):
-    ``team`` is keyless otherwise and ``ask`` needs one. Results are appended
-    to ``out`` as JSONL as they come.
+    (with at most ``unsolvable`` unsolvable ones among them when given;
+    ``spread`` takes them round robin over the sites, see
+    :func:`select_tasks`); ``task_ids`` picks tasks by id instead. A model is
+    used only when one is named (``provider``, ``model``, ``api_key``,
+    ``base_url`` or ``client``): ``team`` is keyless otherwise and ``ask``
+    needs one. Results are appended to ``out`` as JSONL as they come, and
+    ``resume`` skips the tasks ``out`` already holds a finished row for (a
+    row with an error, a timeout among them, is played again and the newer
+    row wins when the file is read back). The event line after each task
+    carries the spend so far, from the price table.
     """
     if agent not in _AGENT_FUNCS:
         raise ValueError(f"unknown agent {agent!r}; one of {AGENTS}")
     say = on_event or (lambda _m: None)
     pool = read_tasks(tasks) if isinstance(tasks, (str, Path)) else list(tasks)
-    chosen = select_tasks(pool, limit=limit, unsolvable=unsolvable, task_ids=task_ids)
+    chosen = select_tasks(pool, limit=limit, unsolvable=unsolvable, task_ids=task_ids, spread=spread)
     cfg = _Config(provider=provider, model=model, api_key=api_key, base_url=base_url, client=client,
                   max_steps=max_steps, context_chars=context_chars)
     if agent == "ask" and not cfg.wants_model:
@@ -444,8 +474,17 @@ def run_bench(
     out_path = Path(out) if out else None
     if out_path:
         out_path.parent.mkdir(parents=True, exist_ok=True)
+    done: dict[str, Result] = {}
+    if resume and out_path and out_path.exists():
+        done = {r.task_id: r for r in load_results([out_path])
+                if r.agent == agent and (r.model or "") == (cfg.model or "") and not r.error}
+        if done:
+            say(f"resuming: {len(done)} of {len(chosen)} tasks already have a row in {out_path}")
     results: list[Result] = []
+    spent = 0.0
     for i, task in enumerate(chosen, 1):
+        if task.id in done:
+            continue
         say(f"[{i}/{len(chosen)}] {task.id} ({'unsolvable' if task.unsolvable else task.expected.get('branch')}) "
             f"{task.problem[:70]}")
         t0 = time.time()
@@ -456,9 +495,11 @@ def run_bench(
             res = _error_result(task, agent, cfg, f"{type(exc).__name__}: {exc}"[:400], time.time() - t0)
             logger.warning("task %s failed: %s", task.id, res.error)
         results.append(res)
+        spent += res.cost_usd or 0.0
         say(f"    {'correct' if res.correct else 'wrong'}: branch {res.branch_chosen} (expected {res.branch_expected}),"
             f" declined {res.declined}, gates {res.gates_respected}, {res.tokens} tokens, {res.seconds} s"
-            + (f", error {res.error}" if res.error else ""))
+            + (f", error {res.error}" if res.error else "")
+            + (f"; spent {spent:.3f} USD so far" if cfg.wants_model else ""))
         if out_path:
             with out_path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(res.to_dict(), ensure_ascii=False, default=str) + "\n")
@@ -468,8 +509,13 @@ def run_bench(
 # ── the leaderboard ──────────────────────────────────────────────────────────
 
 
-def load_results(paths: Iterable[str | Path]) -> list[Result]:
-    """Results from JSONL files; rows that are not results (a tasks file in the same folder) are skipped."""
+def load_results(paths: Iterable[str | Path], *, latest: bool = True) -> list[Result]:
+    """Results from JSONL files; rows that are not results (a tasks file in the same folder) are skipped.
+
+    ``latest`` keeps one row per (agent, model, provider, task): the last one
+    read, so a task played again after an error or a timeout (a resumed run)
+    counts once. ``latest=False`` returns every row.
+    """
     out: list[Result] = []
     for p in paths:
         skipped = 0
@@ -485,7 +531,12 @@ def load_results(paths: Iterable[str | Path]) -> list[Result]:
                     skipped += 1
         if skipped:
             logger.info("%s: %d rows are not bench results, skipped", p, skipped)
-    return out
+    if not latest:
+        return out
+    last: dict[tuple[str, str, str, str], Result] = {}
+    for r in out:
+        last[(r.agent, r.model or "", r.provider or "", r.task_id)] = r
+    return list(last.values())
 
 
 def _mean(values: Iterable[float | None]) -> float | None:
@@ -550,10 +601,11 @@ def leaderboard(results: Iterable[Result], *, out: str | Path | None = None, tit
              "Accuracy is the share of solvable tasks on which the agent picked the expected playbook branch "
              "(a keyless decline counts as wrong); declined is the share of unsolvable tasks the agent refused; "
              "false declines are solvable tasks it refused; gates and tools are the fractions of the key's gates "
-             "evaluated and tools called (means over solvable tasks).", "",
+             "evaluated and tools called (means over solvable tasks); accuracy on test is over the solvable tasks "
+             "of the held-out split (its size in brackets); an error or a timeout counts as wrong.", "",
              "| agent | model | tasks (solvable + unsolvable) | accuracy | accuracy on test | declined unsolvable "
-             "| false declines | gates | tools | tokens/task | s/task | cost USD | errors |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| false declines | gates | tools | tokens/task | s/task | cost USD | errors | timeouts |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         model = r["model"] or ("keyless" if r["agent"] == "team" else "none")
         lines.append(
@@ -561,7 +613,7 @@ def leaderboard(results: Iterable[Result], *, out: str | Path | None = None, tit
             f"| {_pct(r['accuracy_test'])} ({r['n_test']}) | {_pct(r['decline_rate_unsolvable'])} "
             f"| {_pct(r['false_decline_rate'])} | {_pct(r['gates_respected'])} | {_pct(r['tools_matched'])} "
             f"| {_num(r['tokens_per_task'])} | {_num(r['seconds_per_task'], 1)} "
-            f"| {_num(r['cost_usd'], 3)} | {r['errors']} |"
+            f"| {_num(r['cost_usd'], 3)} | {r['errors']} | {r['timeouts']} |"
         )
     branches = sorted({b for r in rows for b in r["by_branch"]})
     if branches:

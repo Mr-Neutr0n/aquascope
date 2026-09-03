@@ -204,3 +204,68 @@ def test_select_tasks(suite):
     assert len(picked) == 4 and sum(t.unsolvable for t in picked) == 1
     assert [t.id for t in gb.select_tasks(suite, task_ids=[suite[3].id])] == [suite[3].id]
     assert gb.select_tasks(suite) == suite
+
+
+def test_spread_takes_tasks_round_robin_over_the_sites(suite):
+    first = gb.select_tasks(suite, limit=3)
+    assert {gt.site_key(t.site) for t in first} == {"uk_ea/3400TH"}, "the file is site-major: the first N is one site"
+    spread = gb.select_tasks(suite, limit=3, spread=True)
+    assert [gt.site_key(t.site) for t in spread] == ["uk_ea/3400TH", "usgs/06120500", gt.site_key(POINT)]
+    assert [t.id for t in spread] == [t.id for t in suite if t.id in {t.id for t in spread}], "file order is kept"
+    with_hard = gb.select_tasks(suite, limit=5, unsolvable=3, spread=True)
+    assert sum(t.unsolvable for t in with_hard) == 3 and len(with_hard) == 5
+    assert len({gt.site_key(t.site) for t in with_hard if not t.unsolvable}) == 2, "the solvable two span two sites"
+    assert gb.select_tasks(suite, limit=99, spread=True) == suite and gb._spread_over_sites([]) == []
+
+
+def test_a_resumed_run_skips_finished_rows_replays_errors_and_the_latest_row_wins(suite, tmp_path, monkeypatch):
+    out = tmp_path / "tree.jsonl"
+    first = gb.run_bench(suite[:3], "tree", out=out)
+    assert len(first) == 3
+    calls = []
+    real = gb._AGENT_FUNCS["tree"]
+
+    def counting(task, cfg):
+        calls.append(task.id)
+        return real(task, cfg)
+
+    monkeypatch.setitem(gb._AGENT_FUNCS, "tree", counting)
+    events = []
+    more = gb.run_bench(suite[:5], "tree", out=out, resume=True, on_event=events.append)
+    assert [r.task_id for r in more] == calls == [t.id for t in suite[3:5]], "the three finished rows are skipped"
+    assert events[0] == f"resuming: 3 of 5 tasks already have a row in {out}"
+    # an error row is played again on resume, and the loader keeps the newer row
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    rows[0]["error"] = "TimeoutError: no result within 1 s"
+    rows[0]["correct"] = False
+    out.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    calls.clear()
+    again = gb.run_bench(suite[:5], "tree", out=out, resume=True)
+    assert calls == [suite[0].id] and len(again) == 1 and again[0].correct
+    loaded = gb.load_results([out])
+    assert len(loaded) == 5 and not any(r.error for r in loaded), "one row per task, the replay wins"
+    assert len(gb.load_results([out], latest=False)) == 6
+    assert gb.run_bench(suite[:5], "tree", out=out) and len(gb.load_results([out])) == 5, "without resume: replayed"
+    md = gb.leaderboard(gb.load_results([out]))
+    assert "| errors | timeouts |" in md and "| 5 (4 + 1) | 100 % | 100 % (2) | 100 % | 0 % | 100 % | 100 % |" in md
+    assert md.splitlines()[6].endswith("| 0 | 0 |")
+
+
+def test_the_leaderboard_counts_timeouts_and_errors_and_reports_the_test_split(suite, monkeypatch):
+    def slow(task, cfg):
+        time.sleep(2)
+        return {}
+
+    good = gb.run_bench(suite, "tree")
+    monkeypatch.setitem(gb._AGENT_FUNCS, "tree", slow)
+    bad = gb.run_bench(suite[:2], "tree", timeout=0.2)
+    for r in good:
+        r.split = "test" if r.task_id in {good[0].task_id, good[2].task_id} else "train"
+    row = gb.summarize(good[2:] + bad)[0]
+    assert row["errors"] == 2 and row["timeouts"] == 2 and row["n_test"] == 0 and row["accuracy_test"] is None
+    assert row["accuracy"] < 1.0, "a timeout on a solvable task is wrong"
+    md = gb.leaderboard(good[2:] + bad)
+    assert "| - (0) |" in md and md.splitlines()[6].endswith("| 2 | 2 |")
+    row = gb.summarize(good)[0]
+    assert row["n_test"] == 1 and row["accuracy_test"] == 1.0 and "| 100 % (1) |" in gb.leaderboard(good)
+    assert "an error or a timeout counts as wrong" in md

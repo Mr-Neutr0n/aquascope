@@ -90,11 +90,20 @@ def test_probes_are_read_off_the_playbooks_decline_rules_and_rotate_over_sites()
         "flood_risk", "groundwater_decline", "ungauged_flow"]
 
 
-def test_a_reconnaissance_that_fails_still_yields_tasks_with_a_note():
+def test_a_site_whose_reconnaissance_fails_is_skipped_with_a_note_unless_asked_to_keep_it():
     def broken(lat, lon):
-        raise RuntimeError("BasinATLAS down")
+        if (lat, lon) == (LONG["lat"], LONG["lon"]):
+            raise RuntimeError("BasinATLAS down")
+        return fake_recon(lat, lon)
 
-    (t,) = gt.tasks_from_playbooks([LONG], ["flood_risk"], recon=broken, probes=0)
+    events, skipped = [], []
+    tasks = gt.tasks_from_playbooks([LONG, SHORT], ["flood_risk"], recon=broken, probes=0, on_event=events.append,
+                                    skipped=skipped)
+    assert [t.site["station_id"] for t in tasks] == ["06120500"], "the unreachable site makes no task"
+    assert len(skipped) == 1 and skipped[0]["site"] == LONG and "BasinATLAS down" in skipped[0]["error"]
+    assert events[0].startswith("site 1 uk_ea/3400TH: skipped, reconnaissance unavailable: RuntimeError")
+    # kept on request: the empty snapshot makes the gauge look ungauged, which is why the default skips it
+    (t,) = gt.tasks_from_playbooks([LONG], ["flood_risk"], recon=broken, probes=0, skip_unreachable=False)
     assert t.expected["branch"] == "regional" and "BasinATLAS down" in t.recon["notes"][0]
 
 
@@ -188,6 +197,20 @@ def _cells(catalog, today):
             site = gt._site_from_row(row, *v)
             cells.setdefault((int(site["lat"] // 1), int(site["lon"] // 1)), []).append(site)
     return cells
+
+
+def test_an_open_catalog_span_runs_to_today_as_the_reconnaissance_reads_it():
+    today = date(2026, 9, 3)
+    assert gt._span_years("2012-11-11", None, today) == 13.8, "a station still open (hubeau, uk_ea) has a span"
+    assert gt._span_years("1990-01-01", "2026-01-01", today) == 36.0
+    assert gt._span_years("1990-01-01", "2030-01-01", today) == 36.7, "an end in the future is clipped to today"
+    assert gt._span_years(None, "2026-01-01", today) is None and gt._span_years("2027-01-01", None, today) is None
+    open_gauge = _row("hubeau_hydrometrie", "V1", "FRA", 47.9, -0.2, "1980-06-01", None)
+    assert gt._classify(open_gauge, today) == ("gauged_long", 46.3)
+    well = _row("uk_ea", "W1", "GBR", 51.7, -0.7, "1991-09-03", None, ("groundwater_level",))
+    assert gt._classify(well, today) == ("groundwater", 35.0)
+    sites = gt.suggest_sites(12, seed=3, catalog=CATALOG + [open_gauge, well], today=today, ungauged_share=0)
+    assert {"V1", "W1"} <= {s["station_id"] for s in sites}, "open stations are sampled"
 
 
 def test_the_land_proxy_rejects_an_island_cluster_and_accepts_a_surrounded_point():

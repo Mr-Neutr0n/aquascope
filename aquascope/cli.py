@@ -1032,11 +1032,17 @@ def cmd_gym(args: argparse.Namespace) -> None:
         sites = gt.suggest_sites(-(-args.n // per_site), seed=args.seed, sources=args.source or None,
                                  ungauged_share=args.ungauged_share,
                                  on_land=None if args.no_check_land else gt.on_land_basinatlas)
-        tasks = gt.tasks_from_playbooks(sites, pbs, probes=probes, on_event=say)[: args.n]
+        skipped: list[dict] = []
+        tasks = gt.tasks_from_playbooks(sites, pbs, probes=probes, on_event=say, skipped=skipped)[: args.n]
         gt.write_tasks(tasks, args.out)
         hard = sum(1 for t in tasks if t.unsolvable)
         test = sum(1 for t in tasks if t.split == "test")
-        print(f"  {len(tasks)} tasks from {len(sites)} sites ({hard} unsolvable, {test} held out as test) -> {args.out}")
+        n_sites = len({gt.site_key(t.site) for t in tasks})
+        print(f"  {len(tasks)} tasks from {n_sites} sites ({hard} unsolvable, {test} held out as test) -> {args.out}")
+        if skipped:
+            print(f"  {len(skipped)} of {len(sites)} sites skipped, reconnaissance unavailable:")
+            for entry in skipped:
+                print(f"    {gt.site_key(entry['site'])}: {entry['error'][:100]}")
         counts: dict[str, int] = {}
         for t in tasks:
             key = f"{t.playbook}/{'declined' if t.unsolvable else t.expected.get('branch')}"
@@ -1052,7 +1058,7 @@ def cmd_gym(args: argparse.Namespace) -> None:
             args.tasks, args.agent, provider=args.provider, model=args.model, api_key=args.api_key,
             base_url=args.base_url, limit=args.limit, unsolvable=args.unsolvable, task_ids=args.task or None,
             timeout=args.timeout or None, out=args.out, max_steps=args.max_steps, context_chars=args.context_chars,
-            on_event=say,
+            on_event=say, spread=args.spread, resume=args.resume,
         )
         if args.json:
             print(json.dumps(gb.summarize(results), indent=2, default=str))
@@ -2177,6 +2183,10 @@ def main() -> None:
     p_gbench.add_argument("--unsolvable", type=int, default=None,
                           help="With --limit: at most this many unsolvable tasks among the N")
     p_gbench.add_argument("--task", action="append", help="Play these task ids only (repeatable)")
+    p_gbench.add_argument("--spread", action="store_true",
+                          help="With --limit: take tasks round robin over the sites rather than the first N")
+    p_gbench.add_argument("--resume", action="store_true",
+                          help="Skip tasks --out already holds a finished row for (errors and timeouts are replayed)")
     p_gbench.add_argument("--timeout", type=float, default=900.0, help="Seconds per task (0: none)")
     p_gbench.add_argument("--max-steps", type=int, default=8, help="ask: tool-call steps")
     p_gbench.add_argument("--context-chars", type=int, default=40_000, help="ask: conversation budget in characters")
