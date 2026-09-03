@@ -839,12 +839,14 @@ SPI_METHOD = {
 SPEI_METHOD = {
     "name": "Standardized Precipitation-Evapotranspiration Index",
     "text": "The climatic water balance (precipitation minus potential evapotranspiration) accumulated over the "
-            "timescale, a three-parameter log-logistic distribution fitted per calendar month by probability-"
-            "weighted moments, the probability mapped to a standard-normal score. Sees evaporative-demand drought "
-            "under warming that SPI misses.",
+            "timescale, a three-parameter log-logistic (generalized logistic) distribution fitted per calendar "
+            "month by L-moments, the probability mapped to a standard-normal score. Sees evaporative-demand "
+            "drought under warming that SPI misses.",
     "citation": "Vicente-Serrano, S. M., Begueria, S., & Lopez-Moreno, J. I. (2010). A multiscalar drought index "
                 "sensitive to global warming: the Standardized Precipitation Evapotranspiration Index. "
-                "J. Climate 23, 1696-1718. doi:10.1175/2009JCLI2909.1",
+                "J. Climate 23, 1696-1718. doi:10.1175/2009JCLI2909.1; Begueria, S. et al. (2014). SPEI revisited: "
+                "parameter fitting, evapotranspiration models, tools, datasets and drought monitoring. "
+                "Int. J. Climatol. 34, 3001-3023. doi:10.1002/joc.3887",
 }
 THORNTHWAITE_METHOD = {
     "name": "Thornthwaite potential evapotranspiration",

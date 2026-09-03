@@ -99,7 +99,7 @@ METHODS: dict[str, dict[str, str]] = {
     "spei": {
         "name": "Standardized Precipitation-Evapotranspiration Index",
         "text": "The climatic water balance (precipitation minus PET) accumulated over the timescale, a log-logistic "
-        "distribution fitted per calendar month by probability-weighted moments, the probability mapped to a "
+        "(generalized logistic) distribution fitted per calendar month by L-moments, the probability mapped to a "
         "standard-normal score; sees the evaporative-demand drought under warming that SPI misses.",
         "citation": "Vicente-Serrano, S. M., Begueria, S., & Lopez-Moreno, J. I. (2010). A multiscalar drought index "
         "sensitive to global warming: the Standardized Precipitation Evapotranspiration Index. J. Climate 23, "
@@ -119,6 +119,27 @@ METHODS: dict[str, dict[str, str]] = {
         "deficit takes to reach the water table.",
         "citation": "Bloomfield, J. P., & Marchant, B. P. (2013). Analysis of groundwater drought building on the "
         "standardised precipitation index approach. Hydrol. Earth Syst. Sci. 17, 4769-4787.",
+    },
+    "supply_reliability": {
+        "name": "Run-of-river supply reliability (flow-duration screening)",
+        "text": "The fraction of days (and of years without a shortfall) on which the flow, less an environmental "
+        "reserve kept in the river (Q95 by default) and capped at an abstraction share of the flow, meets the "
+        "demand; a screening rule in the flow-duration-curve tradition of environmental-flow practice, not a "
+        "storage-yield analysis.",
+        "citation": "Vogel, R. M., & Fennessey, N. M. (1994). Flow-duration curves I. J. Water Resour. Plann. "
+        "Manage. 120, 485-504; Smakhtin, V., & Eriyagama, N. (2008). Developing a software package for global "
+        "desktop assessment of environmental flows. Environ. Model. Softw. 23, 1396-1406; Acreman, M., & Dunbar, "
+        "M. J. (2004). Defining environmental river flow requirements: a review. Hydrol. Earth Syst. Sci. 8, 861-876.",
+    },
+    "crop_water": {
+        "name": "FAO-56 crop water requirement from reanalysis ET0",
+        "text": "Reference ET0 (FAO-56 Penman-Monteith from ERA5 via Open-Meteo) times the single crop coefficient "
+        "over the FAO-56 stage lengths, effective rainfall subtracted, the net depth divided by the irrigation "
+        "efficiency; the season repeated over the years of the window and averaged, the range kept.",
+        "citation": "Allen, R. G., Pereira, L. S., Raes, D., & Smith, M. (1998). Crop evapotranspiration. FAO "
+        "Irrigation and Drainage Paper 56; FAO (2025). Crop evapotranspiration, revised edition, "
+        "doi:10.4060/cd6621en; reanalysis-forced ET0 bias: Agric. Water Manage. (2024), "
+        "doi:10.1016/j.agwat.2024.108732.",
     },
     "trend": {
         "name": "Mann-Kendall trend on annual means",

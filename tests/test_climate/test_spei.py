@@ -9,6 +9,7 @@ import pytest
 from scipy import stats
 
 from aquascope.climate.indices import (
+    fit_generalized_logistic_lmoments,
     fit_log_logistic_lmoments,
     standardized_precipitation_evapotranspiration_index,
     standardized_precipitation_index,
@@ -66,8 +67,18 @@ class TestLogLogisticFit:
     def test_refuses_what_it_cannot_fit(self):
         with pytest.raises(ValueError, match="four"):
             fit_log_logistic_lmoments([1.0, 2.0, 3.0])
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="spread"):
             fit_log_logistic_lmoments([5.0] * 30)  # degenerate: no spread
+        left = -stats.fisk.rvs(c=4.0, loc=0.0, scale=100.0, size=2000, random_state=1)  # left-skewed
+        with pytest.raises(ValueError, match="not positive"):
+            fit_log_logistic_lmoments(left)
+        xi, alpha, k = fit_generalized_logistic_lmoments(left)
+        assert k > 0 and alpha > 0, "the generalized logistic covers the mirror image"
+
+    def test_generalized_logistic_reduces_to_the_logistic_for_symmetric_data(self):
+        sample = stats.logistic.rvs(loc=5.0, scale=2.0, size=5000, random_state=7)
+        xi, alpha, k = fit_generalized_logistic_lmoments(sample)
+        assert xi == pytest.approx(5.0, abs=0.3) and alpha == pytest.approx(2.0, rel=0.1) and abs(k) < 0.05
 
 
 class TestSPEI:

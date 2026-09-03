@@ -542,54 +542,90 @@ def standardized_precipitation_index(
                         probabilities=_gamma_with_zero_mass)
 
 
-def fit_log_logistic_lmoments(values: np.ndarray | pd.Series) -> tuple[float, float, float]:
-    """Three-parameter log-logistic fitted by probability-weighted moments (Vicente-Serrano et al. 2010).
-
-    Returns ``(alpha, beta, gamma)``: scale, shape and origin of
-    ``F(x) = [1 + (alpha / (x - gamma)) ** beta] ** -1``. The PWMs use the
-    plotting position ``F_i = (i - 0.35) / n`` of the paper. Raises
-    ``ValueError`` when the moments give no valid distribution (``beta <= 1``,
-    a non-positive scale, or fewer than four values).
-    """
+def _sample_lmoments(values: np.ndarray) -> tuple[float, float, float]:
+    """The first three sample L-moments (Hosking 1990) from unbiased probability-weighted moments."""
     x = np.sort(np.asarray(values, dtype=float))
     n = len(x)
-    if n < 4:
-        raise ValueError("a log-logistic fit needs at least four values")
-    f = (np.arange(1, n + 1) - 0.35) / n
-    w0 = float(x.mean())
-    w1 = float(np.mean((1.0 - f) * x))
-    w2 = float(np.mean((1.0 - f) ** 2 * x))
-    denom = 6.0 * w1 - w0 - 6.0 * w2
-    if denom == 0:
-        raise ValueError("degenerate probability-weighted moments")
-    beta = (2.0 * w1 - w0) / denom
-    if not np.isfinite(beta) or beta <= 1.0:
-        raise ValueError(f"the log-logistic shape is {beta:.3g}; the fit has no finite mean here")
-    g = math.gamma(1.0 + 1.0 / beta) * math.gamma(1.0 - 1.0 / beta)
-    alpha = (w0 - 2.0 * w1) * beta / g
-    gamma = w0 - alpha * g
-    if not np.isfinite(alpha) or alpha <= 0 or not np.isfinite(gamma):
-        raise ValueError("the log-logistic fit has a non-positive scale")
-    return float(alpha), float(beta), float(gamma)
+    i = np.arange(1, n + 1, dtype=float)
+    b0 = float(x.mean())
+    b1 = float(np.sum((i - 1) / (n - 1) * x) / n)
+    b2 = float(np.sum((i - 1) * (i - 2) / ((n - 1) * (n - 2)) * x) / n)
+    return b0, 2.0 * b1 - b0, 6.0 * b2 - 6.0 * b1 + b0
+
+
+def fit_generalized_logistic_lmoments(values: np.ndarray | pd.Series) -> tuple[float, float, float]:
+    """Generalized logistic (Hosking 1990) fitted by L-moments: ``(xi, alpha, k)`` location, scale, shape.
+
+    The distribution SPEI is fitted with in practice (the SPEI R package,
+    Begueria et al. 2014): for negative shape it is the three-parameter
+    log-logistic of Vicente-Serrano et al. (2010), for positive shape its
+    mirror image, and for zero shape the logistic, so a calendar month whose
+    water balance is left-skewed or symmetric is fitted as well as a
+    right-skewed one. Raises ``ValueError`` on fewer than four values, no
+    spread, or an L-skewness outside the distribution's range.
+    """
+    x = np.asarray(values, dtype=float)
+    if len(x) < 4:
+        raise ValueError("a generalized logistic fit needs at least four values")
+    l1, l2, l3 = _sample_lmoments(x)
+    if not np.isfinite(l2) or l2 <= 1e-9 * max(1.0, abs(l1)):
+        raise ValueError("degenerate sample: no spread to fit")
+    t3 = l3 / l2
+    k = -t3
+    if abs(k) < 1e-9:
+        return l1, l2, 0.0
+    if abs(k) >= 1.0:
+        raise ValueError(f"L-skewness {t3:.3g} is outside the generalized logistic range")
+    alpha = l2 * math.sin(k * math.pi) / (k * math.pi)
+    xi = l1 - alpha * (1.0 / k - math.pi / math.sin(k * math.pi))
+    return float(xi), float(alpha), float(k)
+
+
+def fit_log_logistic_lmoments(values: np.ndarray | pd.Series) -> tuple[float, float, float]:
+    """Three-parameter log-logistic by L-moments, in the ``(alpha, beta, gamma)`` of Vicente-Serrano et al. (2010).
+
+    ``F(x) = [1 + (alpha / (x - gamma)) ** beta] ** -1``: scale, shape and
+    origin, read off the generalized-logistic fit (``beta = -1/k``,
+    ``alpha = alpha_glo * beta``, ``gamma = xi - alpha``). Raises
+    ``ValueError`` when the sample is not right-skewed (``k >= 0``), where the
+    log-logistic proper does not apply and
+    :func:`fit_generalized_logistic_lmoments` is the fit to use.
+    """
+    xi, a, k = fit_generalized_logistic_lmoments(values)
+    if k >= 0:
+        raise ValueError(f"L-skewness {-k:.3g} is not positive: no log-logistic fits, use the generalized logistic")
+    beta = -1.0 / k
+    alpha = a * beta
+    return float(alpha), float(beta), float(xi - alpha)
+
+
+def _glo_cdf(x: np.ndarray, xi: float, alpha: float, k: float) -> np.ndarray:
+    """Generalized logistic CDF; values beyond the bound map to 0 (below) or 1 (above)."""
+    x = np.asarray(x, dtype=float)
+    if k == 0.0:
+        y = (x - xi) / alpha
+    else:
+        arg = 1.0 - k * (x - xi) / alpha
+        with np.errstate(divide="ignore", invalid="ignore"):
+            y = np.where(arg > 0, -np.log(np.where(arg > 0, arg, 1.0)) / k, -np.inf if k < 0 else np.inf)
+    with np.errstate(over="ignore"):
+        return 1.0 / (1.0 + np.exp(-y))
 
 
 def _log_logistic(vals: np.ndarray, min_per_group: int) -> np.ndarray | None:
-    """SPEI's fit: the log-logistic by L-moments on the climatic water balance, normal scores as a fallback."""
+    """SPEI's fit: the generalized logistic (log-logistic) by L-moments on the climatic water balance."""
     finite = vals[np.isfinite(vals)]
     if len(finite) < min_per_group:
         return None
     try:
-        alpha, beta, gamma = fit_log_logistic_lmoments(finite)
+        xi, alpha, k = fit_generalized_logistic_lmoments(finite)
     except ValueError as exc:
         logger.warning("SPEI: %s; normal scores used for this calendar month instead.", exc)
         sd = float(finite.std(ddof=1))
         if not sd:
             return None
         return stats.norm.cdf(vals, loc=float(finite.mean()), scale=sd)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        excess = vals - gamma
-        cdf = np.where(excess > 0, 1.0 / (1.0 + (alpha / np.where(excess > 0, excess, 1.0)) ** beta), 0.0)
-    return cdf
+    return _glo_cdf(vals, xi, alpha, k)
 
 
 def standardized_precipitation_evapotranspiration_index(
@@ -604,14 +640,16 @@ def standardized_precipitation_evapotranspiration_index(
 
     The SPI machinery applied to the climatic water balance ``D = P - PET``:
     ``D`` is accumulated over ``timescale`` months, a three-parameter
-    log-logistic distribution is fitted per calendar month by probability-
-    weighted moments (:func:`fit_log_logistic_lmoments`, the fit of the
-    original paper; a gamma cannot be used because ``D`` takes negative
-    values), and the cumulative probability is mapped to a standard-normal
-    score. Where the L-moment fit gives no valid distribution for a calendar
-    month (shape at or below one, which happens on short or degenerate
-    records) the month is standardised by normal scores and a warning is
-    logged. Values below the fitted origin map to the lower clip (about -4.75).
+    log-logistic distribution is fitted per calendar month by L-moments
+    (unbiased probability-weighted moments), and the cumulative probability
+    is mapped to a standard-normal score. A gamma cannot be used because ``D``
+    takes negative values; the log-logistic is the fit of the original paper
+    (Vicente-Serrano et al. 2010) and, in its generalized-logistic form
+    (:func:`fit_generalized_logistic_lmoments`, Hosking 1990), the one the
+    SPEI R package settled on (Begueria et al. 2014), because it also covers
+    a calendar month whose balance is symmetric or left-skewed. A month the
+    fit cannot handle (no spread) falls back to normal scores with a warning.
+    Values beyond the fitted bound map to the clip (about -4.75 or 4.75).
 
     SPEI sees what SPI cannot: a drought driven by evaporative demand under
     warming, with unchanged rainfall. Under a warming trend SPEI runs drier

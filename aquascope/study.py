@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -630,6 +631,41 @@ def _frame_from(payload: Any) -> Any:
     raise ValueError("the referenced step returned no points or series to analyse")
 
 
+_RESULT_REF = re.compile(r"\{\{\s*result\.([A-Za-z0-9_]+)\.([A-Za-z0-9_.\[\]=-]+)\s*\}\}")
+
+
+def _resolve_results(args: Any, done: dict[str, dict[str, Any]]) -> Any:
+    """Fill ``{{ result.<step>.<path> }}`` in a step's arguments from the payloads of the steps already run.
+
+    A string that is one reference keeps the value's type (a number stays a
+    number); a reference to a step that has not run, that failed, or whose
+    payload has nothing at the path fails the step with the reason.
+    """
+    from aquascope.gates import resolve_path
+
+    def lookup(step_id: str, path: str) -> Any:
+        rec = done.get(step_id)
+        if rec is None:
+            raise ValueError(f"result.{step_id}.{path}: step {step_id!r} has not run")
+        if not rec.get("ok"):
+            raise ValueError(f"result.{step_id}.{path}: step {step_id!r} failed, so its result cannot be used")
+        value = resolve_path(rec.get("result"), path)
+        if value is None:
+            raise ValueError(f"result.{step_id}.{path}: nothing at {path!r} in the result of step {step_id!r}")
+        return value
+
+    if isinstance(args, str):
+        whole = _RESULT_REF.fullmatch(args.strip())
+        if whole:
+            return lookup(whole.group(1), whole.group(2))
+        return _RESULT_REF.sub(lambda m: str(lookup(m.group(1), m.group(2))), args)
+    if isinstance(args, dict):
+        return {k: _resolve_results(v, done) for k, v in args.items()}
+    if isinstance(args, list):
+        return [_resolve_results(v, done) for v in args]
+    return args
+
+
 def _summarise(payload: Any) -> str:
     """One line about a payload, deterministic, for the results block and the timeline."""
     if not isinstance(payload, dict):
@@ -741,7 +777,12 @@ def run_study(
 
         args = dict(step.arguments)
         src = args.pop("from_step", None)
-        if src is not None:
+        try:
+            args = _resolve_results(args, done)
+        except ValueError as exc:
+            args = None  # type: ignore[assignment]
+            payload, ok, error = None, False, str(exc)
+        if args is not None and src is not None:
             try:
                 args["df"] = _frame_from((done.get(str(src)) or {}).get("result"))
             except Exception as exc:  # noqa: BLE001
