@@ -144,6 +144,36 @@ def test_the_ask_loop_is_read_off_its_tool_calls_and_its_answer(suite):
         gb.run_bench([solvable], "oracle")
 
 
+def test_a_caveat_is_not_a_refusal_but_stopping_at_the_reconnaissance_is(suite, tmp_path):
+    well = gt.tasks_from_playbooks([SHORT], ["groundwater_decline"], recon=lambda lat, lon: {
+        "point": {"lat": lat, "lon": lon}, "catchment": {}, "sufficiency": [], "notes": [],
+        "stations": [{"source": "uk_ea", "station_id": "w1", "name": "Well", "distance_km": 4.5,
+                      "variables": ["groundwater_level"], "years": 57.9}],
+        "context": {"years_by_variable": {"groundwater_level": 57.9}, "resolution_by_variable": {}, "donors": 3,
+                    "ungauged": False}}, probes=0)[0]
+    assert well.expected["branch"] == "well"
+    trend = {"source": "uk_ea", "station_id": "w1", "unit": "m", "years": 57.9, "start": "1964-07-08",
+             "end": "2022-06-17", "trend": {"p_value": 0.2, "sens_slope_per_year": 0.016, "n_years": 35}}
+    numbers_then_caveat = ("The level at Church End (uk_ea w1, 1964-07-08 to 2022-06-17, 57.9 years) is rising by "
+                           "0.016 m per year (Sen's slope, Mann-Kendall p = 0.2). " * 6
+                           + "The cause cannot be attributed without abstraction records.")
+    client = FakeChat([[("analyze_station", {"source": "uk_ea", "station_id": "w1", "variable": "groundwater_level"})],
+                       numbers_then_caveat,
+                       [("assess_site", {"lat": 51.87, "lon": 0.16})],
+                       "Every groundwater method is not defensible here; nothing can be said about a well.",
+                       "I ran out of tool-call steps before finishing. Here is what the tools returned so far."])
+    with patch("aquascope.mcp_server.analyze_station", return_value=trend), \
+         patch("aquascope.mcp_server.assess_site", return_value=well.recon):
+        a, b, c = gb.run_bench([well, well, well], "ask", client=client, model="fake", provider="custom")
+    assert not a.declined and a.correct and a.answer.endswith("abstraction records.")
+    assert b.declined and "in the opening" in b.declined_reason and not b.correct and b.branch_chosen is None
+    assert not c.answer_present and c.detail["out_of_steps"] and not c.correct and c.answer == ""
+    # a tasks file next to the result files is skipped by the loader
+    path = tmp_path / "r.jsonl"
+    path.write_text(json.dumps(a.to_dict()) + "\n" + json.dumps(well.to_dict()) + "\n")
+    assert [r.task_id for r in gb.load_results([path])] == [a.task_id]
+
+
 def test_infer_branch_and_cost_estimate():
     assert gb.infer_branch("flood_risk", ["find_stations", "analyze_station", "flood_frequency"]) == "at_site"
     regional = ["describe_catchment", "similar_basins", "regionalize_signatures"]
