@@ -374,3 +374,20 @@ def test_solve_declines_without_sampled_parameters_within_reach():
     assert "**Declined.**" in res.to_markdown()
     verdict, _ = _solve("Is the river water safe to drink?", WQ_RECON, intake={"health_verdict": True})
     assert verdict.declined and "health judgement" in verdict.declined_reason
+
+
+def test_the_who_screen_reads_agency_labels_and_units_through_the_shared_vocabulary():
+    """USGS labels dissolved oxygen "DO" and WQP reports arsenic in ug/L: the screen has to see both."""
+    df = pd.DataFrame({"sample_datetime": pd.date_range("2024-01-01", periods=4, freq="D").tolist() * 2,
+                       "parameter": ["DO"] * 4 + ["Arsenic"] * 4, "value": [9.0, 3.0, 8.0, 8.5, 2.0, 20.0, 5.0, 1.0],
+                       "unit": ["mg/l"] * 4 + ["ug/L"] * 4})
+    rows = {r["parameter"]: r for r in wb.who_screen(df)["rows"]}
+    assert rows["dissolved_oxygen"]["n_exceed"] == 1 and rows["dissolved_oxygen"]["rule"] == "at least 5.0 mg/L"
+    assert rows["arsenic"]["n_exceed"] == 1 and rows["arsenic"]["status"] == "Alert", "20 ug/L is 0.02 mg/L"
+    saturation = pd.DataFrame({"parameter": ["DO"], "value": [95.0], "unit": ["% saturation"]})
+    assert wb.who_screen(saturation)["rows"] == [], "percent saturation is not a concentration"
+    from aquascope.utils.parameters import convert_value, resolve_parameter
+
+    assert resolve_parameter("00300", "mg/l") == ("dissolved_oxygen", 1.0)
+    assert convert_value("arsenic", 20.0, "ug/L") == (0.02, None)
+    assert convert_value("lead", 1.0, "furlongs") == (None, "furlongs")

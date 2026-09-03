@@ -396,19 +396,38 @@ WHO_GUIDELINES: dict[str, tuple[float, float, str]] = {
 
 
 def who_screen(df: pd.DataFrame) -> dict[str, Any]:
-    """Share of samples outside the WHO drinking-water guideline, per parameter."""
+    """Share of samples outside the WHO drinking-water guideline, per parameter.
+
+    Parameter names are read through the shared vocabulary
+    (:mod:`aquascope.utils.parameters`: ``DO``, ``Dissolved oxygen (DO)`` and
+    ``00300`` are all dissolved oxygen) and values are converted to the
+    guideline's unit first (arsenic in ug/L is compared in mg/L).
+    """
+    from aquascope.utils.parameters import convert_value, resolve_parameter
+
     prof = profile(df)
     rows: list[dict[str, Any]] = []
     if not prof.has_params:
         return {"rows": [], "note": "This table has no parameter/value columns to screen."}
-    for name in df[prof.param_col].astype(str).str.lower().unique():
-        limits = WHO_GUIDELINES.get(name)
-        if not limits:
+    unit_col = _first_match(list(df.columns), ("unit", "units", "result_unit", "unit_of_measure", "uom"))
+    values = pd.to_numeric(df[prof.value_col], errors="coerce").tolist()
+    units = df[unit_col].tolist() if unit_col else [""] * len(df)
+    by_key: dict[str, list[float]] = {}
+    for name, unit, value in zip(df[prof.param_col].tolist(), units, values):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
             continue
-        lo, hi, unit = limits
-        subset = df[df[prof.param_col].astype(str).str.lower() == name][prof.value_col].dropna()
-        if subset.empty:
-            continue
+        key, factor = resolve_parameter(name, unit)
+        if key is None:
+            key, conv = str(name).strip().lower(), float(value)
+        else:
+            conv, _ = convert_value(key, float(value) * factor, unit)
+            if conv is None:
+                continue  # a unit that cannot be converted is not compared
+        if key in WHO_GUIDELINES:
+            by_key.setdefault(key, []).append(conv)
+    for name, found in by_key.items():
+        lo, hi, unit = WHO_GUIDELINES[name]
+        subset = pd.Series(found, dtype=float)
         if math.isinf(hi):
             n_exceed = int((subset < lo).sum())
             rule = f"at least {lo} {unit}"
