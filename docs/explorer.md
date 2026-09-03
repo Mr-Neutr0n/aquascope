@@ -208,8 +208,8 @@ support the MCP Apps extension.
 
 | source | record you get | analyses |
 | --- | --- | --- |
-| USGS | daily mean discharge (or gage height), full period requested (40 years) | all of the above |
-| UK Environment Agency | daily mean flow (falls back to level, rainfall, groundwater), full period | all of the above |
+| USGS | daily mean discharge (or gage height), full record requested (from the catalog's first date) | all of the above |
+| UK Environment Agency | daily mean flow (falls back to level, rainfall, groundwater), full record requested | all of the above |
 | Hub'Eau (France) | daily mean discharge (obs_elab `QmnJ`, multi-decade where computed), else last 30 days real-time | all of the above when the daily series exists |
 | PEGELONLINE (Germany) | last 31 days of W / Q | hydrograph |
 | Ireland OPW | last month of 15-minute levels | hydrograph |
