@@ -90,7 +90,7 @@ Per task (`aquascope.gym.bench.Result`):
 | `branch_match` | the agent's branch is the key's (and its playbook the task's); for `ask`, the branch is inferred as the playbook branch whose tools its calls cover best |
 | `gates_respected` | the fraction of the key's `(step, check)` gates the run evaluated, pass or fail (the `tree` plans them, the `team` evaluates them, the `ask` loop has none, so it scores 0) |
 | `tools_matched` | the fraction of the key's tools the agent called |
-| `declined_correctly` | on an unsolvable task: did the agent decline. The team's decline is exact; the `ask` agent's is read off its answer by a list of refusal phrases, a heuristic |
+| `declined_correctly` | on an unsolvable task: did the agent decline. The team's decline is exact; the `ask` agent's is read off its answer by a list of refusal phrases, a heuristic: on an unsolvable task a refusal anywhere counts (the playbook's own decline for "why is the well falling" is to report the trend and refuse the cause), on a solvable one only a refusal in the opening of the answer, or anywhere when the loop called no tool of any branch, so a caveat after the numbers is not a decline |
 | `answer_present` | prose came back and the agent did not decline |
 | `prompt_tokens`, `completion_tokens`, `calls`, `cost_usd` | from the provider's usage fields (per role for the team, in `detail.cost_by_role`); the cost is a list-price estimate, see below |
 | `seconds`, `error` | wall time; the exception or `TimeoutError` when the task did not finish |
@@ -127,7 +127,7 @@ aquascope gym leaderboard results/*.jsonl --out leaderboard.md   # any agents, a
 `--limit N --unsolvable K` plays the first N tasks with at most K unsolvable
 among them; `--task ID` picks tasks by id. Results are appended to `--out`
 as they come, so an interrupted run keeps what it did and a leaderboard can
-be built from several partial files. In Python:
+be built from several partial files (a `tasks.jsonl` in the same folder is skipped). In Python:
 
 ```python
 from aquascope.gym import tasks_from_playbooks, suggest_sites, run_bench, leaderboard
@@ -139,4 +139,53 @@ print(leaderboard(results))
 
 ## Leaderboard
 
-LEADERBOARD_PLACEHOLDER
+The first run, 2026-09-02: 12 tasks from three sites (`aquascope gym tasks
+--n 12 --seed 7`: the Loup River near Genoa, Nebraska, with 97 years of USGS
+discharge; Bishops Stortford Castle on the Stort, 11 years of Environment
+Agency discharge with a 62-year borehole nearby; a bare point in the
+Colorado Front Range within reach of a century-long USGS gauge), three of
+them probes. The tree played all 12 offline; the team and the ask loop
+played the same six solvable tasks and two probes on Claude Sonnet 5
+(`--limit 8 --unsolvable 2`). The tasks, the result rows (with the answers)
+and this table are under `aquascope/gym/results/2026-09-02/`.
+
+| agent | model | tasks (solvable + unsolvable) | accuracy | accuracy on test | declined unsolvable | false declines | gates | tools | tokens/task | s/task | cost USD | errors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ask | claude-sonnet-5 | 8 (6 + 2) | 67 % | - (0) | 100 % | 0 % | 0 % | 31 % | 62,314 | 58.4 | 1.113 | 0 |
+| team | claude-sonnet-5 | 8 (6 + 2) | 100 % | - (0) | 100 % | 0 % | 100 % | 100 % | 6,437 | 25.9 | 0.154 | 0 |
+| tree | none | 12 (9 + 3) | 100 % | - (0) | 100 % | 0 % | 100 % | 100 % | 0 | 0.0 | 0.000 | 0 |
+
+Correct on solvable tasks by expected branch (correct / n):
+
+| agent | model | at_gauge | at_site | regional | short_record | well |
+|---|---|---|---|---|---|---|
+| ask | claude-sonnet-5 | 2 / 2 | 1 / 1 | 0 / 1 | 0 / 1 | 1 / 1 |
+| team | claude-sonnet-5 | 2 / 2 | 1 / 1 | 1 / 1 | 1 / 1 | 1 / 1 |
+| tree | none | 3 / 3 | 2 / 2 | 2 / 2 | 1 / 1 | 1 / 1 |
+
+**What the numbers say, and what they do not.** Eight tasks on three sites
+is a smoke test of the harness, not a result about the agents: one more miss
+moves the ask row by 17 points, no site fell in the test split, and the
+sites came from one seed. Within that: the plan-first team picked the key's
+branch on every solvable task, evaluated every gate the key expected,
+declined both probes before any model call (a probe is refused by the tree,
+so it costs nothing), and spent about 6,400 tokens and 26 seconds per task,
+most of it the Narrator's prose. The ask loop got four of the six solvable
+tasks and declined both probes in its own words, at ten times the tokens
+(62,000 per task; 1.11 USD for the eight tasks against 0.15) and twice the
+wall time. Its two misses are instructive rather than damning. At the Loup
+River point it read the sufficiency table, saw that every groundwater method
+was not defensible without a well, and stopped, where the playbook goes
+regional and says the ERA5 water balance is all that can be said; both are
+defensible, and the key is the playbook's. On the short-record flood task it
+ran out of its eight steps after eleven tool calls (three flood-frequency
+fits, a regionalisation, a Python snippet) without writing an answer, where
+the plan did the work in four steps. The gates column is the difference in
+kind: the team's numbers passed the gates the playbook set before they were
+quoted; the ask loop's were checked only after the fact by the answer checks.
+The scores lean on the key being right: a branch is "correct" because the
+tree chose it, and the ask loop's decline is read off wording. A run that
+means something needs the 60-task suite across the sources and continents,
+several seeds, a held-out split with sites in it, a keyless team row, and
+small models next to the frontier one; the harness is built for that and
+the cost table says what it will cost.
