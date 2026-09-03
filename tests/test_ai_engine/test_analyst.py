@@ -100,6 +100,8 @@ def test_tool_specs_cover_the_mcp_surface():
     names = {s.name for s in analyst._tool_specs()}
     assert names == {"list_sources", "find_stations", "analyze_station", "flood_frequency", "get_timeseries",
                      "anywhere", "describe_catchment", "similar_basins", "regionalize_signatures",
+                     # sampled water-quality parameters at a station (#62)
+                     "water_quality_samples",
                      # reconnaissance before analysis: what the record here supports (#306)
                      "assess_site",
                      # the workbench: analyses of the user's own table (#235)

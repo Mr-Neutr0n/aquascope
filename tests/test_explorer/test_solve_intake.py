@@ -44,7 +44,9 @@ def test_the_prompt_and_schema_come_from_the_shipped_playbooks() -> None:
     assert "return_period: Return period (years) (int, default 100, at least 2)" in prompt
     assert "one of: design flow, risk screening, insurance, inundation extent" in prompt
     assert "ONE JSON object" in prompt and '"none"' in prompt
-    assert schema["properties"]["playbook"]["enum"] == ["flood_risk", "groundwater_decline", "ungauged_flow", "none"]
+    shipped = [pb["id"] for pb in json.loads(PLAYBOOKS.read_text(encoding="utf-8"))["playbooks"]]
+    assert schema["properties"]["playbook"]["enum"] == [*sorted(shipped), "none"]
+    assert {"flood_risk", "groundwater_decline", "ungauged_flow"} <= set(shipped)
     fields = schema["properties"]["intake"]["properties"]
     assert fields["return_period"] == {"type": "integer"}
     assert fields["attribute_cause"] == {"type": "boolean"}

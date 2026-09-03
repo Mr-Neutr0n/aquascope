@@ -137,6 +137,57 @@
         "at_gauge",
         "regional"
       ]
+    },
+    {
+      "id": "water_quality",
+      "title": "Water quality at a station",
+      "problem": "water_quality",
+      "description": "A water quality index (CCME WQI 1.0, and the NSF WQI when its parameters are present) over the parameters sampled at the nearest water-quality station, against the guidelines of the use (drinking, irrigation, aquatic life); irrigation suitability (SAR, sodium percentage, RSC, FAO 29) for irrigation use.",
+      "variable": "water_quality",
+      "intake": [
+        {
+          "name": "use",
+          "label": "What the water is for",
+          "type": "choice",
+          "default": "drinking",
+          "options": [
+            "drinking",
+            "irrigation",
+            "aquatic life"
+          ],
+          "required": false,
+          "help": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "years",
+          "label": "Years of recent samples to screen",
+          "type": "int",
+          "default": 5,
+          "options": [],
+          "required": false,
+          "help": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "health_verdict",
+          "label": "Ask for a health verdict (is it safe) rather than an index over the sampled parameters",
+          "type": "bool",
+          "default": false,
+          "options": [],
+          "required": false,
+          "help": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "branches": [
+        "irrigation",
+        "aquatic_life",
+        "drinking"
+      ]
     }
   ]
 }

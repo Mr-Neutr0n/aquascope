@@ -616,11 +616,15 @@ def tool_names() -> list[str]:
 
 
 def _frame_from(payload: Any) -> Any:
-    """A DataFrame (datetime, value) from a tool payload that carries a series."""
+    """A DataFrame from a tool payload that carries a series (datetime, value) or tidy ``samples`` rows."""
     import pandas as pd
 
     if not isinstance(payload, dict):
         raise ValueError("the referenced step returned no table")
+    if isinstance(payload.get("samples"), list):
+        rows = [r for r in payload["samples"] if isinstance(r, dict)]
+        if rows:
+            return pd.DataFrame(rows)
     if isinstance(payload.get("points"), list):
         rows = [p for p in payload["points"] if isinstance(p, (list, tuple)) and len(p) == 2]
         return pd.DataFrame({"datetime": [r[0] for r in rows], "value": [r[1] for r in rows]})

@@ -454,7 +454,10 @@ def evaluation_context(pb: Playbook, recon: dict[str, Any], intake: dict[str, An
     ctx = dict(recon)
     ctx["intake"] = intake
     ctx["site"] = {"lat": point.get("lat"), "lon": point.get("lon")}
-    ctx["station"] = _pick_station(recon, station_variable or pb.variable) or {}
+    station = dict(_pick_station(recon, station_variable or pb.variable) or {})
+    if station and not station.get("name"):
+        station["name"] = station.get("station_id")  # an unnamed gauge reads as its id in the prose
+    ctx["station"] = station
     ctx["derived"] = _derived(recon, intake)
     return ctx
 

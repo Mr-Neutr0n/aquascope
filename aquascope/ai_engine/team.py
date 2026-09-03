@@ -55,6 +55,12 @@ KEYWORDS: dict[str, list[str]] = {
         r"ground ?water|aquifer|water[- ]table|borehole|\bwells?\b|piezometer", r"declin|falling|dropping|depletion|"
         r"drawdown|recover|lowering", r"\bsgi\b|groundwater drought", r"recharge",
     ],
+    "water_quality": [
+        r"water quality|quality of (the |this )?(river |stream |well )?water", r"safe to drink|drinkab|potab|drinking",
+        r"\bwqi\b|pollut|contaminat|guideline",
+        r"\b(nitrate|arsenic|e\.?\s*coli|coliform|turbidity|dissolved oxygen)\b",
+        r"\bph\b|salinity|\bsar\b|sodium|irrigation (water )?(quality|suitab)", r"aquatic life|fish kill",
+    ],
 }
 
 _RETURN_PERIOD = re.compile(r"(\d{1,4})\s*-?\s*(?:year|yr)\b", re.I)
@@ -88,6 +94,12 @@ SPECIALIST_PROMPTS: dict[str, str] = {
         "You are the groundwater specialist on AquaScope's team. A step of a well study failed its gate. Sound "
         "fallbacks: analyze_station over a longer record, get_timeseries with a different resample, anywhere "
         "for the regional water balance. Never attribute the cause."
+    ),
+    "water_quality": (
+        "You are the water-quality specialist on AquaScope's team. A step of a water-quality study failed its "
+        "gate. Sound fallbacks: water_quality_samples over a longer window (years) or with a different parameter "
+        "list, wqi with another guideline set, who_screen alone. Never turn an index over sampled parameters "
+        "into a health verdict."
     ),
 }
 
@@ -386,12 +398,19 @@ def intake_hints(text: str, playbook: str | None = None) -> dict[str, Any]:
         if re.search(pat, text, re.I):
             out["concern"] = concern
             break
+    if playbook == "water_quality" or re.search(r"water quality|safe to drink|drinkab|potab", text, re.I):
+        for pat, use in ((r"irrigat|crop|farm|salinity|\bsar\b", "irrigation"),
+                         (r"aquatic|fish|ecolog|ecosystem|habitat", "aquatic life"),
+                         (r"drink|potab|tap|household|safe", "drinking")):
+            if re.search(pat, text, re.I):
+                out["use"] = use
+                break
     return out
 
 
 # ── compacting tool payloads for a role's context ───────────────────────────
 
-_BULKY = {"series", "points", "exceedance", "sgi", "annual_precipitation", "monthly_precipitation_mm",
+_BULKY = {"series", "points", "samples", "exceedance", "sgi", "annual_precipitation", "monthly_precipitation_mm",
           "monthly_et0_mm", "features", "target", "_meta"}
 
 
@@ -580,6 +599,76 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
         ctx = payload.get("context") or {}
         out.append(f"Reconnaissance: {len(payload.get('stations') or [])} stations within reach; records "
                    f"{json.dumps(ctx.get('years_by_variable') or {})}.")
+    elif tool == "water_quality_samples":
+        label = f"{payload.get('source')} {payload.get('station_id')}"
+        per = payload.get("parameters") or {}
+        bits = [f"{name.replace('_', ' ')} {int(p.get('n') or 0)} in {p.get('unit') or 'no unit'}"
+                for name, p in list(per.items())[:8] if isinstance(p, dict)]
+        span = (f" from {payload.get('start')} to {payload.get('end')}" if payload.get("start") and payload.get("end")
+                else "")
+        out.append(f"{payload.get('n_samples')} water-quality samples of {payload.get('n_parameters')} parameter(s) "
+                   f"at station {label}{span}" + (": " + ", ".join(bits) if bits else "") + ".")
+    elif tool == "who_screen":
+        rows = payload.get("rows") or []
+        if rows:
+            flagged = [r for r in rows if r.get("status") != "OK"]
+            out.append(f"WHO drinking-water screen over {len(rows)} parameter(s): {payload.get('n_alerts', 0)} alert(s)"
+                       f" and {payload.get('n_warnings', 0)} warning(s).")
+            for r in flagged[:5]:
+                out.append(f"{str(r.get('parameter')).replace('_', ' ')}: {r.get('n_exceed')} of {r.get('n')} samples "
+                           f"({_fmt(r.get('pct'))} %) outside the guideline of {r.get('rule')} ({r.get('status')}).")
+        else:
+            out.append("WHO drinking-water screen: none of the sampled parameters has a WHO guideline value.")
+    elif tool == "wqi":
+        ccme = payload.get("ccme") or {}
+        if ccme.get("score") is not None:
+            out.append(f"CCME Water Quality Index 1.0 against the {payload.get('guideline_set')} guidelines: "
+                       f"{_fmt(ccme['score'])} out of 100, {ccme.get('category')}, over {ccme.get('n_variables')} "
+                       f"parameter(s) and {ccme.get('n_tests')} tests of which {ccme.get('n_failed_tests')} failed "
+                       f"(F1 {_fmt(ccme.get('f1'))}, F2 {_fmt(ccme.get('f2'))}, F3 {_fmt(ccme.get('f3'))}).")
+            drivers = ccme.get("drivers") or []
+            if drivers:
+                out.append("Exceedances: " + "; ".join(
+                    f"{str(d.get('parameter')).replace('_', ' ')} {d.get('n_failed')} of {d.get('n')} samples outside "
+                    f"{d.get('guideline')}" for d in drivers[:5]) + ".")
+            else:
+                out.append("No sampled parameter exceeded its guideline.")
+            if ccme.get("meets_minimum_design") is False:
+                out.append("The sampling design is below the CCME minimum of four parameters sampled four times each.")
+        elif "ccme" in payload:
+            out.append("The CCME index was not computed: no sampled parameter has a guideline in this set.")
+        nsf = payload.get("nsf") or {}
+        if nsf.get("score") is not None:
+            out.append(f"NSF Water Quality Index: {_fmt(nsf['score'])} out of 100, {nsf.get('category')}, over "
+                       f"{nsf.get('n_parameters')} of its nine parameters"
+                       + (" (weights renormalised)" if nsf.get("weights_renormalised") else "") + ".")
+        elif nsf:
+            out.append(f"The NSF index was not computed: {nsf.get('n_parameters', 0)} of its nine parameters present"
+                       + (f" (missing {', '.join(str(m).replace('_', ' ') for m in nsf.get('missing') or [])})" if
+                          nsf.get("missing") else "") + ".")
+    elif tool == "iwqi":
+        restriction = payload.get("restriction")
+        if restriction is None:
+            out.append("Irrigation suitability (FAO 29) was not judged: none of the parameters it reads was sampled.")
+        else:
+            idx = payload.get("indices") or {}
+            bits = []
+            for key, label, unit in (("sar", "SAR", ""), ("sodium_percent", "sodium percentage", " %"),
+                                     ("rsc", "residual sodium carbonate", " meq/L")):
+                e = idx.get(key) or {}
+                if e.get("value") is not None:
+                    bits.append(f"{label} {_fmt(e['value'])}{unit} ({e.get('class')})")
+            if idx.get("ussl_class"):
+                bits.append(f"USSL class {idx['ussl_class']}")
+            drivers = ", ".join(str(d).replace("_", " ") for d in payload.get("drivers") or [])
+            verdict = ("no restriction on use from the sampled parameters" if restriction == "none"
+                       else f"{restriction} restriction on use")
+            out.append(f"Irrigation suitability (FAO 29): {verdict}"
+                       + (f", driven by {drivers}" if drivers else "") + (": " + "; ".join(bits) if bits else "") + ".")
+            missing = payload.get("missing") or []
+            if missing:
+                names = ", ".join(str(m).replace("_", " ") for m in missing[:8])
+                out.append(f"Not sampled, so not judged: {names}.")
     return out
 
 

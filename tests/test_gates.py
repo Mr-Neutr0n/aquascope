@@ -25,6 +25,7 @@ PAYLOAD = {
     "attributes": {"upstream_area_km2": 101033.0},
     "sufficiency": [{"method": "gr4j_calibration", "status": "not_defensible"},
                     {"method": "flow_duration", "status": "defensible"}],
+    "sample_counts": {"ph": 12, "nitrate": 3},
 }
 
 
@@ -67,6 +68,7 @@ def test_paths_take_dots_indexes_and_selectors():
     ({"check": "status_is", "path": "sufficiency[method=flow_duration].status", "value": "defensible"}, True,
      {"check": "status_is", "path": "sufficiency[method=gr4j_calibration].status",
       "value": ["defensible", "marginal"]}),
+    ({"check": "min_samples", "value": 3}, True, {"check": "min_samples", "value": 4}),
 ])
 def test_every_check_passes_and_fails(check, ok, bad):
     assert ok
@@ -104,7 +106,7 @@ def test_unknown_or_malformed_gates_fail_loudly():
     assert [r["passed"] for r in rows] == [False, False, False]
     assert "unknown check" in rows[0]["detail"] and "min_years" in rows[0]["detail"]
     assert set(CHECKS) == {"min_years", "max_return_period_factor", "ci_finite", "spread_within", "nse_min", "kge_min",
-                           "not_empty", "unit_present", "max_area_km2", "min_donors", "status_is"}
+                           "not_empty", "unit_present", "max_area_km2", "min_donors", "status_is", "min_samples"}
 
 
 def test_empty_expects_is_no_gate():
