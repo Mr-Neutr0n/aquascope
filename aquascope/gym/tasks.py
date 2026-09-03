@@ -42,6 +42,7 @@ __all__ = [
     "SPLITS",
     "Task",
     "decline_probes",
+    "on_land_basinatlas",
     "problem_text",
     "read_tasks",
     "scoring_key",
@@ -60,6 +61,9 @@ SITE_KINDS = ("gauged_long", "gauged_short", "groundwater", "ungauged")
 LONG_YEARS = 20.0
 SHORT_YEARS = 5.0
 WELL_YEARS = 10.0
+#: An ungauged point needs catalog gauges in this many of the four quadrants around it (within about 0.8
+#: degrees): a crude proxy for being on land, which an island cluster on one side of the point fails.
+MIN_QUADRANTS = 3
 
 _CONTINENT_BY_COUNTRY = {
     "north_america": {"USA", "CAN", "MEX"},
@@ -199,6 +203,7 @@ def suggest_sites(
     catalog: list[dict[str, Any]] | None = None,
     ungauged_share: float = 0.25,
     today: date | None = None,
+    on_land: Callable[[float, float], bool] | None = None,
 ) -> list[dict[str, Any]]:
     """``n`` sites for a task suite, sampled from the station catalog with no agency call.
 
@@ -209,7 +214,10 @@ def suggest_sites(
     The rest (``ungauged_share``) are bare points: a random offset of 0.5 to
     0.9 degrees from a gauge in a sparse part of the catalog, so the point is
     on land near measured rivers but usually beyond the 50 km radius of any
-    gauge. Reproducible for a ``seed``.
+    gauge. A point must have gauges around it in three of the four quadrants
+    (so an island's cluster does not put it at sea) and pass ``on_land`` when
+    one is given (:func:`on_land_basinatlas` asks BasinATLAS, which is what
+    the reconnaissance consults). Reproducible for a ``seed``.
     """
     if n <= 0:
         return []
@@ -259,22 +267,67 @@ def suggest_sites(
                     out.append(groups[i].pop())
                     break
 
-    # Ungauged points: offsets from gauges in sparse 1-degree cells, sparse first.
+    # Ungauged points: offsets from gauges in sparse 1-degree cells, sparse first. A candidate must be surrounded
+    # by gauges (three quadrants) and pass on_land; an anchor whose candidates all fail is skipped.
     sparse = sorted(cells.items(), key=lambda kv: (len(kv[1]), kv[0]))
-    picks = [g for _, group in sparse[: max(4 * n_ungauged, 1)] for g in group] or [g for _, gr in sparse for g in gr]
+    picks = [g for _, group in sparse[: max(4 * n_ungauged, 1)] for g in group]
+    picks += [g for _, group in sparse[max(4 * n_ungauged, 1):] for g in group]
     rng.shuffle(picks)
-    for anchor in picks[:n_ungauged]:
-        angle = rng.uniform(0, 2 * math.pi)
-        dist = rng.uniform(0.5, 0.9)
-        lat = max(-89.0, min(89.0, anchor["lat"] + dist * math.sin(angle)))
-        lon = ((anchor["lon"] + dist * math.cos(angle) + 180) % 360) - 180
-        out.append({
-            "lat": round(lat, 4), "lon": round(lon, 4), "source": None, "station_id": None, "name": None,
-            "kind": "ungauged", "country": anchor.get("country"), "continent": anchor.get("continent"),
-            "years": None, "variables": [],
-            "anchor": f"{anchor['source']}/{anchor['station_id']}",
-        })
+    points: list[dict[str, Any]] = []
+    for anchor in picks:
+        if len(points) >= n_ungauged:
+            break
+        for _ in range(12):
+            angle = rng.uniform(0, 2 * math.pi)
+            dist = rng.uniform(0.5, 0.9)
+            lat = max(-89.0, min(89.0, anchor["lat"] + dist * math.sin(angle)))
+            lon = ((anchor["lon"] + dist * math.cos(angle) + 180) % 360) - 180
+            if not _surrounded(cells, lat, lon):
+                continue
+            if on_land is not None and not on_land(lat, lon):
+                continue
+            points.append({
+                "lat": round(lat, 4), "lon": round(lon, 4), "source": None, "station_id": None, "name": None,
+                "kind": "ungauged", "country": anchor.get("country"), "continent": anchor.get("continent"),
+                "years": None, "variables": [],
+                "anchor": f"{anchor['source']}/{anchor['station_id']}",
+            })
+            break
+    out += points
+    # Short of points: top up with gauged sites so the suite keeps its size.
+    while len(out) < n and any(g for groups in by_kind.values() for g in groups):
+        for kind in kinds:
+            group = next((g for g in by_kind[kind] if g), None)
+            if group and len(out) < n:
+                out.append(group.pop())
     return out[:n]
+
+
+def _surrounded(cells: dict[tuple[int, int], list[dict[str, Any]]], lat: float, lon: float,
+                radius_deg: float = 0.8, quadrants: int = MIN_QUADRANTS) -> bool:
+    """Whether catalog gauges lie within ``radius_deg`` of a point in at least ``quadrants`` of its four quadrants."""
+    seen: set[tuple[bool, bool]] = set()
+    ci, cj = int(lat // 1), int(lon // 1)
+    for i in (ci - 1, ci, ci + 1):
+        for j in (cj - 1, cj, cj + 1):
+            for g in cells.get((i, j), ()):
+                dlat, dlon = g["lat"] - lat, g["lon"] - lon
+                if abs(dlat) <= radius_deg and abs(dlon) <= radius_deg and (dlat or dlon):
+                    seen.add((dlat >= 0, dlon >= 0))
+                    if len(seen) >= quadrants:
+                        return True
+    return False
+
+
+def on_land_basinatlas(lat: float, lon: float) -> bool:
+    """Whether BasinATLAS has a sub-basin at the point (what the reconnaissance consults); False at sea."""
+    try:
+        from aquascope.mcp_server import describe_catchment
+
+        return not describe_catchment(lat, lon, upstream=False).get("error")
+    except Exception as exc:  # noqa: BLE001 - unreachable BasinATLAS is not a verdict on the point
+        logger.info("BasinATLAS check skipped at %.3f, %.3f: %s", lat, lon, exc)
+        return True
 
 
 # ── the problem text and the intake probes ──────────────────────────────────

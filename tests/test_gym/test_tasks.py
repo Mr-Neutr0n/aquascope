@@ -136,6 +136,10 @@ def _row(source, sid, country, lat, lon, start, end, variables=("discharge",)):
 
 CATALOG = [
     _row("usgs", "A", "USA", 40.0, -100.0, "1950-01-01", "2026-01-01"),
+    _row("usgs", "A1", "USA", 40.6, -99.4, "1950-01-01", "2026-01-01"),        # a cluster around A, so a point
+    _row("usgs", "A2", "USA", 39.4, -99.5, "1950-01-01", "2026-01-01"),        # offset from it is surrounded
+    _row("usgs", "A3", "USA", 40.5, -100.6, "1950-01-01", "2026-01-01"),
+    _row("usgs", "A4", "USA", 39.5, -100.5, "1950-01-01", "2026-01-01"),
     _row("usgs", "B", "USA", 41.0, -101.0, "2015-01-01", "2026-01-01"),
     _row("usgs", "C", "USA", 42.0, -102.0, "2023-01-01", "2026-01-01"),               # too short for anything
     _row("uk_ea", "D", "GBR", 51.4, -0.3, "1883-10-01", "2026-01-01"),
@@ -154,12 +158,43 @@ def test_suggest_sites_spans_kinds_sources_and_continents_and_adds_ungauged_poin
     kinds = [s["kind"] for s in sites]
     assert kinds.count("ungauged") == 2 and {"gauged_long", "gauged_short", "groundwater"} <= set(kinds)
     gauged = [s for s in sites if s["kind"] != "ungauged"]
-    assert {s["station_id"] for s in gauged} <= {"A", "B", "D", "E", "H", "I"}, "C, F and G make no site"
+    assert {s["station_id"] for s in gauged} <= {"A", "A1", "A2", "A3", "A4", "B", "D", "E", "H", "I"}, \
+        "C, F and G make no site"
     assert len({s["source"] for s in gauged}) >= 3 and len({s["continent"] for s in gauged}) >= 3
-    long_ = next(s for s in gauged if s["station_id"] == "A")
-    assert long_["years"] == 76.0 and long_["continent"] == "north_america" and long_["lat"] == 40.0
+    long_ = next(s for s in gauged if s["station_id"].startswith("A"))
+    assert long_["years"] == 76.0 and long_["continent"] == "north_america" and long_["kind"] == "gauged_long"
     for p in (s for s in sites if s["kind"] == "ungauged"):
-        assert p["source"] is None and p["anchor"] and 0.3 < abs(p["lat"] - CATALOG[0]["latitude"]) + 0 < 200
+        assert p["source"] is None and p["anchor"].startswith("usgs/A") and 38.5 < p["lat"] < 41.5
+        assert gt._surrounded(_cells(CATALOG, today), p["lat"], p["lon"])
     only_uk = gt.suggest_sites(4, seed=1, catalog=CATALOG, sources=["uk_ea"], today=today, ungauged_share=0)
     assert {s["source"] for s in only_uk} == {"uk_ea"} and len(only_uk) == 2
     assert gt.suggest_sites(0, catalog=CATALOG) == [] and gt.suggest_sites(3, catalog=[]) == []
+    # on_land is asked about every surrounded candidate; refusing them all tops the suite up with gauges.
+    asked = []
+
+    def at_sea(lat, lon):
+        asked.append((lat, lon))
+        return False
+
+    topped = gt.suggest_sites(6, seed=7, catalog=CATALOG, today=today, on_land=at_sea)
+    assert asked and len(topped) == 6 and not any(s["kind"] == "ungauged" for s in topped)
+
+
+def _cells(catalog, today):
+    cells = {}
+    for row in catalog:
+        v = gt._classify(row, today)
+        if v and v[0] != "groundwater":
+            site = gt._site_from_row(row, *v)
+            cells.setdefault((int(site["lat"] // 1), int(site["lon"] // 1)), []).append(site)
+    return cells
+
+
+def test_the_land_proxy_rejects_an_island_cluster_and_accepts_a_surrounded_point():
+    today = date(2026, 9, 2)
+    island = [_row("usgs", f"S{i}", "USA", 15.1 + 0.05 * i, 145.7 + 0.03 * i, "1990-01-01", "2026-01-01")
+              for i in range(4)]
+    cells = _cells(island, today)
+    assert not gt._surrounded(cells, 14.64, 145.86), "four gauges all to the north-west: the point is at sea"
+    assert gt._surrounded(_cells(CATALOG, today), 40.1, -100.0)
+    assert not gt._surrounded(_cells(CATALOG, today), 45.0, 4.8), "one gauge alone never surrounds"

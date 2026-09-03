@@ -1030,7 +1030,8 @@ def cmd_gym(args: argparse.Namespace) -> None:
         n_probes = sum(len(gt.decline_probes(p)) for p in pbs) if probes is None else probes
         per_site = max(1, len(pbs) + n_probes)
         sites = gt.suggest_sites(-(-args.n // per_site), seed=args.seed, sources=args.source or None,
-                                 ungauged_share=args.ungauged_share)
+                                 ungauged_share=args.ungauged_share,
+                                 on_land=None if args.no_check_land else gt.on_land_basinatlas)
         tasks = gt.tasks_from_playbooks(sites, pbs, probes=probes, on_event=say)[: args.n]
         gt.write_tasks(tasks, args.out)
         hard = sum(1 for t in tasks if t.unsolvable)
@@ -2160,6 +2161,8 @@ def main() -> None:
     p_gt.add_argument("--probes", default="1",
                       help="Decline probes per site: an integer or 'all' (default 1, rotating over the rules)")
     p_gt.add_argument("--ungauged-share", type=float, default=0.25, help="Share of sites that are bare points")
+    p_gt.add_argument("--no-check-land", action="store_true",
+                      help="Do not ask BasinATLAS whether a bare point is on land (offline; the gauge proxy still applies)")
     p_gt.add_argument("--out", default="tasks.jsonl")
     p_gt.add_argument("--quiet", action="store_true")
     p_gbench = gym_sub.add_parser("bench", help="Play an agent on the tasks and score it against the keys (Phase 1)")
