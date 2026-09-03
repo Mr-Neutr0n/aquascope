@@ -21,6 +21,7 @@ intake:
     label: Return period (years)
     type: int
     default: 100
+    min: 2
   - name: decision
     label: What is being decided
     type: choice

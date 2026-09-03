@@ -209,3 +209,35 @@ def test_the_explorer_playbook_list_is_the_package_s_own():
     assert shipped.read_text(encoding="utf-8") == as_json(), (
         "explorer/playbooks.json is stale: run `python -m aquascope.playbooks`"
     )
+
+
+def test_coerce_intake_makes_a_model_s_reply_safe():
+    """The lenient twin of fill_intake: a small model's mistake costs a default, never the plan."""
+    good = pbk.coerce_intake("flood_risk", {"return_period": "50", "decision": "Design Flow", "foo": 1})
+    assert good == {"return_period": 50, "decision": "design flow"}      # coerced, options case-folded, foo dropped
+    bad = pbk.coerce_intake("flood_risk", {"return_period": -3, "decision": "mapping"})
+    assert bad == {"return_period": 100, "decision": "design flow"}      # below min 2 and outside the options
+    assert pbk.coerce_intake("flood_risk", {"return_period": float("nan")})["return_period"] == 100
+    assert pbk.coerce_intake("flood_risk", {"return_period": [50]})["return_period"] == 100
+    assert pbk.coerce_intake("flood_risk", {"return_period": True})["return_period"] == 100
+    well = pbk.coerce_intake("groundwater_decline", {"attribute_cause": "yes", "horizon": 0})
+    assert well == {"horizon": 10, "concern": "other", "attribute_cause": True}
+    assert pbk.coerce_intake("ungauged_flow", None) == {"purpose": "other", "statistic": "all"}
+    assert pbk.coerce_intake("ungauged_flow", "not a dict") == {"purpose": "other", "statistic": "all"}
+    with pytest.raises(pbk.PlaybookError):
+        pbk.coerce_intake("no_such_playbook", {})
+
+
+def test_intake_bounds_are_strict_for_fill_intake_and_validated():
+    with pytest.raises(pbk.Declined) as exc:
+        pbk.fill_intake(pbk.load("flood_risk"), {"return_period": 1})
+    assert exc.value.kind == "intake" and "minimum 2" in exc.value.reason
+    assert pbk.fill_intake(pbk.load("flood_risk"), {"return_period": 2})["return_period"] == 2
+    broken = {
+        "id": "b", "title": "B", "problem": "flood_risk",
+        "intake": [{"name": "t", "type": "choice", "options": ["a"], "min": 1},
+                   {"name": "u", "type": "int", "min": 5, "max": 1}],
+        "branches": [{"id": "x", "steps": [{"id": "s1", "tool": "anywhere"}]}],
+    }
+    errors = " ".join(pbk.validate(broken))
+    assert "min/max apply to int and float" in errors and "above max" in errors

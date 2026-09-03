@@ -14,7 +14,9 @@
           "default": 100,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": 2.0,
+          "max": null
         },
         {
           "name": "decision",
@@ -28,7 +30,9 @@
             "inundation extent"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -51,7 +55,9 @@
           "default": 10,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": 1.0,
+          "max": null
         },
         {
           "name": "concern",
@@ -65,7 +71,9 @@
             "other"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "attribute_cause",
@@ -74,7 +82,9 @@
           "default": false,
           "options": [],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
@@ -102,7 +112,9 @@
             "other"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         },
         {
           "name": "statistic",
@@ -116,7 +128,9 @@
             "all"
           ],
           "required": false,
-          "help": null
+          "help": null,
+          "min": null,
+          "max": null
         }
       ],
       "branches": [
