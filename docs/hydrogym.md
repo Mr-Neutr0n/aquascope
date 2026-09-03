@@ -10,12 +10,13 @@ tree says. No synthetic truth, no judge model; the key is the same
 method-selection scaffold the [plan-first Analyst](solve.md) runs on.
 
 ```bash
-aquascope gym tasks --n 60 --seed 0 --out tasks.jsonl
+aquascope gym tasks --n 60 --seed 2026 --out tasks.jsonl
 aquascope gym bench --tasks tasks.jsonl --agent tree --out results/tree.jsonl
+aquascope gym bench --tasks tasks.jsonl --agent team --timeout 240 --resume --out results/team-keyless.jsonl
 aquascope gym bench --tasks tasks.jsonl --agent team --provider anthropic --model claude-sonnet-5 \
-    --limit 10 --unsolvable 3 --out results/team-sonnet-5.jsonl
+    --timeout 240 --resume --out results/team-claude-sonnet-5.jsonl
 aquascope gym bench --tasks tasks.jsonl --agent ask --provider anthropic --model claude-sonnet-5 \
-    --limit 10 --unsolvable 3 --out results/ask-sonnet-5.jsonl
+    --limit 40 --unsolvable 15 --spread --timeout 240 --resume --out results/ask-claude-sonnet-5.jsonl
 aquascope gym leaderboard results/*.jsonl --out leaderboard.md
 ```
 
@@ -40,15 +41,25 @@ A task (`aquascope.gym.tasks.Task`) is a playbook at a site with an intake:
 **Sites.** `suggest_sites(n, seed=...)` samples the published station catalog
 (no agency call): gauges with 20 years and more of discharge, gauges with 5
 to 20 years, wells with 10 years of levels, drawn round robin over kind,
-continent and source so a suite spans the seven sources rather than the one
-with the most rows; and bare points, offset 0.5 to 0.9 degrees from a gauge
-in a sparse part of the catalog, so they sit on land near measured rivers but
-usually beyond any gauge's reach. Reproducible for a seed.
+continent and source so a suite spans the sources rather than the one with
+the most rows; and bare points, offset 0.5 to 0.9 degrees from a gauge in a
+sparse part of the catalog, so they sit on land near measured rivers and
+often (not always: the catalog is dense in England and France) beyond any
+gauge's reach. A catalog row is a site only when it carries a record span;
+an open end (a station still listed as open, which is how the uk_ea and
+hubeau collectors record `dateClosed` and `date_fermeture_station`) runs to
+today, as the reconnaissance reads it. At this date that leaves three
+sources the sampler can draw from, `usgs`, `uk_ea` and `hubeau_hydrometrie`
+(North America and Europe): the Bureau of Meteorology, Pegelonline and OPW
+rows in the catalog carry no span. Reproducible for a seed.
 
 **Keys.** `tasks_from_playbooks(sites, playbooks)` runs the reconnaissance
 once per site and, for every playbook, the tree alone (`playbooks.plan`) on
 that snapshot. Every task therefore carries the same catalog view the key was
-computed on, and the `tree` agent replays it offline.
+computed on, and the `tree` agent replays it offline. A site whose
+reconnaissance raises (the network, a source that is down) is skipped and
+counted, not keyed on an empty snapshot, and so is a task whose key the tree
+cannot compute; the CLI prints both.
 
 **Unsolvable tasks.** A task is unsolvable when the playbook declines: the
 right answer is to refuse, and an agent that quotes a number is wrong. Two
@@ -101,8 +112,9 @@ problem counts as wrong, and so does an agent that answers an out-of-scope
 ask. The aggregate (`summarize`, `leaderboard`) per agent and model:
 accuracy on the solvable tasks (and on the `test` split), the decline rate
 on the unsolvable ones, the false-decline rate, mean gates and tools
-respected, tokens and seconds per task, the total cost, errors and timeouts,
-and correct-per-expected-branch.
+respected, tokens and seconds per task, the total cost, errors and timeouts
+(each in its own column; both count as wrong), and
+correct-per-expected-branch.
 
 **Cost.** `PRICES_USD_PER_MTOK` in `aquascope/gym/bench.py` is a small
 table of list prices (USD per million input and output tokens; mid-2026:
@@ -125,9 +137,15 @@ aquascope gym leaderboard results/*.jsonl --out leaderboard.md   # any agents, a
 ```
 
 `--limit N --unsolvable K` plays the first N tasks with at most K unsolvable
-among them; `--task ID` picks tasks by id. Results are appended to `--out`
-as they come, so an interrupted run keeps what it did and a leaderboard can
-be built from several partial files (a `tasks.jsonl` in the same folder is skipped). In Python:
+among them; a tasks file is site-major, so `--spread` takes them round robin
+over the sites instead (a 40-task subset then covers every site rather than
+the first ten); `--task ID` picks tasks by id. Results are appended to
+`--out` as they come, so an interrupted run keeps what it did, `--resume`
+skips the tasks `--out` already holds a finished row for (an error or a
+timeout is played again, and the loader keeps the latest row per task), and
+a leaderboard can be built from several partial files (a `tasks.jsonl` in
+the same folder is skipped). After each task the bench prints the spend so
+far from the price table. In Python:
 
 ```python
 from aquascope.gym import tasks_from_playbooks, suggest_sites, run_bench, leaderboard
@@ -138,6 +156,10 @@ print(leaderboard(results))
 ```
 
 ## Leaderboard
+
+__LEADERBOARD_2026_09_03__
+
+### 2026-09-02: the smoke
 
 The first run, 2026-09-02: 12 tasks from three sites (`aquascope gym tasks
 --n 12 --seed 7`: the Loup River near Genoa, Nebraska, with 97 years of USGS
