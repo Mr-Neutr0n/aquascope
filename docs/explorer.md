@@ -155,8 +155,8 @@ why BasinATLAS is what we mirror. MERIT-Basins is CC BY-NC.
 The **Ask** button (top right) opens the [Analyst](analyst.md) inside the
 Explorer. Type a question ("What is the 100-year flood of the Thames at
 Kingston, and how sure can we be?"), pick a provider (Groq and Hugging Face
-have free tiers; OpenAI, Mistral, OpenRouter, or any OpenAI-compatible
-endpoint), paste your key, and the same `aquascope.ai_engine.analyst.ask`
+have free tiers; Anthropic, OpenAI, Mistral, OpenRouter, or any
+OpenAI-compatible endpoint), paste your key, and the same `aquascope.ai_engine.analyst.ask`
 that runs behind `aquascope ask` runs in the browser worker: the model picks
 the tools (`find_stations` over the catalog already loaded in your tab,
 `analyze_station`, `flood_frequency`, `get_timeseries`, `anywhere`),
