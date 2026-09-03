@@ -347,7 +347,7 @@ def _error_result(task: Task, agent: str, cfg: _Config, error: str, seconds: flo
                   model=cfg.model if agent != "tree" else None, provider=cfg.provider if agent != "tree" else None,
                   branch_expected=task.expected.get("branch"), tools_expected=list(task.expected.get("tools") or []),
                   gates_expected=len(task.expected.get("gates") or []), error=error, seconds=round(seconds, 2),
-                  finished=_now())
+                  finished=_now(), cost_usd=0.0)
 
 
 def _now() -> str:
@@ -560,7 +560,9 @@ def summarize(results: Iterable[Result]) -> list[dict[str, Any]]:
             b = by_branch.setdefault(str(r.branch_expected), [0, 0])
             b[0] += int(r.correct)
             b[1] += 1
-        cost = [r.cost_usd for r in rs]
+        # A row that spent no token (an error, a timeout) costs nothing whatever the model; only a priced token
+        # count that the table cannot price leaves the total unknown.
+        cost = [r.cost_usd if r.cost_usd is not None or r.tokens else 0.0 for r in rs]
         rows.append({
             "agent": agent, "model": model or None, "provider": provider or None,
             "n": len(rs), "n_solvable": len(solvable), "n_unsolvable": len(hard), "n_test": len(test),

@@ -193,6 +193,18 @@ def test_a_slow_agent_times_out_into_a_row_and_the_run_goes_on(suite, monkeypatc
     results = gb.run_bench(suite[:2], "tree", timeout=0.2)
     assert [r.error.startswith("TimeoutError") for r in results] == [True, True]
     assert not any(r.correct for r in results) and gb.summarize(results)[0]["timeouts"] == 2
+    assert all(r.cost_usd == 0.0 for r in results), "a row that spent no token costs nothing"
+    # a priced run with one timeout among its rows still reports its total, and an old row without a cost too
+    priced = gb.Result(task_id="a", playbook="flood_risk", split="train", unsolvable=False, agent="team",
+                       model="claude-haiku-4-5", provider="anthropic", branch_expected="at_site",
+                       prompt_tokens=1_000_000, completion_tokens=0, cost_usd=1.0)
+    timed_out = gb.Result(task_id="b", playbook="flood_risk", split="train", unsolvable=False, agent="team",
+                          model="claude-haiku-4-5", provider="anthropic", branch_expected="at_site",
+                          error="TimeoutError: no result within 240 s", cost_usd=None)
+    assert gb.summarize([priced, timed_out])[0]["cost_usd"] == 1.0
+    unpriced = gb.Result(task_id="c", playbook="flood_risk", split="train", unsolvable=False, agent="ask",
+                         model="gpt-x", provider="openai", branch_expected="at_site", prompt_tokens=10, cost_usd=None)
+    assert gb.summarize([unpriced])[0]["cost_usd"] is None, "tokens the table cannot price leave the total unknown"
     with pytest.raises(TimeoutError):
         gb._with_timeout(lambda: time.sleep(1), 0.1)
     assert gb._with_timeout(lambda: 42, 1) == 42 and gb._with_timeout(lambda: 42, None) == 42
