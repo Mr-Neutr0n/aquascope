@@ -17,7 +17,8 @@ STATION = {"source": "uk_ea", "station_id": "3400TH", "name": "Kingston", "dista
 def recon(lat, lon, years=None, stations=None, donors=None, area=None, dams=0):
     years = years or {}
     ctx = {"years_by_variable": dict(years), "resolution_by_variable": {k: "daily" for k in years},
-           "area_km2": area, "donors": donors, "ungauged": not years, "available": ["glofas"]}
+           "area_km2": area, "donors": donors, "ungauged": not years,
+           "available": ["glofas", "temperature", "forcing"]}  # what assess_site assumes for any point on land
     return {"point": {"lat": lat, "lon": lon}, "stations": list(stations or []),
             "catchment": {"area_km2": area, "upstream_area_km2": area, "dams": dams},
             "context": ctx, "sufficiency": [], "notes": []}
@@ -76,18 +77,25 @@ def test_probes_are_read_off_the_playbooks_decline_rules_and_rotate_over_sites()
                                                 "rule": "Inundation extent (which streets or fields"}]
     assert gt.decline_probes("groundwater_decline")[0]["intake"] == {"attribute_cause": True}
     assert gt.decline_probes("ungauged_flow") == [], "its only decline reads the reconnaissance"
+    assert gt.decline_probes("drought_status")[0]["intake"] == {"flash_drought": True}
+    assert gt.decline_probes("supply_reliability") == [{"intake": {"storage": True},
+                                                        "rule": "A scheme with a reservoir needs"}]
+    assert gt.decline_probes("irrigation_feasibility")[0]["intake"] == {"decision": "daily schedule"}
     tasks = gt.tasks_from_playbooks([LONG, SHORT, POINT], None, recon=fake_recon, probes=1)
-    assert len(tasks) == 12, "three playbooks and one probe per site"
+    assert len(tasks) == 21, "six playbooks and one probe per site"
     probes = [t for t in tasks if t.probe]
-    assert [t.playbook for t in probes] == ["flood_risk", "groundwater_decline", "flood_risk"]
+    assert [t.playbook for t in probes] == ["drought_status", "flood_risk", "groundwater_decline"]
     assert all(t.unsolvable and t.expected["decline_kind"] == "declined" for t in probes)
-    assert probes[0].intake["decision"] == "inundation extent" and "inundation extent" in probes[0].problem
-    assert probes[1].intake["attribute_cause"] is True and "why" in probes[1].problem
-    assert sum(t.unsolvable for t in tasks) == 3
+    assert probes[0].intake["flash_drought"] is True and "flash drought" in probes[0].problem
+    assert probes[1].intake["decision"] == "inundation extent" and "inundation extent" in probes[1].problem
+    assert probes[2].intake["attribute_cause"] is True and "why" in probes[2].problem
+    # the base tasks: supply_reliability at a point has no demand stated, so the tree declines it (unsolvable)
+    assert sum(t.unsolvable for t in tasks) == 3 + 3
     everything = gt.tasks_from_playbooks([LONG], None, recon=fake_recon, probes=None)
-    assert len(everything) == 5 and sum(t.unsolvable for t in everything) == 2
+    assert len(everything) == 6 + 5 and sum(t.unsolvable for t in everything) == 1 + 5
     assert [t.playbook for t in gt.tasks_from_playbooks([LONG], None, recon=fake_recon, probes=0)] == [
-        "flood_risk", "groundwater_decline", "ungauged_flow"]
+        "drought_status", "flood_risk", "groundwater_decline", "irrigation_feasibility", "supply_reliability",
+        "ungauged_flow"]
 
 
 def test_a_reconnaissance_that_fails_still_yields_tasks_with_a_note():
@@ -103,13 +111,21 @@ def test_a_reconnaissance_that_fails_still_yields_tasks_with_a_note():
     ("flood_risk", {"decision": "risk screening", "return_period": 50}), ("flood_risk", {"decision": "insurance"}),
     ("ungauged_flow", {}), ("ungauged_flow", {"purpose": "irrigation offtake", "statistic": "Q95"}),
     ("groundwater_decline", {}), ("groundwater_decline", {"attribute_cause": True}),
+    ("drought_status", {}), ("drought_status", {"flash_drought": True}),
+    ("drought_status", {"drought_concern": "agriculture"}),
+    ("supply_reliability", {"demand_m3s": 2.0}), ("supply_reliability", {"demand_ml_day": 5.0, "use": "municipal"}),
+    ("supply_reliability", {"demand_m3s": 3.0, "storage": True}),
+    ("irrigation_feasibility", {"crop": "wheat_winter", "area_ha": 25.0, "planting_month": 10}),
+    ("irrigation_feasibility", {"decision": "daily schedule"}),
 ])
 def test_problem_texts_route_to_their_playbook_and_state_their_intake(playbook, intake):
     text = gt.problem_text(playbook, intake)
     assert choose_playbook(text) == (playbook, False), text
     hints = intake_hints(text, playbook)
     for k, v in intake.items():
-        if k in ("decision", "return_period", "attribute_cause", "purpose", "statistic"):
+        if k in ("decision", "return_period", "attribute_cause", "purpose", "statistic", "flash_drought",
+                 "drought_concern", "demand_m3s", "demand_ml_day", "use", "storage", "crop", "area_ha",
+                 "planting_month"):
             assert hints.get(k) == v, (text, hints)
 
 

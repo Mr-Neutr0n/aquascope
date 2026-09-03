@@ -668,6 +668,26 @@ def _supply_regional(out: dict[str, Any], lat: float, lon: float, demand: float,
 # ── irrigation ──────────────────────────────────────────────────────────────
 
 
+_CROP_ALIASES = {"corn": "maize", "rice": "rice_paddy", "paddy": "rice_paddy", "winterwheat": "wheat_winter",
+                 "wheat": "wheat_winter", "soy": "soybean", "soybeans": "soybean", "peanut": "groundnut",
+                 "peanuts": "groundnut", "vine": "grape", "grapes": "grape", "tomatoes": "tomato", "potatoes": "potato",
+                 "olives": "olive", "onions": "onion"}
+
+
+def _crop_key(crop: Any, table: dict[str, Any]) -> str | None:
+    """The FAO-56 table key for a crop name written any which way ("Sugar Cane", "winter wheat", "corn")."""
+    import re
+
+    flat = re.sub(r"[^a-z]", "", str(crop or "").lower())
+    if not flat:
+        return None
+    by_flat = {re.sub(r"[^a-z]", "", k): k for k in table}
+    if flat in by_flat:
+        return by_flat[flat]
+    alias = _CROP_ALIASES.get(flat)
+    return alias if alias in table else None
+
+
 def crop_water_demand(
     lat: float,
     lon: float,
@@ -691,10 +711,10 @@ def crop_water_demand(
     """
     from aquascope.agri.crop_water import DEFAULT_STAGE_LENGTHS, KC_TABLE, get_kc, irrigation_schedule
 
-    key = str(crop or "").strip().lower().replace(" ", "_").replace("-", "_")
+    key = _crop_key(crop, KC_TABLE)
     out: dict[str, Any] = {"latitude": round(float(lat), 5), "longitude": round(float(lon), 5), "methods": [],
                            "notes": []}
-    if key not in KC_TABLE:
+    if key is None:
         return {"error": f"unknown crop {crop!r}; the FAO-56 table has {', '.join(sorted(KC_TABLE))}", **out}
     try:
         month = int(planting_month)

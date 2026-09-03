@@ -443,6 +443,9 @@ def intake_hints(text: str, playbook: str | None = None) -> dict[str, Any]:
             if re.search(pat, text, re.I):
                 out["use"] = use
                 break
+    if re.search(r"daily (irrigation )?schedul|irrigation schedul|when to irrigate|how much (water )?each (day|time)",
+                 text, re.I) and (playbook == "irrigation_feasibility" or re.search(r"irrigat", text, re.I)):
+        out["decision"] = "daily schedule"
     m = _AREA_HA.search(text)
     if m:
         out["area_ha"] = float(m.group(1))
@@ -712,6 +715,10 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
     return out
 
 
+def _months(n: Any) -> str:
+    return f"{n} month" if n == 1 else f"{n} months"
+
+
 def _drought_sentences(payload: dict[str, Any]) -> list[str]:
     out: list[str] = []
     src = payload.get("precipitation_source") or "the record"
@@ -723,16 +730,16 @@ def _drought_sentences(payload: dict[str, Any]) -> list[str]:
     spei = cur.get("spei") or {}
     scales = payload.get("timescales") or []
     if spi:
-        parts = [f"SPI-{s} {_fmt(spi.get(str(s)), 2)}" for s in scales if spi.get(str(s)) is not None]
+        parts = [f"{_fmt(spi.get(str(s)), 2)} at {_months(s)}" for s in scales if spi.get(str(s)) is not None]
         out.append(f"Drought indices on {where}, {payload.get('months')} months from {payload.get('start')} to "
-                   f"{payload.get('end')} ({_fmt(payload.get('years'))} years), as of {cur.get('date')}: "
+                   f"{payload.get('end')} ({_fmt(payload.get('years'))} years), as of {cur.get('date')}: SPI "
                    + ", ".join(parts) + ".")
     if spei:
-        parts = [f"SPEI-{s} {_fmt(spei.get(str(s)), 2)}" for s in scales if spei.get(str(s)) is not None]
+        parts = [f"{_fmt(spei.get(str(s)), 2)} at {_months(s)}" for s in scales if spei.get(str(s)) is not None]
         out.append(f"SPEI ({payload.get('pet_method')} PET): " + ", ".join(parts) + ".")
     head = payload.get("headline_timescale")
     state = "in drought" if payload.get("in_drought") else "not in drought"
-    out.append(f"Status on the {head}-month {str(payload.get('headline_index', 'index')).upper()}: "
+    out.append(f"Status on the {str(payload.get('headline_index', 'index')).upper()} at {_months(head)}: "
                f"{str(payload.get('status', '')).replace('_', ' ')}, {state} at the {payload.get('threshold')} "
                f"threshold.")
     for row in payload.get("indices") or []:
@@ -741,13 +748,13 @@ def _drought_sentences(payload: dict[str, Any]) -> list[str]:
         d = row.get("divergence") or {}
         lead = row.get("spei") or row.get("spi") or {}
         if lead.get("worst") is not None:
-            out.append(f"The worst {head}-month value on record was {_fmt(lead['worst'], 2)} in "
+            out.append(f"The worst value at {_months(head)} on record was {_fmt(lead['worst'], 2)} in "
                        f"{lead.get('worst_date')}; {lead.get('events')} drought events at or below "
                        f"{payload.get('threshold')}.")
         if d.get("mean_last_10y") is not None:
             drier = "drier" if d["mean_last_10y"] < 0 else "wetter"
-            out.append(f"SPI and SPEI diverge: over the last ten years SPEI-{head} reads "
-                       f"{_fmt(abs(d['mean_last_10y']), 2)} {drier} than SPI-{head} on average and is drier in "
+            out.append(f"SPI and SPEI diverge: over the last ten years SPEI minus SPI at {_months(head)} averages "
+                       f"{_fmt(d['mean_last_10y'], 2)} (SPEI the {drier}), and SPEI is drier in "
                        f"{_fmt(d.get('months_spei_drier_pct'), 3)} % of months (correlation "
                        f"{_fmt(d.get('correlation'), 2)}).")
     temp = payload.get("temperature") or {}
@@ -775,7 +782,7 @@ def _low_flow_sentences(payload: dict[str, Any], unit: str) -> list[str]:
     if rec.get("last_30d_mean") is not None:
         out.append(f"The last 30 days to {rec.get('end')} averaged {_fmt(rec['last_30d_mean'])} {unit}, a flow "
                    f"exceeded on {_fmt(rec.get('last_30d_exceedance_pct'), 3)} % of days in the record"
-                   + (f"; the last 90 days {_fmt(rec.get('last_90d_mean'))} {unit}, exceeded on "
+                   + (f"; the last three months {_fmt(rec.get('last_90d_mean'))} {unit}, exceeded on "
                       f"{_fmt(rec.get('last_90d_exceedance_pct'), 3)} % of days" if rec.get("last_90d_mean") is not None
                       else "") + ".")
     return out

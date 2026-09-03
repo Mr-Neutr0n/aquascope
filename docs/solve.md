@@ -95,6 +95,9 @@ site is refused before anything runs.
 | `flood_risk` | `at_site` (20+ years of discharge: Mann-Kendall pre-test, GEV by L-moments and Log-Pearson III with a bootstrap band, the spread quoted; a stationary estimate with a climate caveat, never a nonstationary fit), `short_record` (8 to 20 years: marginal at-site numbers next to donors and regionalised signatures), `regional` (no gauge: donors, signatures, a GloFAS cross-check) | a return period beyond about three times the record with fewer than three donors; inundation extent (out of scope) |
 | `ungauged_flow` | `at_gauge` (a gauge with 5+ years nearby: its flow-duration curve beside the regionalised signatures for the point), `regional` (donors, signatures with the band and the leave-one-out skill, GloFAS) | fewer than three donor gauges |
 | `groundwater_decline` | `well` (10+ years of levels: Sen's slope with Mann-Kendall, the Standardised Groundwater Index, water-table-fluctuation recharge with a stated specific yield), `regional` (no well: the ERA5 water balance for the cell, labelled regional) | attributing the cause without pumping data |
+| `drought_status` | `gauge_indices` (a rain gauge with 30+ years and ERA5 temperature reachable: SPI and SPEI at the intake timescales, default 1, 3 and 12 months, the divergence between them and the temperature trend behind it), `gauge_indices_marginal` (20 to 30 years, classes indicative), `gauge_spi_only` (no temperature: SPI with the caveat that SPEI is preferable under warming), `reanalysis` (no rain gauge: both indices from the ERA5 cell over 40 years); every branch adds, when the record exists, the low-flow context at the nearest discharge gauge and the SGI at the nearest well with the SPI-to-SGI propagation lag in months | a flash-drought question (no sub-monthly index; this playbook sees monthly droughts) |
+| `supply_reliability` | `gauged` (10+ years of discharge: Q95, Q50, Q10, baseflow index and 7Q10, then the screening rule on the daily record, Q95 kept in the river and at most the abstraction share taken, as the fraction of days, of years without a shortfall and of the volume the demand is met), `gauged_short` (5 to 10 years: the same, marginal, with the regional estimate beside it), `regional` (no gauge: donors, Q95, median and Q05 transferred with band and skill over the upstream area, the reliability read off them as a band) | a scheme with a reservoir (a storage-yield analysis it does not do); a missing demand; fewer than three donors |
+| `irrigation_feasibility` | `with_gauge` (ERA5 climate of the point, the crop's seasonal demand from FAO-56 single Kc on ERA5 ET0 averaged over the seasons in the window, then the supply screening at the gauge within reach on the peak-month demand over the season's months, the demand read from the previous step's result), `demand_only` (no gauge: the demand, with the note that supply was not checked) | a day-by-day schedule (needs soil parameters and the season's weather) |
 
 ### Writing a playbook
 
@@ -107,8 +110,9 @@ id: my_problem                 # the file name without .yaml
 title: ...
 problem: my_problem            # the problem kind the registry knows
 variable: discharge            # picks the station for {{ station.* }}
-intake:
+intake:                        # types: int, float, str, bool, choice (with options), list
   - {name: return_period, label: Return period (years), type: int, default: 100}
+  - {name: timescales, label: Timescales (months), type: list, default: [1, 3, 12]}
 branches:                      # first match wins; conditions over the recon dict
   - id: at_site
     when: [{path: context.years_by_variable.discharge, op: ">=", value: 20}]
@@ -125,6 +129,16 @@ branches:                      # first match wins; conditions over the recon dic
           - {check: min_years, value: 20, path: years}
         fallback: {step: {tool: similar_basins, arguments: {...}}}   # or {branch: regional} or stop
         depends_on: []
+      - id: s2
+        tool: drought_propagation
+        station_variable: groundwater_level   # this step's {{ station.* }} is the nearest well, not the branch's gauge
+        optional: true
+        arguments: {source: "{{ station.source }}", station_id: "{{ station.station_id }}", lat: "{{ site.lat }}", lon: "{{ site.lon }}"}
+      - id: s3
+        tool: supply_reliability
+        depends_on: [s1]
+        arguments: {source: "{{ station.source }}", station_id: "{{ station.station_id }}",
+                    demand_m3s: "{{ result.s1.demand.peak_month_m3s }}"}   # a number an earlier step computed; the runner fills it
 declines:
   - {when: [...], say: "the sentence printed verbatim"}
 caveats: ["always", {say: "only when", when: [...]}]
@@ -133,12 +147,20 @@ citations: ["..."]
 
 Conditions take `==`, `!=`, `>=`, `<=`, `>`, `<`, `in`, `exists`, and are
 evaluated over the recon dict extended with `intake`, `station`, `site` and
-`derived` (`discharge_years`, `groundwater_years`, `donors`, `dams`,
-`return_period_cap`, `return_period_beyond_cap`, `area_km2`). A workbench
-step takes `from_step: s2` to run on the series a previous `get_timeseries`
-step fetched. `aquascope.playbooks.validate("my_problem")` lists every
-authoring mistake; `tests/test_playbooks.py` shows the three fixtures
-(gauged long, gauged short, ungauged) a new playbook should be exercised on.
+`derived` (`discharge_years`, `groundwater_years`, `precipitation_years`,
+`has_temperature`, `donors`, `dams`, `return_period_cap`,
+`return_period_beyond_cap`, `area_km2`). A workbench step takes
+`from_step: s2` to run on the series a previous `get_timeseries` step
+fetched; a step that needs a number an earlier step computed writes
+`{{ result.s2.demand.peak_month_m3s }}` (a dotted path into that step's
+payload), which the plan leaves in place and the runner fills, and lists the
+step in `depends_on`. The site-level tools a playbook can call with what a
+plan knows (`drought_indices`, `drought_propagation`, `low_flow_context`,
+`supply_reliability`, `crop_water_demand`) live in `aquascope/problems.py`.
+`aquascope.playbooks.validate("my_problem")` lists every authoring mistake;
+`tests/test_playbooks.py` shows the fixtures (gauged long, gauged short,
+rain gauge with and without temperature, well, ungauged) a new playbook
+should be exercised on.
 
 ## What keyless gives, what a key adds
 

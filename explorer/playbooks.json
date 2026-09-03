@@ -1,6 +1,57 @@
 {
   "playbooks": [
     {
+      "id": "drought_status",
+      "title": "Drought status at a place",
+      "problem": "drought",
+      "description": "Whether a place is in drought and how severe it is: SPI and SPEI at several timescales from a rain gauge or the ERA5 cell, the groundwater drought index and its lag at a well within reach, the low-flow context at a gauge.",
+      "variable": "precipitation",
+      "intake": [
+        {
+          "name": "timescales",
+          "label": "Timescales (months)",
+          "type": "list",
+          "default": [
+            1,
+            3,
+            12
+          ],
+          "options": [],
+          "required": false,
+          "help": "Accumulation periods for SPI and SPEI, in months (1 for the month, 3 for the season, 12 for the year)."
+        },
+        {
+          "name": "drought_concern",
+          "label": "What the drought matters for",
+          "type": "choice",
+          "default": "other",
+          "options": [
+            "agriculture",
+            "water supply",
+            "groundwater",
+            "other"
+          ],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "flash_drought",
+          "label": "Flash drought (weeks, not months)",
+          "type": "bool",
+          "default": false,
+          "options": [],
+          "required": false,
+          "help": null
+        }
+      ],
+      "branches": [
+        "gauge_indices",
+        "gauge_indices_marginal",
+        "gauge_spi_only",
+        "reanalysis"
+      ]
+    },
+    {
       "id": "flood_risk",
       "title": "Flood risk at a site",
       "problem": "flood_risk",
@@ -79,6 +130,164 @@
       ],
       "branches": [
         "well",
+        "regional"
+      ]
+    },
+    {
+      "id": "irrigation_feasibility",
+      "title": "Irrigation feasibility at a point",
+      "problem": "irrigation",
+      "description": "A crop's seasonal water demand at a point (FAO-56 single Kc on ERA5 reference ET0) in mm, m3 and m3/s, and whether the nearest gauged river can supply it as a run-of-river abstraction; demand only when no gauge is within reach.",
+      "variable": "discharge",
+      "intake": [
+        {
+          "name": "crop",
+          "label": "Crop (FAO-56 table)",
+          "type": "choice",
+          "default": "maize",
+          "options": [
+            "alfalfa",
+            "banana",
+            "barley",
+            "cabbage",
+            "citrus",
+            "coffee",
+            "cotton",
+            "grape",
+            "groundnut",
+            "maize",
+            "olive",
+            "onion",
+            "pepper",
+            "potato",
+            "rice_paddy",
+            "sorghum",
+            "soybean",
+            "sugar_beet",
+            "sugarcane",
+            "sunflower",
+            "tea",
+            "tomato",
+            "wheat_winter"
+          ],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "area_ha",
+          "label": "Area (ha)",
+          "type": "float",
+          "default": 10,
+          "options": [],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "planting_month",
+          "label": "Planting month (1-12)",
+          "type": "int",
+          "default": 4,
+          "options": [],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "efficiency",
+          "label": "Irrigation efficiency",
+          "type": "float",
+          "default": 0.7,
+          "options": [],
+          "required": false,
+          "help": "Gross depth is the net requirement divided by this (0.7 for sprinkler, 0.9 for drip, 0.5 for surface)."
+        },
+        {
+          "name": "share",
+          "label": "Abstraction share of the flow allowed",
+          "type": "float",
+          "default": 0.1,
+          "options": [],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "decision",
+          "label": "What is being decided",
+          "type": "choice",
+          "default": "seasonal demand",
+          "options": [
+            "seasonal demand",
+            "daily schedule"
+          ],
+          "required": false,
+          "help": null
+        }
+      ],
+      "branches": [
+        "with_gauge",
+        "demand_only"
+      ]
+    },
+    {
+      "id": "supply_reliability",
+      "title": "Supply reliability of a river",
+      "problem": "supply_reliability",
+      "description": "Whether a river can supply a stated demand as a run-of-river abstraction: the fraction of days and years the flow, less an environmental reserve and capped at an abstraction share, meets it; from the gauge record, or from donor catchments as a band when there is no gauge.",
+      "variable": "discharge",
+      "intake": [
+        {
+          "name": "demand_m3s",
+          "label": "Demand (m3/s)",
+          "type": "float",
+          "default": null,
+          "options": [],
+          "required": false,
+          "help": "The abstraction wanted, in cubic metres per second; or give demand_ml_day."
+        },
+        {
+          "name": "demand_ml_day",
+          "label": "Demand (ML/day)",
+          "type": "float",
+          "default": null,
+          "options": [],
+          "required": false,
+          "help": "The abstraction wanted, in megalitres a day (1 ML/day is 0.01157 m3/s)."
+        },
+        {
+          "name": "use",
+          "label": "What the water is for",
+          "type": "choice",
+          "default": "other",
+          "options": [
+            "municipal",
+            "irrigation",
+            "industrial",
+            "other"
+          ],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "share",
+          "label": "Abstraction share of the flow allowed",
+          "type": "float",
+          "default": 0.1,
+          "options": [],
+          "required": false,
+          "help": "The largest fraction of the day's flow the abstraction may take (a screening rule)."
+        },
+        {
+          "name": "storage",
+          "label": "The scheme has a reservoir or storage",
+          "type": "bool",
+          "default": false,
+          "options": [],
+          "required": false,
+          "help": null
+        }
+      ],
+      "branches": [
+        "gauged",
+        "gauged_short",
         "regional"
       ]
     },
