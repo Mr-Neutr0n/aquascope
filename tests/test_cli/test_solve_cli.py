@@ -21,8 +21,9 @@ def test_playbooks_list_and_show(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["aquascope", "playbooks"])
     cli.main()
     out = capsys.readouterr().out
-    assert "flood_risk" in out and "ungauged_flow" in out and "groundwater_decline" in out
-    assert "water_quality" in out and "4 playbook(s)" in out
+    assert "flood_risk" in out and "ungauged_flow" in out and "groundwater_decline" in out and "7 playbook(s)" in out
+    assert "drought_status" in out and "supply_reliability" in out and "irrigation_feasibility" in out
+    assert "water_quality" in out
     monkeypatch.setattr(sys, "argv", ["aquascope", "playbooks", "show", "flood_risk"])
     cli.main()
     out = capsys.readouterr().out

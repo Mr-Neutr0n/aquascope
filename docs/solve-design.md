@@ -217,6 +217,22 @@ the implementation goes beyond or beside the contract:
 - **`aquascope solve` keeps its older meaning** without `--lat`/`--lon` (the
   challenge agent over a data file); with them it is the team.
 - **`describe_playbook`** is exposed next to `list_playbooks` (issue #307).
+- **Six playbooks.** `drought_status`, `supply_reliability` and
+  `irrigation_feasibility` joined the three exemplars. They needed three
+  small extensions of the contract: a `list` intake type (timescales); a
+  per-step `station_variable`, so a step's `{{ station.* }}` can be the
+  nearest well while the branch's is a rain gauge; and run-time placeholders
+  `{{ result.<step>.<path> }}` that the plan leaves in the study and the
+  runner resolves from an earlier step's payload (an irrigation demand
+  feeding a supply check), with the validator requiring the referenced step
+  to be earlier and in `depends_on`. `derived.has_temperature` reads the
+  context's `available` set. The site-level tools these playbooks call
+  (`aquascope/problems.py`: `drought_indices`, `drought_propagation`,
+  `low_flow_context`, `supply_reliability`, `crop_water_demand`) take a point
+  or a station and return JSON with their methods, and are MCP tools and
+  Analyst tools as well as study steps. The registry gained
+  `supply_reliability` and `spei_reanalysis` (ERA5 for the cell, so a
+  drought answer exists where no rain gauge does).
 - **`assess_site`** is called by the Scout through `aquascope.explore`; when
   it is unreachable the plan goes regional and says why in `recon_notes`.
 - **Not done here**: the Explorer worker face, `src/solve.js`, and the gym

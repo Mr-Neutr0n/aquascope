@@ -17,9 +17,15 @@ registry calls not defensible at this site is refused before anything runs
 Placeholders in step arguments and prose: ``{{ intake.<field> }}``,
 ``{{ station.source }}``, ``{{ station.station_id }}``, ``{{ station.name }}``,
 ``{{ station.years }}``, ``{{ site.lat }}``, ``{{ site.lon }}`` and
-``{{ derived.<key> }}``. Conditions (``when``) are evaluated over the recon
-dict extended with ``intake``, ``station``, ``site`` and ``derived`` (record
-lengths, the return-period cap from the registry, donors, dams).
+``{{ derived.<key> }}``, all resolved when the plan is filled. A step may also
+take a number an earlier step computed: ``{{ result.<step id>.<dotted path> }}``
+is left in the study and resolved by the runner against that step's payload
+(an irrigation demand feeding a supply check). Conditions (``when``) are
+evaluated over the recon dict extended with ``intake``, ``station``, ``site``
+and ``derived`` (record lengths, the return-period cap from the registry,
+donors, dams, whether temperature is reachable). A step names the variable
+its station carries with ``station_variable`` when it differs from the
+branch's (a well next to a rain gauge).
 """
 
 from __future__ import annotations
@@ -54,9 +60,11 @@ __all__ = [
 PLAYBOOK_DIR = Path(__file__).parent
 
 OPERATORS = ("==", "!=", ">=", "<=", ">", "<", "in", "exists")
-INTAKE_TYPES = ("int", "float", "str", "bool", "choice")
-_PLACEHOLDER = re.compile(r"\{\{\s*([a-z_]+)\.([A-Za-z0-9_]+)\s*\}\}")
+INTAKE_TYPES = ("int", "float", "str", "bool", "choice", "list")
+_PLACEHOLDER = re.compile(r"\{\{\s*([a-z_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_\[\]=-]+)*)\s*\}\}")
 _NAMESPACES = ("intake", "station", "site", "derived")
+#: Namespaces the plan leaves in place for the runner (``{{ result.s2.demand.mean_m3s }}``).
+_DEFERRED = ("result",)
 
 
 class PlaybookError(ValueError):
@@ -110,6 +118,8 @@ class StepTemplate(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     #: Dropped (with a note) rather than refused when the registry says not defensible.
     optional: bool = False
+    #: The variable this step's station must carry, when it differs from the branch's (a well beside a rain gauge).
+    station_variable: str | None = None
 
 
 class Branch(BaseModel):
@@ -246,6 +256,8 @@ def validate(playbook: str | Playbook | dict[str, Any]) -> list[str]:
             errors.append(f"intake {f.name}: a choice needs options")
         if f.type == "choice" and f.default is not None and f.default not in f.options:
             errors.append(f"intake {f.name}: default {f.default!r} is not among its options")
+        if f.type == "list" and f.default is not None and not isinstance(f.default, (list, tuple, str)):
+            errors.append(f"intake {f.name}: a list default is a list or a comma-separated string")
         if (f.min is not None or f.max is not None) and f.type not in ("int", "float"):
             errors.append(f"intake {f.name}: min/max apply to int and float fields only")
         if f.min is not None and f.max is not None and f.min > f.max:
@@ -285,7 +297,13 @@ def validate(playbook: str | Playbook | dict[str, Any]) -> list[str]:
             elif s.fallback not in (None, "stop"):
                 errors.append(f"branch {b.id}, step {s.id}: a fallback is {{step: ...}}, {{branch: ...}} or stop")
             for ns, key in _placeholders(s.model_dump()):
-                if ns not in _NAMESPACES:
+                if ns in _DEFERRED:
+                    ref = key.split(".", 1)[0]
+                    if ref not in ids:
+                        errors.append(f"branch {b.id}, step {s.id}: placeholder result.{key} names no earlier step")
+                    elif ref not in s.depends_on:
+                        errors.append(f"branch {b.id}, step {s.id}: reads result.{ref}, so depends_on must list {ref}")
+                elif ns not in _NAMESPACES:
                     errors.append(f"branch {b.id}, step {s.id}: unknown placeholder namespace {ns!r}")
                 elif ns == "intake" and key not in intake_names:
                     errors.append(f"branch {b.id}, step {s.id}: placeholder intake.{key} is not an intake field")
@@ -390,6 +408,21 @@ def _coerce(raw: Any, f: IntakeField) -> Any:
             if text.lower() == str(opt).lower():
                 return opt
         raise ValueError(f"{raw!r} is not one of {f.options}")
+    if f.type == "list":
+        items = raw if isinstance(raw, (list, tuple)) else [x for x in str(raw).replace(";", ",").split(",")]
+        out: list[Any] = []
+        for item in items:
+            text = str(item).strip()
+            if not text:
+                continue
+            try:
+                num = float(text)
+                out.append(int(num) if num.is_integer() else num)
+            except ValueError:
+                out.append(text)
+        if not out:
+            raise ValueError("an empty list")
+        return out
     return str(raw)
 
 
@@ -430,7 +463,9 @@ def _derived(recon: dict[str, Any], intake: dict[str, Any]) -> dict[str, Any]:
     elif isinstance(dams, (list, tuple)):
         dams = len(dams)
     donors = context.get("donors")
+    available = context.get("available")
     return {
+        "has_temperature": ("temperature" in available) if isinstance(available, (list, tuple, set)) else True,
         "discharge_years": discharge_years,
         "groundwater_years": float(years.get("groundwater_level") or 0.0),
         "precipitation_years": float(years.get("precipitation") or 0.0),
@@ -501,13 +536,20 @@ def _all_hold(conds: list[Condition], ctx: dict[str, Any]) -> bool:
 
 
 def _fill(obj: Any, ctx: dict[str, Any]) -> Any:
-    """Resolve placeholders; a string that is one placeholder keeps the value's type."""
+    """Resolve placeholders; a string that is one placeholder keeps the value's type.
+
+    A ``result.*`` placeholder is the runner's to resolve and is left as it is.
+    """
     if isinstance(obj, str):
         whole = _PLACEHOLDER.fullmatch(obj.strip())
         if whole:
+            if whole.group(1) in _DEFERRED:
+                return obj
             return _lookup(whole.group(1), whole.group(2), ctx)
 
         def sub(m: re.Match[str]) -> str:
+            if m.group(1) in _DEFERRED:
+                return m.group(0)
             v = _lookup(m.group(1), m.group(2), ctx)
             if isinstance(v, float) and v.is_integer():
                 v = int(v)
@@ -637,6 +679,9 @@ def plan(
     steps: list[Step] = []
     dropped: set[str] = set()
     for t in chosen.steps:
+        step_ctx = ctx
+        if t.station_variable and t.station_variable != (chosen.station_variable or pb.variable):
+            step_ctx = evaluation_context(pb, recon, intake, station_variable=t.station_variable)
         if t.method:
             verdict = _method_status(t.method, recon, intake)
             if verdict.get("status") == "not_defensible":
@@ -652,12 +697,12 @@ def plan(
             continue
         steps.append(Step(
             tool=t.tool,
-            arguments=_fill(dict(t.arguments), ctx),
+            arguments=_fill(dict(t.arguments), step_ctx),
             id=t.id,
-            rationale=_fill(t.rationale, ctx) if t.rationale else None,
+            rationale=_fill(t.rationale, step_ctx) if t.rationale else None,
             method=t.method,
-            expects=_fill([dict(g) for g in t.expects], ctx),
-            fallback=_fill(t.fallback, ctx) if isinstance(t.fallback, dict) else t.fallback,
+            expects=_fill([dict(g) for g in t.expects], step_ctx),
+            fallback=_fill(t.fallback, step_ctx) if isinstance(t.fallback, dict) else t.fallback,
             depends_on=list(t.depends_on),
         ))
     site = ctx["site"]

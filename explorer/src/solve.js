@@ -171,7 +171,10 @@ function renderIntake(pb) {
       input = document.createElement("input");
       input.type = f.type === "int" || f.type === "float" ? "number" : "text";
       if (f.type === "int") input.step = "1";
-      if (f.default !== null && f.default !== undefined) input.value = String(f.default);
+      if (f.type === "list") input.placeholder = "comma-separated";
+      if (f.default !== null && f.default !== undefined) {
+        input.value = Array.isArray(f.default) ? f.default.join(", ") : String(f.default);
+      }
     }
     input.dataset.name = f.name;
     input.dataset.type = f.type;
@@ -201,6 +204,11 @@ function readIntake() {
     else if (type === "int" || type === "float") {
       const v = type === "int" ? parseInt(el.value, 10) : parseFloat(el.value);
       if (Number.isFinite(v)) out[name] = v;
+    } else if (type === "list") {
+      // "1, 3, 12" -> [1, 3, 12]; Python's fill_intake coerces the same way.
+      const items = el.value.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+        .map((s) => (Number.isFinite(Number(s)) ? Number(s) : s));
+      if (items.length) out[name] = items;
     } else if (el.value !== "") out[name] = el.value;
   }
   return out;
@@ -217,6 +225,7 @@ function whatSummary(pb, text) {
     const short = String(f.label || f.name).replace(/\s*\(.*\)$/, "").toLowerCase();
     if (f.type === "bool") { if (v) bits.push(short); }
     else if (f.type === "int" || f.type === "float") bits.push(`${short} ${v}`);
+    else if (Array.isArray(v)) bits.push(`${short} ${v.join("/")}`);
     else bits.push(String(v));
   }
   return bits.join(" · ");

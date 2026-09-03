@@ -369,12 +369,41 @@ def problem_text(playbook: str, intake: dict[str, Any] | None = None) -> str:
         if intake.get("attribute_cause"):
             return "Is the water table under a well at this point falling, and why: is it pumping?"
         return "Is the water table under a well at this point falling, and how fast?"
+    if playbook == "drought_status":
+        if intake.get("flash_drought"):
+            return "Is a flash drought setting in at this point this week? Drought status over the last weeks."
+        concern = _CONCERN.get(str(intake.get("drought_concern") or ""), "")
+        return f"Is this point in drought{concern}? The drought status by SPI and SPEI."
+    if playbook == "supply_reliability":
+        if intake.get("demand_ml_day") is not None and intake.get("demand_m3s") is None:
+            demand = f"{intake['demand_ml_day']:g} ML/day"
+        else:
+            demand = f"{intake.get('demand_m3s') or 2:g} m3/s"
+        use = _USE.get(str(intake.get("use") or ""), "")
+        if intake.get("storage"):
+            return f"Can a reservoir on this river supply {demand}{use}? How reliable is the supply?"
+        return f"Can the river at this point supply {demand}{use}? How reliable is the supply?"
+    if playbook == "irrigation_feasibility":
+        crop = str(intake.get("crop") or "maize").replace("_", " ")
+        area = intake.get("area_ha") or 10
+        month = _MONTH_NAMES[int(intake.get("planting_month") or 4) - 1]
+        if str(intake.get("decision") or "") == "daily schedule":
+            return (f"Give me the daily irrigation schedule for {area:g} ha of {crop} planted in {month} at this "
+                    "point: when to irrigate and how much each day.")
+        return f"Can I irrigate {area:g} ha of {crop} planted in {month} at this point from the river?"
     from aquascope import playbooks as pbk
 
     try:
         return f"{pbk.load(playbook).title} at this point."
     except Exception:  # noqa: BLE001 - an unknown playbook still gets a sentence
         return f"{playbook.replace('_', ' ')} at this point."
+
+
+_CONCERN = {"agriculture": " for the crops", "water supply": " for the water supply",
+            "groundwater": " for the groundwater"}
+_USE = {"municipal": " to a town", "irrigation": " to an irrigation scheme", "industrial": " to a factory"}
+_MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                "November", "December")
 
 
 def decline_probes(playbook: Any) -> list[dict[str, Any]]:

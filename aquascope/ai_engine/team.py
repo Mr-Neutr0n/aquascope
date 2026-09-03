@@ -61,6 +61,21 @@ KEYWORDS: dict[str, list[str]] = {
         r"\b(nitrate|arsenic|e\.?\s*coli|coliform|turbidity|dissolved oxygen)\b",
         r"\bph\b|salinity|\bsar\b|sodium|irrigation (water )?(quality|suitab)", r"aquatic life|fish kill",
     ],
+    "drought_status": [
+        r"\bdrought", r"\bspi\b|\bspei\b", r"\bdry (spell|period|year|season)|how dry|\bdryness",
+        r"(rain|rainfall|precipitation) (deficit|shortfall|anomal)", r"in drought|drought (status|index|indices)",
+    ],
+    "supply_reliability": [
+        r"\breliab", r"\bsupply\b|\bsupplies\b|\bsupplying\b", r"\bdemand\b",
+        r"\d\s*(m3|m³|cumec|cubic met|ML|megalit)", r"\btown\b|municipal|drinking water|water works",
+        r"withdraw|divert|take (out|from) the river",
+    ],
+    "irrigation_feasibility": [
+        r"irrigat", r"\bcrops?\b|\bfield\b|\bfarm", r"\bhectares?\b|\bha\b",
+        r"\b(maize|wheat|rice|paddy|soy(bean)?|cotton|sugar ?cane|tomato|potato|grape|vine|citrus|olive|sunflower|"
+        r"barley|alfalfa|onion|cabbage|pepper|banana|coffee|tea|sorghum|groundnut|sugar ?beet)\b",
+        r"crop water|water requirement|planting|growing season",
+    ],
 }
 
 _RETURN_PERIOD = re.compile(r"(\d{1,4})\s*-?\s*(?:year|yr)\b", re.I)
@@ -79,6 +94,24 @@ Do not invent numbers, station names or citations. Plain prose, no headings, no 
 
 SPECIALIST_PROMPTS: dict[str, str] = {
     "default": "You are a hydrologist on AquaScope's team. A step of a study failed its gate.",
+    "drought_status": (
+        "You are the drought specialist on AquaScope's team. A step of a drought study failed its gate. Sound "
+        "fallbacks: drought_indices for the ERA5 cell instead of a short rain gauge (the record must reach 20 "
+        "years), a shorter set of timescales, low_flow_context on a nearby discharge gauge, or the SGI alone when "
+        "the propagation lag cannot be read. Never quote a sub-monthly index; this team sees monthly droughts."
+    ),
+    "supply_reliability": (
+        "You are the water-supply specialist on AquaScope's team. A step of a supply study failed its gate. Sound "
+        "fallbacks: supply_reliability for the point from donors (lat, lon) when the gauge record is too short, "
+        "similar_basins for a regional cross-check, low_flow_context for the low-flow statistics. Never propose a "
+        "storage-yield analysis; the playbook screens run-of-river abstraction."
+    ),
+    "irrigation_feasibility": (
+        "You are the irrigation specialist on AquaScope's team. A step of an irrigation study failed its gate. "
+        "Sound fallbacks: crop_water_demand over a longer ERA5 window, anywhere for the climate context, "
+        "supply_reliability against a gauge within reach. Keep to FAO-56 single Kc; say when supply was not "
+        "checked."
+    ),
     "flood_risk": (
         "You are the flood-frequency specialist on AquaScope's team. A step of a flood study failed its gate. "
         "Sound fallbacks: donor gauges (similar_basins) for a regional cross-check, regionalize_signatures for a "
@@ -405,7 +438,68 @@ def intake_hints(text: str, playbook: str | None = None) -> dict[str, Any]:
             if re.search(pat, text, re.I):
                 out["use"] = use
                 break
+    if playbook == "drought_status" or re.search(r"\bdrought", text, re.I):
+        if re.search(r"flash[- ]drought|(this|last|past|next) (week|fortnight)|\bweeks?\b", text, re.I):
+            out["flash_drought"] = True
+        for pat, concern in ((r"crop|farm|irrigat|agricultur|harvest", "agriculture"),
+                             (r"ground ?water|aquifer|well|borehole", "groundwater"),
+                             (r"supply|reservoir|drinking|town|municipal", "water supply")):
+            if re.search(pat, text, re.I):
+                out["drought_concern"] = concern
+                break
+    m = _DEMAND_M3S.search(text)
+    if m:
+        out["demand_m3s"] = float(m.group(1))
+    m = _DEMAND_ML.search(text)
+    if m and "demand_m3s" not in out:
+        out["demand_ml_day"] = float(m.group(1))
+    if playbook == "supply_reliability" or "demand_m3s" in out or "demand_ml_day" in out:
+        if re.search(r"reservoir|\bdam\b|storage|impound", text, re.I):
+            out["storage"] = True
+        for pat, use in ((r"\btown\b|city|municipal|drinking|household|domestic", "municipal"),
+                         (r"irrigat|farm|crop", "irrigation"),
+                         (r"factory|industr|plant|mine|mill|brewery", "industrial")):
+            if re.search(pat, text, re.I):
+                out["use"] = use
+                break
+    if re.search(r"daily (irrigation )?schedul|irrigation schedul|when to irrigate|how much (water )?each (day|time)",
+                 text, re.I) and (playbook == "irrigation_feasibility" or re.search(r"irrigat", text, re.I)):
+        out["decision"] = "daily schedule"
+    m = _AREA_HA.search(text)
+    if m:
+        out["area_ha"] = float(m.group(1))
+    m = _CROP.search(text)
+    if m:
+        out["crop"] = _CROP_KEYS.get(m.group(1).lower().replace(" ", "").replace("-", ""), m.group(1).lower())
+    m = _PLANT_MONTH.search(text)
+    if m:
+        out["planting_month"] = _MONTHS[m.group(1).lower()[:3]]
     return out
+
+
+_DEMAND_M3S = re.compile(r"(\d+(?:\.\d+)?)\s*(?:m3|m³|cubic met(?:er|re)s?|cumecs?)\s*(?:/|per|a)\s*s(?:ec(?:ond)?)?\b|"
+                         r"(\d+(?:\.\d+)?)\s*cumecs?\b", re.I)
+_DEMAND_ML = re.compile(r"(\d+(?:\.\d+)?)\s*(?:ML|megalit(?:er|re)s?)\s*(?:/|per|a)\s*(?:d(?:ay)?)\b", re.I)
+_AREA_HA = re.compile(r"(\d+(?:\.\d+)?)\s*(?:ha\b|hectares?)", re.I)
+_CROP = re.compile(r"\b(winter wheat|wheat|maize|corn|rice|paddy|soy(?:bean)?s?|cotton|sugar ?cane|tomato(?:es)?|"
+                   r"potato(?:es)?|grapes?|vines?|citrus|olives?|sunflowers?|barley|alfalfa|onions?|cabbages?|"
+                   r"peppers?|bananas?|coffee|tea|sorghum|groundnuts?|peanuts?|sugar ?beet)\b", re.I)
+_CROP_KEYS = {
+    "winterwheat": "wheat_winter", "wheat": "wheat_winter", "maize": "maize", "corn": "maize", "rice": "rice_paddy",
+    "paddy": "rice_paddy", "soy": "soybean", "soys": "soybean", "soybean": "soybean", "soybeans": "soybean",
+    "cotton": "cotton", "sugarcane": "sugarcane", "tomato": "tomato", "tomatoes": "tomato", "potato": "potato",
+    "potatoes": "potato", "grape": "grape", "grapes": "grape", "vine": "grape", "vines": "grape", "citrus": "citrus",
+    "olive": "olive", "olives": "olive", "sunflower": "sunflower", "sunflowers": "sunflower", "barley": "barley",
+    "alfalfa": "alfalfa", "onion": "onion", "onions": "onion", "cabbage": "cabbage", "cabbages": "cabbage",
+    "pepper": "pepper", "peppers": "pepper", "banana": "banana", "bananas": "banana", "coffee": "coffee", "tea": "tea",
+    "sorghum": "sorghum", "groundnut": "groundnut", "groundnuts": "groundnut", "peanut": "groundnut",
+    "peanuts": "groundnut", "sugarbeet": "sugar_beet",
+}
+_MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
+                                       "dec"), start=1)}
+_PLANT_MONTH = re.compile(r"(?:plant(?:ed|ing)?|sow(?:n|ing)?)\s+(?:in|from|on)?\s*(jan(?:uary)?|feb(?:ruary)?|"
+                          r"mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|"
+                          r"nov(?:ember)?|dec(?:ember)?)\b", re.I)
 
 
 # ── compacting tool payloads for a role's context ───────────────────────────
@@ -592,6 +686,47 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
         out.append(f"Standardised Groundwater Index: current {_fmt(payload.get('current'), 2)}, worst "
                    f"{_fmt(payload.get('worst'), 2)}, {len(payload.get('events') or [])} drought events below "
                    f"{payload.get('threshold')}.")
+    elif tool == "drought_indices":
+        out += _drought_sentences(payload)
+    elif tool == "drought_propagation":
+        sgi = payload.get("sgi") or {}
+        label = f"{payload.get('source')} {payload.get('station_id')}"
+        if sgi.get("current") is not None:
+            state = "in groundwater drought" if sgi.get("in_drought") else "not in drought"
+            out.append(f"Standardised Groundwater Index at well {label} ({_fmt(payload.get('years'))} years of "
+                       f"levels in {unit}, to {sgi.get('date')}): {_fmt(sgi['current'], 2)} now ({state} at the "
+                       f"{sgi.get('threshold')} threshold), worst {_fmt(sgi.get('worst'), 2)} in "
+                       f"{sgi.get('worst_date')}, {sgi.get('events')} drought events.")
+        best = (payload.get("propagation") or {}).get("best")
+        if isinstance(best, dict):
+            lag = _months(best.get("lag_months"))
+            out.append(f"Drought propagation: SPI over {_months(best.get('timescale'))} on ERA5 precipitation "
+                       f"correlates best with the SGI at a lag of {lag} (r = {_fmt(best.get('correlation'), 2)} over "
+                       f"{best.get('n')} months), so a rainfall deficit takes about {lag} to reach the water table "
+                       f"here.")
+    elif tool == "low_flow_context":
+        out += _low_flow_sentences(payload, unit)
+    elif tool == "supply_reliability":
+        out += _supply_sentences(payload)
+    elif tool == "crop_water_demand":
+        d = payload.get("demand") or {}
+        if d.get("gross_irrigation_mm") is not None:
+            rng_ = d.get("gross_irrigation_mm_range") or [None, None]
+            out.append(f"Crop water demand for {str(payload.get('crop', '')).replace('_', ' ')} on "
+                       f"{_fmt(payload.get('area_ha'))} ha planted on the first of month "
+                       f"{payload.get('planting_month')} (FAO-56 single Kc on ERA5 reference ET0, "
+                       f"{len(payload.get('years_used') or [])} seasons "
+                       f"averaged): crop evapotranspiration {_fmt(d.get('etc_mm'))} mm, effective rain "
+                       f"{_fmt(d.get('effective_rain_mm'))} mm, net irrigation {_fmt(d.get('net_irrigation_mm'))} mm, "
+                       f"gross irrigation {_fmt(d.get('gross_irrigation_mm'))} mm at an efficiency of "
+                       f"{_fmt(payload.get('efficiency'), 2)} (range {_fmt(rng_[0])} to {_fmt(rng_[1])} mm across "
+                       f"seasons).")
+            checked = any(s.tool == "supply_reliability" for s in study.steps)
+            tail = ("; the supply check against the gauge follows" if checked
+                    else "; supply was not checked, no gauge with a usable record is within reach")
+            out.append(f"That is {_fmt(d.get('gross_m3'), 6)} m3 over the {payload.get('season_days')}-day season, a "
+                       f"mean {_fmt(d.get('mean_m3s'), 3)} m3/s and {_fmt(d.get('peak_month_m3s'), 3)} m3/s in the "
+                       f"peak month{tail}.")
     elif tool == "recharge":
         out.append(f"Water-table-fluctuation recharge: {_fmt(payload.get('value_mm_per_year'))} mm per year "
                    f"(specific yield as given).")
@@ -669,6 +804,126 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
             if missing:
                 names = ", ".join(str(m).replace("_", " ") for m in missing[:8])
                 out.append(f"Not sampled, so not judged: {names}.")
+    return out
+
+
+def _months(n: Any) -> str:
+    return f"{n} month" if n == 1 else f"{n} months"
+
+
+def _drought_sentences(payload: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    src = payload.get("precipitation_source") or "the record"
+    st = payload.get("station") or {}
+    where = (f"rain gauge {st.get('source')} {st.get('station_id')} ({_fmt(st.get('years'))} years of "
+             f"{st.get('variable', 'precipitation')} in {st.get('unit', 'mm')})" if st else f"{src}")
+    cur = payload.get("current") or {}
+    spi = cur.get("spi") or {}
+    spei = cur.get("spei") or {}
+    scales = payload.get("timescales") or []
+    if spi:
+        parts = [f"{_fmt(spi.get(str(s)), 2)} at {_months(s)}" for s in scales if spi.get(str(s)) is not None]
+        out.append(f"Drought indices on {where}, {payload.get('months')} months from {payload.get('start')} to "
+                   f"{payload.get('end')} ({_fmt(payload.get('years'))} years), as of {cur.get('date')}: SPI "
+                   + ", ".join(parts) + ".")
+    if spei:
+        parts = [f"{_fmt(spei.get(str(s)), 2)} at {_months(s)}" for s in scales if spei.get(str(s)) is not None]
+        out.append(f"SPEI ({payload.get('pet_method')} PET): " + ", ".join(parts) + ".")
+    head = payload.get("headline_timescale")
+    state = "in drought" if payload.get("in_drought") else "not in drought"
+    out.append(f"Status on the {str(payload.get('headline_index', 'index')).upper()} at {_months(head)}: "
+               f"{str(payload.get('status', '')).replace('_', ' ')}, {state} at the {payload.get('threshold')} "
+               f"threshold.")
+    for row in payload.get("indices") or []:
+        if row.get("timescale") != head:
+            continue
+        d = row.get("divergence") or {}
+        lead = row.get("spei") or row.get("spi") or {}
+        if lead.get("worst") is not None:
+            out.append(f"The worst value at {_months(head)} on record was {_fmt(lead['worst'], 2)} in "
+                       f"{lead.get('worst_date')}; {lead.get('events')} drought events at or below "
+                       f"{payload.get('threshold')}.")
+        if d.get("mean_last_10y") is not None:
+            drier = "drier" if d["mean_last_10y"] < 0 else "wetter"
+            out.append(f"SPI and SPEI diverge: over the last ten years SPEI minus SPI at {_months(head)} averages "
+                       f"{_fmt(d['mean_last_10y'], 2)} (SPEI the {drier}), and SPEI is drier in "
+                       f"{_fmt(d.get('months_spei_drier_pct'), 3)} % of months (correlation "
+                       f"{_fmt(d.get('correlation'), 2)}).")
+    temp = payload.get("temperature") or {}
+    if temp.get("trend_c_per_decade") is not None:
+        p = temp.get("p_value")
+        sig = "significant" if isinstance(p, (int, float)) and p < 0.05 else "not significant"
+        out.append(f"ERA5 temperature for the cell: mean {_fmt(temp.get('mean_c'), 3)} C, trend "
+                   f"{_fmt(temp['trend_c_per_decade'], 2)} C per decade over {temp.get('n_years')} years "
+                   f"(Mann-Kendall {sig} at the 5 % level, p = {_fmt(p, 3)}).")
+    return out
+
+
+def _low_flow_sentences(payload: dict[str, Any], unit: str) -> list[str]:
+    out: list[str] = []
+    fdc = payload.get("fdc") or {}
+    label = f"{payload.get('source')} {payload.get('station_id')}"
+    if fdc.get("q95") is not None:
+        out.append(f"Low flows at gauge {label} ({_fmt(payload.get('years'))} years of discharge in {unit}, "
+                   f"{payload.get('start')} to {payload.get('end')}): Q95 {_fmt(fdc['q95'])} {unit}, Q50 "
+                   f"{_fmt(fdc.get('q50'))} {unit}, Q10 {_fmt(fdc.get('q10'))} {unit}"
+                   + (f", baseflow index {_fmt(payload.get('bfi'), 2)}" if payload.get("bfi") is not None else "")
+                   + (f", 7Q10 {_fmt((payload.get('low_flow') or {}).get('7q10'))} {unit}"
+                      if (payload.get("low_flow") or {}).get("7q10") is not None else "") + ".")
+    rec = payload.get("recent") or {}
+    if rec.get("last_30d_mean") is not None:
+        out.append(f"The last 30 days to {rec.get('end')} averaged {_fmt(rec['last_30d_mean'])} {unit}, a flow "
+                   f"exceeded on {_fmt(rec.get('last_30d_exceedance_pct'), 3)} % of days in the record"
+                   + (f"; the last three months {_fmt(rec.get('last_90d_mean'))} {unit}, exceeded on "
+                      f"{_fmt(rec.get('last_90d_exceedance_pct'), 3)} % of days" if rec.get("last_90d_mean") is not None
+                      else "") + ".")
+    return out
+
+
+def _supply_sentences(payload: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    rel = payload.get("reliability") or {}
+    demand = payload.get("demand_m3s")
+    if payload.get("mode") == "gauged":
+        label = f"{payload.get('source')} {payload.get('station_id')}"
+        fdc = payload.get("fdc") or {}
+        out.append(f"Supply screening at gauge {label} ({_fmt(payload.get('years'))} years of daily discharge in m3/s, "
+                   f"{payload.get('start')} to {payload.get('end')}): Q95 {_fmt(fdc.get('q95'))} m3/s, Q50 "
+                   f"{_fmt(fdc.get('q50'))} m3/s, Q10 {_fmt(fdc.get('q10'))} m3/s"
+                   + (f", baseflow index {_fmt(payload.get('bfi'), 2)}" if payload.get("bfi") is not None else "")
+                   + (f", 7Q10 {_fmt((payload.get('low_flow') or {}).get('7q10'))} m3/s"
+                      if (payload.get("low_flow") or {}).get("7q10") is not None else "") + ".")
+        months = payload.get("months")
+        share_pct = _fmt(100 * float(payload.get("share") or 0), 3)
+        out.append(f"A demand of {_fmt(demand)} m3/s with {payload.get('reserve_rule')} "
+                   f"({_fmt(payload.get('reserve_m3s'))} m3/s) and at most {share_pct} % of the flow taken needs the "
+                   f"river to carry {_fmt(payload.get('required_flow_m3s'))} m3/s: met on "
+                   f"{_fmt(100 * float(rel.get('daily') or 0), 3)} % of days"
+                   + (f" in months {months}" if months else "")
+                   + (f", in {_fmt(100 * float(rel['annual']), 3)} % of years without a shortfall"
+                      if rel.get("annual") is not None else "")
+                   + (f", {_fmt(100 * float(rel['volumetric']), 3)} % of the volume"
+                      if rel.get("volumetric") is not None else "") + f"; verdict: {payload.get('verdict')}.")
+        worst = rel.get("worst_year") or {}
+        if worst.get("year") is not None and rel.get("days_short_per_year") is not None:
+            out.append(f"Shortfalls average {_fmt(rel['days_short_per_year'], 3)} days a year; the worst year was "
+                       f"{worst['year']} with {worst.get('days_short')} days short.")
+    elif payload.get("mode") == "regional":
+        sig = payload.get("signatures_m3s") or {}
+        q95 = sig.get("q95") or {}
+        out.append(f"No gauge: from {payload.get('n_donors')} donor catchments "
+                   f"({payload.get('regionalisation_method')}) over an upstream area of "
+                   f"{_fmt(payload.get('area_km2'))} km2, the flow exceeded 95 % of the time is about "
+                   f"{_fmt(q95.get('value'))} m3/s (band {_fmt(q95.get('low'))} to {_fmt(q95.get('high'))} m3/s"
+                   + (f", leave-one-out NSE {_fmt(q95.get('loo_nse'), 2)}" if q95.get("loo_nse") is not None else "")
+                   + f"), the median {_fmt((sig.get('q50') or {}).get('value'))} m3/s.")
+        if rel.get("daily") is not None:
+            out.append(f"A demand of {_fmt(demand)} m3/s with {payload.get('reserve_rule')} and at most "
+                       f"{_fmt(100 * float(payload.get('share') or 0), 3)} % of the flow taken needs "
+                       f"{_fmt(payload.get('required_flow_m3s'))} m3/s in the river, exceeded about "
+                       f"{_fmt(100 * float(rel['daily']), 3)} % of the time (band "
+                       f"{_fmt(100 * float(rel.get('low') or 0), 3)} to "
+                       f"{_fmt(100 * float(rel.get('high') or 0), 3)} %); verdict: {payload.get('verdict')}.")
     return out
 
 
@@ -1153,10 +1408,20 @@ def _now() -> str:
 def _scout(site: dict[str, float], kind: str | None, intake: dict[str, Any],
            say: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     rp = intake.get("return_period")
+    # The reconnaissance narrows its table by the registry's problem kind, which is the playbook's `problem`
+    # (drought for drought_status), not its id.
+    problem: str | None = None
+    if kind:
+        from aquascope import playbooks as pbk
+
+        try:
+            problem = pbk.load(kind).problem
+        except pbk.PlaybookError:
+            problem = kind
     try:
         from aquascope.explore import assess_site
 
-        recon = assess_site(site["lat"], site["lon"], problem=kind,
+        recon = assess_site(site["lat"], site["lon"], problem=problem,
                             return_period=float(rp) if isinstance(rp, (int, float)) else None)
     except Exception as exc:  # noqa: BLE001 - no reconnaissance is a fact the plan has to live with
         recon = {"point": dict(site), "stations": [], "catchment": {},

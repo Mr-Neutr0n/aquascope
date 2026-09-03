@@ -109,7 +109,10 @@ def test_tool_specs_cover_the_mcp_surface():
                      # code for the questions no fixed tool covers (#234)
                      "run_python",
                      # Ask hands a problem at a place to Solve (#307, #308)
-                     "list_playbooks", "describe_playbook", "solve_plan", "solve_run"}
+                     "list_playbooks", "describe_playbook", "solve_plan", "solve_run",
+                     # the site-level tools of the drought, supply and irrigation playbooks (#309)
+                     "drought_indices", "drought_propagation", "low_flow_context", "supply_reliability",
+                     "crop_water_demand"}
     tools = analyst._openai_tools(analyst._tool_specs())
     assert all(t["type"] == "function" and "parameters" in t["function"] for t in tools)
 

@@ -374,6 +374,120 @@ def regionalize_signatures(lat: float, lon: float, k: int = 10, method: str = "s
         return {"error": f"regionalisation failed: {type(exc).__name__}: {exc}"}
 
 
+def drought_indices(
+    lat: float,
+    lon: float,
+    years: int = 40,
+    timescales: list[int] | None = None,
+    source: str | None = None,
+    station_id: str | None = None,
+    pet: str = "thornthwaite",
+) -> dict[str, Any]:
+    """Drought status at a place: SPI and SPEI at several timescales (default 1, 3 and 12 months) with the
+    divergence between them. Give source + station_id for a rain gauge (its whole record is the P of both
+    indices, ERA5 supplies the PET); without one, ERA5 precipitation for the cell over the last `years`. pet:
+    thornthwaite (from ERA5 temperature, the PET SPEI was introduced with), fao56 (ERA5 FAO-56 ET0) or none
+    (SPI only). Returns current values and classes, the worst month, drought events, the ERA5 temperature
+    trend, the thinned series and the citations. SPEI is preferable under warming; a record shorter than 30
+    years is marginal (20 is the floor).
+    """
+    from aquascope.problems import drought_indices as _run
+
+    try:
+        return _run(float(lat), float(lon), years=int(years), timescales=timescales or (1, 3, 12),
+                    source=source or None, station_id=station_id or None, pet=pet or "thornthwaite")
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"drought_indices failed: {type(exc).__name__}: {exc}"}
+
+
+def drought_propagation(
+    source: str,
+    station_id: str,
+    lat: float,
+    lon: float,
+    years: int | None = None,
+    max_lag: int = 24,
+) -> dict[str, Any]:
+    """Groundwater drought at a well and how rainfall deficits reach it: the Standardised Groundwater Index
+    (current, worst, events) and the SPI accumulation period (1 to 24 months, on ERA5 precipitation for the
+    cell) and lag (0 to max_lag months) whose cross-correlation with the SGI is highest (Bloomfield and
+    Marchant 2013). Ten years of monthly levels is the registry's floor for the SGI.
+    """
+    from aquascope.problems import drought_propagation as _run
+
+    try:
+        return _run(source, station_id, float(lat), float(lon), years=int(years) if years else None,
+                    max_lag=int(max_lag))
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"drought_propagation failed: {type(exc).__name__}: {exc}"}
+
+
+def low_flow_context(source: str, station_id: str, years: int | None = None) -> dict[str, Any]:
+    """How low is low at a gauge, and is the river low now: Q95, Q50, Q10 (and Q05, Q25, Q75, Q90), the baseflow
+    index (Lyne-Hollick), the 7Q10 low-flow statistic when the record has ten years, and the last 30 and 90
+    days' mean flow with the share of the record that exceeds it.
+    """
+    from aquascope.problems import low_flow_context as _run
+
+    try:
+        return _run(source, station_id, years=int(years) if years else None)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"low_flow_context failed: {type(exc).__name__}: {exc}"}
+
+
+def supply_reliability(
+    demand_m3s: float | None = None,
+    demand_ml_day: float | None = None,
+    source: str | None = None,
+    station_id: str | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+    share: float = 0.1,
+    reserve: str = "q95",
+    months: list[int] | None = None,
+) -> dict[str, Any]:
+    """Can a river supply a demand, as a run-of-river screening. demand in m3/s or ML/day. On any day the
+    abstraction may take at most `share` of the flow and must leave `reserve` in the river (q95 by default, a
+    number in m3/s, or none). Gauged (source + station_id): the fraction of days, of years without a shortfall
+    and of the volume the record would have supplied, over the year or over `months`; also Q95/Q50/Q10, the
+    baseflow index and 7Q10. Ungauged (lat + lon): the reliability read off Q95, median and Q05 transferred
+    from donor catchments, as a band with the leave-one-out skill. A screening rule (flow-duration-curve
+    environmental-flow practice), not a storage-yield analysis.
+    """
+    from aquascope.problems import supply_reliability as _run
+
+    try:
+        return _run(demand_m3s=demand_m3s, demand_ml_day=demand_ml_day, source=source or None,
+                    station_id=station_id or None, lat=lat, lon=lon, share=float(share), reserve=reserve,
+                    months=months or None)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"supply_reliability failed: {type(exc).__name__}: {exc}"}
+
+
+def crop_water_demand(
+    lat: float,
+    lon: float,
+    crop: str,
+    area_ha: float,
+    planting_month: int,
+    efficiency: float = 0.7,
+    years: int = 10,
+) -> dict[str, Any]:
+    """A crop's seasonal irrigation demand at a point: FAO-56 single Kc (Table 12 crops: maize, wheat_winter,
+    rice_paddy, ...) on ERA5 FAO-56 reference ET0, effective rainfall subtracted, divided by the irrigation
+    efficiency; the season from the first of planting_month is run for every year of the ERA5 window and
+    averaged (range kept). Returns the depth in mm, the volume in m3 over area_ha, the mean and peak-month
+    rates in m3/s, and the season's months for a supply check. Supply is not checked here.
+    """
+    from aquascope.problems import crop_water_demand as _run
+
+    try:
+        return _run(float(lat), float(lon), crop=crop, area_ha=float(area_ha), planting_month=int(planting_month),
+                    efficiency=float(efficiency), years=int(years))
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"crop_water_demand failed: {type(exc).__name__}: {exc}"}
+
+
 def analyse_table(
     csv: str,
     analysis: str,
@@ -431,10 +545,10 @@ def list_analyses() -> dict[str, Any]:
 
 
 def list_playbooks() -> dict[str, Any]:
-    """The problem playbooks: for each class of problem (flood risk, ungauged flow, groundwater decline, water
-    quality), the method chain aquascope follows for the data that exists at a site, as data. Each has intake
-    fields, branches over the reconnaissance, gates per step, the sentences it prints when it declines, caveats and
-    citations.
+    """The problem playbooks: for each class of problem (flood risk, ungauged flow, groundwater decline, drought
+    status, supply reliability, irrigation feasibility, water quality), the method chain aquascope follows for
+    the data that exists at a site, as data. Each has intake fields, branches over the reconnaissance, gates per
+    step, the sentences it prints when it declines, caveats and citations.
     Use solve_plan to get the study a playbook fills for a problem at a point, and solve_run to execute it.
     """
     from aquascope import playbooks as pbk
@@ -613,6 +727,11 @@ def build_server():
     server.tool()(describe_catchment)
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)
+    server.tool()(drought_indices)
+    server.tool()(drought_propagation)
+    server.tool()(low_flow_context)
+    server.tool()(supply_reliability)
+    server.tool()(crop_water_demand)
     server.tool()(archive_health)
     server.tool()(list_analyses)
     server.tool()(analyse_table)

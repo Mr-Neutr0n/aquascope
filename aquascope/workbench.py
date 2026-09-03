@@ -53,6 +53,8 @@ __all__ = [
     "run",
     "sgi_drought",
     "signatures",
+    "spei",
+    "standardized_indices",
     "who_screen",
     "wqi",
 ]
@@ -124,6 +126,7 @@ _PARAM_CANDIDATES = ("parameter", "variable", "characteristic_name")
 _VALUE_CANDIDATES = ("value", "result_value", "reading_value")
 _DISCHARGE_HINTS = ("discharge", "flow", "streamflow", "q_cms")
 _LEVEL_HINTS = ("level", "gwl", "water_level", "head", "wtr_level")
+_PRECIP_HINTS = ("precip", "rain", "ppt", "pr_mm")
 _NON_VALUE = ("latitude", "longitude", "lat", "lon", "elevation")
 
 
@@ -259,6 +262,10 @@ def pick_column(df: pd.DataFrame, column: str | None = None, *, prefer: str = "v
         if hinted:
             return hinted
         return prof.discharge_col if prof.discharge_col in numeric else numeric[0]
+    if prefer == "precipitation":
+        hinted = next((c for c in numeric if any(h in str(c).lower() for h in _PRECIP_HINTS)), None)
+        if hinted:
+            return hinted
     return prof.value_col if prof.value_col in numeric else numeric[0]
 
 
@@ -821,6 +828,163 @@ def irrigation(weather: pd.DataFrame, *, latitude: float, elevation: float, crop
     }
 
 
+# ── drought indices ─────────────────────────────────────────────────────────
+
+
+def standardized_indices(precip_monthly: pd.Series, pet_monthly: pd.Series | None = None, *,
+                         timescales: list[int] | tuple[int, ...] = (1, 3, 12), threshold: float = -1.0,
+                         max_points: int = 1200) -> dict[str, Any]:
+    """SPI, and SPEI when a PET series is given, at several timescales, with the divergence between them.
+
+    The block the ``spei`` analysis and the site-level ``drought_indices`` tool
+    both return: per timescale the current value and class of each index, the
+    worst month, the drought events (runs at or below ``threshold``) and the
+    thinned series; ``current`` and ``status`` summarise the headline
+    timescale (3 months when it is among them, else the first).
+    """
+    from aquascope.climate.indices import (
+        drought_class,
+        standardized_precipitation_evapotranspiration_index,
+        standardized_precipitation_index,
+    )
+    from aquascope.groundwater.drought import drought_events
+
+    scales = [int(s) for s in (timescales or (1, 3, 12))]
+    if not scales or any(s < 1 for s in scales):
+        raise ValueError("timescales must be positive months")
+    p = precip_monthly.dropna().sort_index()
+    if len(p) < 12 * 2:
+        raise ValueError("A standardised index needs at least two years of monthly values.")
+    headline = 3 if 3 in scales else scales[0]
+
+    def describe(index: pd.Series) -> dict[str, Any]:
+        s = index.dropna()
+        if s.empty:
+            return {"current": None, "class": "unknown", "date": None, "worst": None, "worst_date": None, "n": 0}
+        return {
+            "current": jsonable(s.iloc[-1]), "class": drought_class(float(s.iloc[-1])),
+            "date": s.index[-1].date().isoformat(), "worst": jsonable(s.min()),
+            "worst_date": s.idxmin().date().isoformat(), "n": int(len(s)),
+            "events": len(drought_events(s, threshold=threshold)),
+        }
+
+    rows: list[dict[str, Any]] = []
+    current: dict[str, Any] = {"date": None, "spi": {}, "spei": {}}
+    for scale in scales:
+        spi = standardized_precipitation_index(p, scale=scale)
+        row: dict[str, Any] = {"timescale": scale, "spi": describe(spi), "spei": None, "divergence": None}
+        current["spi"][str(scale)] = row["spi"]["current"]
+        series: dict[str, Any] = {"spi": spi}
+        if pet_monthly is not None:
+            spei = standardized_precipitation_evapotranspiration_index(p, pet_monthly, scale)
+            row["spei"] = describe(spei)
+            current["spei"][str(scale)] = row["spei"]["current"]
+            series["spei"] = spei
+            both = pd.concat([spi.rename("spi"), spei.rename("spei")], axis=1, join="inner").dropna()
+            if len(both):
+                diff = both["spei"] - both["spi"]
+                recent = diff.iloc[-120:]
+                row["divergence"] = {
+                    "current": jsonable(diff.iloc[-1]),
+                    "mean_last_10y": jsonable(recent.mean()),
+                    "months_spei_drier_pct": jsonable(100.0 * float((recent < 0).mean())),
+                    "correlation": jsonable(both["spi"].corr(both["spei"])),
+                    "n": int(len(both)),
+                }
+        frame = pd.concat(series, axis=1).dropna(how="all")
+        step = max(1, len(frame) // max_points)
+        frame = frame.iloc[::step]
+        row["series"] = {"index": [t.date().isoformat() for t in frame.index], "step": step}
+        for name in series:
+            row["series"][name] = [jsonable(v) for v in frame[name].to_numpy()]
+        rows.append(row)
+    head = next(r for r in rows if r["timescale"] == headline)
+    lead = head["spei"] if head["spei"] and head["spei"]["current"] is not None else head["spi"]
+    current["date"] = lead["date"]
+    return {
+        "timescales": scales,
+        "headline_timescale": headline,
+        "headline_index": "spei" if head["spei"] and head["spei"]["current"] is not None else "spi",
+        "threshold": threshold,
+        "months": int(len(p)),
+        "start": p.index[0].date().isoformat(),
+        "end": p.index[-1].date().isoformat(),
+        "years": round(len(p) / 12.0, 1),
+        "indices": rows,
+        "current": current,
+        "status": lead["class"],
+        "in_drought": bool(lead["current"] is not None and lead["current"] <= threshold),
+    }
+
+
+def spei(df: pd.DataFrame, column: str | None = None, *, pet_column: str | None = None,
+         temperature_column: str | None = None, latitude: float | None = None,
+         timescales: list[int] | tuple[int, ...] = (1, 3, 12)) -> dict[str, Any]:
+    """SPI and SPEI from a dated table of precipitation with a PET or a temperature column."""
+    from aquascope.climate.indices import thornthwaite_pet
+
+    prof = profile(df)
+    col = pick_column(df, column, prefer="precipitation", prof=prof)
+    p = datetime_indexed(df, col, prof)
+    if not isinstance(p.index, pd.DatetimeIndex):
+        raise ValueError("spei needs a dated table (a date column and precipitation).")
+    monthly_p = p.resample("MS").sum(min_count=1).dropna()
+    if pet_column:
+        if pet_column not in df.columns:
+            raise ValueError(f"No column {pet_column!r}; columns are {list(df.columns)}")
+        pet = datetime_indexed(df, pet_column, prof).resample("MS").sum(min_count=1).dropna()
+        pet_method = "given"
+    elif temperature_column:
+        if temperature_column not in df.columns:
+            raise ValueError(f"No column {temperature_column!r}; columns are {list(df.columns)}")
+        if latitude is None:
+            raise ValueError("Thornthwaite PET from temperature needs latitude.")
+        t = datetime_indexed(df, temperature_column, prof).resample("MS").mean().dropna()
+        pet = thornthwaite_pet(t, float(latitude))
+        pet_method = "thornthwaite"
+    else:
+        raise ValueError("spei needs pet_column (mm) or temperature_column (deg C) with latitude.")
+    out = standardized_indices(monthly_p, pet, timescales=timescales)
+    out.update({
+        "column": col,
+        "pet_column": pet_column,
+        "temperature_column": temperature_column,
+        "pet_method": pet_method,
+        "methods": [SPI_METHOD, SPEI_METHOD] + ([THORNTHWAITE_METHOD] if pet_method == "thornthwaite" else []),
+    })
+    return out
+
+
+SPI_METHOD = {
+    "name": "Standardized Precipitation Index",
+    "text": "Monthly precipitation accumulated over the timescale, a gamma distribution fitted per calendar month "
+            "(a point mass at zero), the probability mapped to a standard-normal score; SPI at or below -1 is "
+            "drought (McKee classes).",
+    "citation": "McKee, T. B., Doesken, N. J., & Kleist, J. (1993). The relationship of drought frequency and "
+                "duration to time scales. Proc. 8th Conf. on Applied Climatology, 179-184; WMO (2012). Standardized "
+                "Precipitation Index User Guide, WMO-No. 1090.",
+}
+SPEI_METHOD = {
+    "name": "Standardized Precipitation-Evapotranspiration Index",
+    "text": "The climatic water balance (precipitation minus potential evapotranspiration) accumulated over the "
+            "timescale, a three-parameter log-logistic (generalized logistic) distribution fitted per calendar "
+            "month by L-moments, the probability mapped to a standard-normal score. Sees evaporative-demand "
+            "drought under warming that SPI misses.",
+    "citation": "Vicente-Serrano, S. M., Begueria, S., & Lopez-Moreno, J. I. (2010). A multiscalar drought index "
+                "sensitive to global warming: the Standardized Precipitation Evapotranspiration Index. "
+                "J. Climate 23, 1696-1718. doi:10.1175/2009JCLI2909.1; Begueria, S. et al. (2014). SPEI revisited: "
+                "parameter fitting, evapotranspiration models, tools, datasets and drought monitoring. "
+                "Int. J. Climatol. 34, 3001-3023. doi:10.1002/joc.3887",
+}
+THORNTHWAITE_METHOD = {
+    "name": "Thornthwaite potential evapotranspiration",
+    "text": "Monthly PET from mean air temperature and the annual heat index, corrected for day length at the "
+            "latitude and the days in the month; a temperature-only approximation, the PET SPEI was introduced with.",
+    "citation": "Thornthwaite, C. W. (1948). An approach toward a rational classification of climate. "
+                "Geographical Review 38, 55-94.",
+}
+
+
 # ── groundwater ─────────────────────────────────────────────────────────────
 
 
@@ -921,6 +1085,8 @@ TOOLS: dict[str, dict[str, Any]] = {
     "reference_et": {"func": reference_et, "needs": "weather", "summary": "FAO-56 reference evapotranspiration."},
     "irrigation": {"func": irrigation, "needs": "weather",
         "summary": "Crop water requirement and irrigation schedule."},
+    "spei": {"func": spei, "needs": "frame",
+        "summary": "SPI and SPEI drought indices from precipitation and PET or temperature."},
     "sgi_drought": {"func": sgi_drought, "needs": "frame", "summary": "Groundwater drought index and events."},
     "recharge": {"func": recharge, "needs": "frame", "summary": "Water-table fluctuation recharge."},
     "aquifer_drawdown": {"func": aquifer_drawdown, "needs": "none", "summary": "Theis drawdown at a distance."},

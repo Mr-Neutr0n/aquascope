@@ -217,8 +217,9 @@ def test_solve_tools_plan_then_run_with_no_model():
     from tests.test_ai_engine.test_team import CATCHMENT, FLOW, RECON
 
     listed = m.list_playbooks()
-    assert listed["n"] == 4 and {p["id"] for p in listed["playbooks"]} == {"flood_risk", "ungauged_flow",
-                                                                           "groundwater_decline", "water_quality"}
+    assert listed["n"] == 7 and {p["id"] for p in listed["playbooks"]} == {
+        "flood_risk", "ungauged_flow", "groundwater_decline", "drought_status", "supply_reliability",
+        "irrigation_feasibility", "water_quality"}
     assert "error" in m.describe_playbook("nope") and m.describe_playbook("flood_risk")["id"] == "flood_risk"
     tools = {"describe_catchment": lambda **kw: CATCHMENT, "analyze_station": lambda **kw: FLOW,
              "flood_frequency": lambda **kw: FLOW}
@@ -241,7 +242,8 @@ def test_the_server_registers_the_solve_tools():
     server = m.build_server()
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
-    assert {"list_playbooks", "describe_playbook", "solve_plan", "solve_run"} <= names
+    assert {"list_playbooks", "describe_playbook", "solve_plan", "solve_run", "drought_indices", "drought_propagation",
+            "low_flow_context", "supply_reliability", "crop_water_demand"} <= names
 
 
 def test_find_stations_multi_word_query_reaches_the_river():

@@ -227,6 +227,60 @@ def _tool_specs() -> list[ToolSpec]:
             t.regionalize_signatures,
         ),
         ToolSpec(
+            "drought_indices",
+            "Drought status at a place: SPI and SPEI at 1, 3 and 12 months (or timescales) with their divergence, "
+            "from a rain gauge (source + station_id, its whole record) or the ERA5 cell (lat, lon, last years). "
+            "pet: thornthwaite (default, from ERA5 temperature) | fao56 | none. Prefer SPEI under warming.",
+            {"type": "object", "properties": {"lat": num, "lon": num, "years": {"type": "integer"},
+                                              "timescales": {"type": "array", "items": {"type": "integer"}},
+                                              "source": {"type": "string"}, "station_id": {"type": "string"},
+                                              "pet": {"type": "string"}},
+             "required": ["lat", "lon"]},
+            t.drought_indices,
+        ),
+        ToolSpec(
+            "drought_propagation",
+            "Groundwater drought at a well (Standardised Groundwater Index) and the SPI timescale and lag in months "
+            "at which rainfall deficits reach it (cross-correlation, Bloomfield and Marchant 2013).",
+            {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
+                                              "lat": num, "lon": num, "years": {"type": "integer"},
+                                              "max_lag": {"type": "integer"}},
+             "required": ["source", "station_id", "lat", "lon"]},
+            t.drought_propagation,
+        ),
+        ToolSpec(
+            "low_flow_context",
+            "How low is low at a gauge and is it low now: Q95/Q50/Q10, baseflow index, 7Q10, and where the last 30 "
+            "and 90 days sit in the record.",
+            {"type": "object", "properties": {"source": {"type": "string"}, "station_id": {"type": "string"},
+                                              "years": {"type": "integer"}},
+             "required": ["source", "station_id"]},
+            t.low_flow_context,
+        ),
+        ToolSpec(
+            "supply_reliability",
+            "Can a river supply a demand (demand_m3s or demand_ml_day): a run-of-river screening keeping a reserve "
+            "(q95 by default) in the river and taking at most share of the flow. Gauged with source + station_id "
+            "(fraction of days, years and volume met, over the year or over months), ungauged with lat + lon "
+            "(reliability band from donor-transferred Q95/median/Q05). Not a storage-yield analysis.",
+            {"type": "object", "properties": {"demand_m3s": num, "demand_ml_day": num, "source": {"type": "string"},
+                                              "station_id": {"type": "string"}, "lat": num, "lon": num,
+                                              "share": num, "reserve": {"type": "string"},
+                                              "months": {"type": "array", "items": {"type": "integer"}}}},
+            t.supply_reliability,
+        ),
+        ToolSpec(
+            "crop_water_demand",
+            "A crop's seasonal irrigation demand at a point (FAO-56 single Kc on ERA5 ET0, effective rain "
+            "subtracted, divided by efficiency): mm, m3 over area_ha, mean and peak-month m3/s, the season's "
+            "months. crop is a FAO-56 Table 12 key (maize, wheat_winter, rice_paddy, ...). Supply not checked.",
+            {"type": "object", "properties": {"lat": num, "lon": num, "crop": {"type": "string"}, "area_ha": num,
+                                              "planting_month": {"type": "integer"}, "efficiency": num,
+                                              "years": {"type": "integer"}},
+             "required": ["lat", "lon", "crop", "area_ha", "planting_month"]},
+            t.crop_water_demand,
+        ),
+        ToolSpec(
             "run_python",
             "Run a short Python snippet with aquascope, workbench, pandas (pd) and numpy (np) already imported, "
             "plus any data the page passed (for example df, the record on screen). Leave what you want back in a "
@@ -245,8 +299,9 @@ def _tool_specs() -> list[ToolSpec]:
             "Run one workbench analysis on a table the user supplied as CSV text: eda, quality, who_screen, "
             "wqi (CCME WQI 1.0 against WHO drinking-water, FAO 29 irrigation or CCME aquatic-life guidelines, "
             "plus the NSF WQI; params use, variant), iwqi (FAO 29 irrigation suitability), flow_duration, "
-            "baseflow, recession, flood_frequency, signatures, return_periods, sgi_drought, recharge, "
-            "aquifer_drawdown. params carries the analysis's own options.",
+            "baseflow, recession, flood_frequency, signatures, return_periods, spei (precipitation with a "
+            "pet_column or temperature_column + latitude), sgi_drought, recharge, aquifer_drawdown. params "
+            "carries the analysis's own options.",
             {"type": "object", "properties": {"csv": {"type": "string"}, "analysis": {"type": "string"},
                                               "params": {"type": "object"}},
              "required": ["analysis"]},
@@ -258,9 +313,10 @@ def _tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             "list_playbooks",
-            "The problem playbooks (flood risk, ungauged flow, groundwater decline, water quality): the method chain "
-            "aquascope follows for the data that exists at a site. Use solve_plan when the user has a problem at a "
-            "place rather than a question about a station.",
+            "The problem playbooks (flood risk, ungauged flow, groundwater decline, drought status, supply "
+            "reliability, irrigation feasibility, water quality): the method chain aquascope follows for the data "
+            "that exists at a site. Use solve_plan when the user has a problem at a place rather than a question "
+            "about a station.",
             {"type": "object", "properties": {}}, t.list_playbooks,
         ),
         ToolSpec(
