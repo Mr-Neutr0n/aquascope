@@ -1013,8 +1013,66 @@ def cmd_assess(args: argparse.Namespace) -> None:
 
 
 def cmd_gym(args: argparse.Namespace) -> None:
-    """`aquascope gym basins|run|leaderboard`: HydroGym, the calibration environment over real basins."""
+    """`aquascope gym basins|run|leaderboard`: HydroGym, the calibration environment over real basins (Phase 0),
+    and `aquascope gym tasks|bench|leaderboard FILES`: the playbook benchmark (Phase 1)."""
     from aquascope import gym as hg
+
+    def say(msg: str) -> None:
+        if not getattr(args, "quiet", False):
+            print(f"  · {msg}", file=sys.stderr)
+
+    if args.gym_cmd == "tasks":
+        from aquascope.gym import tasks as gt
+        from aquascope.playbooks import list_playbooks
+
+        pbs = args.playbook or [p["id"] for p in list_playbooks() if "error" not in p]
+        probes = None if args.probes == "all" else int(args.probes)
+        n_probes = sum(len(gt.decline_probes(p)) for p in pbs) if probes is None else probes
+        per_site = max(1, len(pbs) + n_probes)
+        sites = gt.suggest_sites(-(-args.n // per_site), seed=args.seed, sources=args.source or None,
+                                 ungauged_share=args.ungauged_share,
+                                 on_land=None if args.no_check_land else gt.on_land_basinatlas)
+        tasks = gt.tasks_from_playbooks(sites, pbs, probes=probes, on_event=say)[: args.n]
+        gt.write_tasks(tasks, args.out)
+        hard = sum(1 for t in tasks if t.unsolvable)
+        test = sum(1 for t in tasks if t.split == "test")
+        print(f"  {len(tasks)} tasks from {len(sites)} sites ({hard} unsolvable, {test} held out as test) -> {args.out}")
+        counts: dict[str, int] = {}
+        for t in tasks:
+            key = f"{t.playbook}/{'declined' if t.unsolvable else t.expected.get('branch')}"
+            counts[key] = counts.get(key, 0) + 1
+        for key, n in sorted(counts.items()):
+            print(f"    {key:<36} {n}")
+        return
+
+    if args.gym_cmd == "bench":
+        from aquascope.gym import bench as gb
+
+        results = gb.run_bench(
+            args.tasks, args.agent, provider=args.provider, model=args.model, api_key=args.api_key,
+            base_url=args.base_url, limit=args.limit, unsolvable=args.unsolvable, task_ids=args.task or None,
+            timeout=args.timeout or None, out=args.out, max_steps=args.max_steps, context_chars=args.context_chars,
+            on_event=say,
+        )
+        if args.json:
+            print(json.dumps(gb.summarize(results), indent=2, default=str))
+            return
+        print(gb.leaderboard(results, title=f"aquascope gym bench: {args.agent}"))
+        if args.out:
+            print(f"  -> {args.out}")
+        return
+
+    if args.gym_cmd == "leaderboard" and args.results:
+        from aquascope.gym import bench as gb
+
+        results = gb.load_results(args.results)
+        if args.json:
+            print(json.dumps(gb.summarize(results), indent=2, default=str))
+            return
+        print(gb.leaderboard(results, out=args.out, title=args.title))
+        if args.out:
+            print(f"  -> {args.out}")
+        return
 
     if args.gym_cmd == "basins":
         rows = hg.suggest_basins(
@@ -2089,8 +2147,42 @@ def main() -> None:
         p_g.add_argument("--steps", type=int, default=30, help="Step budget per episode")
         p_g.add_argument("--seed", type=int, default=0)
         p_g.add_argument("--seeds", type=int, default=1, help="leaderboard: number of seeds per agent and basin")
-        p_g.add_argument("--out", default=None, help="leaderboard: write the table as CSV")
+        p_g.add_argument("--out", default=None, help="leaderboard: write the table (CSV; Markdown for bench results)")
         p_g.add_argument("--json", action="store_true")
+    p_g_lb = gym_sub.choices["leaderboard"]
+    p_g_lb.add_argument("results", nargs="*", metavar="RESULTS.jsonl",
+                        help="Bench result files (Phase 1): render their leaderboard instead of playing the baselines")
+    p_g_lb.add_argument("--title", default=None, help="Heading of the Markdown leaderboard")
+    p_gt = gym_sub.add_parser("tasks", help="Generate benchmark tasks from the playbooks on catalog sites (Phase 1)")
+    p_gt.add_argument("--n", type=int, default=60, help="Number of tasks (default 60)")
+    p_gt.add_argument("--seed", type=int, default=0)
+    p_gt.add_argument("--source", action="append", help="Restrict sites to these sources (repeatable)")
+    p_gt.add_argument("--playbook", action="append", help="Only these playbooks (repeatable; default all)")
+    p_gt.add_argument("--probes", default="1",
+                      help="Decline probes per site: an integer or 'all' (default 1, rotating over the rules)")
+    p_gt.add_argument("--ungauged-share", type=float, default=0.25, help="Share of sites that are bare points")
+    p_gt.add_argument("--no-check-land", action="store_true",
+                      help="Do not ask BasinATLAS whether a bare point is on land (offline; the gauge proxy still applies)")
+    p_gt.add_argument("--out", default="tasks.jsonl")
+    p_gt.add_argument("--quiet", action="store_true")
+    p_gbench = gym_sub.add_parser("bench", help="Play an agent on the tasks and score it against the keys (Phase 1)")
+    p_gbench.add_argument("--tasks", required=True, help="tasks.jsonl from `gym tasks`")
+    p_gbench.add_argument("--agent", choices=["tree", "team", "ask"], default="tree")
+    p_gbench.add_argument("--provider", default=None,
+                          help="LLM provider (anthropic, openai, groq, huggingface, ollama, ...); none: keyless team")
+    p_gbench.add_argument("--model", default=None)
+    p_gbench.add_argument("--api-key", default=None)
+    p_gbench.add_argument("--base-url", default=None)
+    p_gbench.add_argument("--limit", type=int, default=None, help="Play the first N tasks")
+    p_gbench.add_argument("--unsolvable", type=int, default=None,
+                          help="With --limit: at most this many unsolvable tasks among the N")
+    p_gbench.add_argument("--task", action="append", help="Play these task ids only (repeatable)")
+    p_gbench.add_argument("--timeout", type=float, default=900.0, help="Seconds per task (0: none)")
+    p_gbench.add_argument("--max-steps", type=int, default=8, help="ask: tool-call steps")
+    p_gbench.add_argument("--context-chars", type=int, default=40_000, help="ask: conversation budget in characters")
+    p_gbench.add_argument("--out", default=None, help="Append results as JSONL")
+    p_gbench.add_argument("--json", action="store_true", help="Print the summary rows as JSON")
+    p_gbench.add_argument("--quiet", action="store_true")
 
     # ── caravan ──────────────────────────────────────────────────────
     p_car = sub.add_parser(

@@ -175,6 +175,14 @@ unless you ask for a model, even when a key is in the environment.
 - The executed study is the answer's receipt and its plan at once:
   `aquascope run study.yaml` reproduces it with no model in the loop.
 
+## Measuring an agent on it
+
+The playbooks double as a benchmark: [hydrogym.md](hydrogym.md) generates
+tasks (a problem at a real site, the tree's branch, gates or decline as the
+key, unsolvable tasks included) and scores the plan-first team, the older
+`ask` loop, or any agent against them (`aquascope gym tasks | bench |
+leaderboard`).
+
 ## The other faces
 
 Over MCP (`aquascope mcp`): `list_playbooks()`, `describe_playbook(id)`,

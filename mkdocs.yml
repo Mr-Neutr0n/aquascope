@@ -117,6 +117,7 @@ nav:
     - Solve (a problem at a place, planned first): solve.md
     - Solve design contract: solve-design.md
     - HydroGym (an environment for hydrologic agents): gym.md
+    - HydroGym benchmark (agents on the playbooks): hydrogym.md
     - Use cases: use_cases.md
   - Examples:
     - Potomac flood frequency: examples/potomac_flood_frequency.md
