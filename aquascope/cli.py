@@ -1040,9 +1040,12 @@ def cmd_gym(args: argparse.Namespace) -> None:
         n_sites = len({gt.site_key(t.site) for t in tasks})
         print(f"  {len(tasks)} tasks from {n_sites} sites ({hard} unsolvable, {test} held out as test) -> {args.out}")
         if skipped:
-            print(f"  {len(skipped)} of {len(sites)} sites skipped, reconnaissance unavailable:")
+            sites_lost = sum(1 for e in skipped if "playbook" not in e)
+            print(f"  skipped: {sites_lost} of {len(sites)} sites (reconnaissance unavailable), "
+                  f"{len(skipped) - sites_lost} tasks (no key):")
             for entry in skipped:
-                print(f"    {gt.site_key(entry['site'])}: {entry['error'][:100]}")
+                what = f" {entry['playbook']}" if entry.get("playbook") else ""
+                print(f"    {gt.site_key(entry['site'])}{what}: {entry['error'][:100]}")
         counts: dict[str, int] = {}
         for t in tasks:
             key = f"{t.playbook}/{'declined' if t.unsolvable else t.expected.get('branch')}"

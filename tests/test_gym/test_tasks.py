@@ -199,6 +199,22 @@ def _cells(catalog, today):
     return cells
 
 
+def test_a_task_whose_key_the_tree_cannot_compute_is_skipped_with_the_playbook_named():
+    def truncated(lat, lon):
+        # the context says 31 years of groundwater levels but no listed station carries the variable
+        snap = fake_recon(lat, lon)
+        snap["context"]["years_by_variable"]["groundwater_level"] = 31.2
+        return snap
+
+    skipped, events = [], []
+    tasks = gt.tasks_from_playbooks([LONG], ["flood_risk", "groundwater_decline"], recon=truncated, probes=0,
+                                    skipped=skipped, on_event=events.append)
+    assert [t.playbook for t in tasks] == ["flood_risk"]
+    assert len(skipped) == 1 and skipped[0]["playbook"] == "groundwater_decline" and skipped[0]["site"] == LONG
+    assert "no key: PlaybookError: placeholder station" in skipped[0]["error"]
+    assert events[-1].startswith("  groundwater_decline: skipped, no key: PlaybookError")
+
+
 def test_an_open_catalog_span_runs_to_today_as_the_reconnaissance_reads_it():
     today = date(2026, 9, 3)
     assert gt._span_years("2012-11-11", None, today) == 13.8, "a station still open (hubeau, uk_ea) has a span"

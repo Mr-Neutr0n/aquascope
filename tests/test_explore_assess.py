@@ -89,6 +89,26 @@ def test_gauged_site_with_a_long_record_supports_at_site_flood_frequency(small_c
     assert any("ends in 2015" in n for n in res["notes"])  # the rain gauge stopped reporting
 
 
+def test_the_station_a_span_came_from_is_listed_even_at_a_dense_site(archive):
+    """At a dense site the well that gives the groundwater years can be beyond the nearest 25; the playbook
+    that reads the context and then asks for the station must find it in the list."""
+    from aquascope import playbooks as pbk
+
+    dense = [_row("uk_ea", f"g{i}", f"Gauge {i}", 53.0 + 0.001 * i, -2.0, ["discharge"], "1990-01-01")
+             for i in range(30)]
+    well = _row("uk_ea", "well", "The well", 53.04, -2.0, ["groundwater_level"], "1995-01-01")
+    catalog.set_catalog(dense + [well])
+    try:
+        res = explore.assess_site(53.0, -2.0)
+    finally:
+        catalog.set_catalog(None)
+    assert res["context"]["years_by_variable"]["groundwater_level"] > 30
+    assert len(res["stations"]) == explore._MAX_STATIONS_LISTED + 1
+    assert res["stations"][-1]["station_id"] == "well", "beyond the nearest 25, listed all the same"
+    study = pbk.plan("groundwater_decline", res)
+    assert study.plan["branch"] == "well" and study.plan["station"]["station_id"] == "well"
+
+
 def test_problem_filters_the_table_and_unknown_problem_raises(small_catalog, archive):
     res = explore.assess_site(51.415, -0.308, problem="flood_risk")
     assert {r["method"] for r in res["sufficiency"]} == set(method_ids("flood_risk"))

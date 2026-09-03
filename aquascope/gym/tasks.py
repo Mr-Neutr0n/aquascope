@@ -461,7 +461,9 @@ def tasks_from_playbooks(
     to ``skipped`` when a list is given), because a key computed on an empty
     snapshot would call a gauged site ungauged. With ``skip_unreachable=False``
     the site keeps its tasks on the empty snapshot, the failure noted in
-    ``recon.notes``.
+    ``recon.notes``. A task whose key the tree cannot compute (a
+    ``PlaybookError``, neither a branch nor a decline) is skipped the same way,
+    with the playbook named in the ``skipped`` entry.
     """
     from aquascope import playbooks as pbk
 
@@ -500,7 +502,16 @@ def tasks_from_playbooks(
                 wanted.append((pb, dict(probe["intake"]), probe["rule"]))
         for pb, raw_intake, rule in wanted:
             intake = pbk.fill_intake(pb, raw_intake)
-            key = scoring_key(pb, snapshot, intake)
+            try:
+                key = scoring_key(pb, snapshot, intake)
+            except pbk.PlaybookError as exc:
+                # Neither a branch nor a decline: the tree itself failed on this snapshot. No key, no task.
+                note = f"no key: {type(exc).__name__}: {exc}"
+                logger.warning("task %s at %s skipped: %s", pb.id, site_key(site), note)
+                say(f"  {pb.id}" + (f" [{rule}]" if rule else "") + f": skipped, {note[:100]}")
+                if skipped is not None:
+                    skipped.append({"site": dict(site), "playbook": pb.id, "intake": intake, "error": note})
+                continue
             tasks.append(Task(
                 id=_task_id(pb.id, site, intake), playbook=pb.id, site=dict(site), intake=intake,
                 problem=problem_text(pb.id, intake), recon=snapshot, expected=key, split=split, created=now,
