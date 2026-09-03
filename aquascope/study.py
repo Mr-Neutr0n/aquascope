@@ -677,20 +677,24 @@ def run_study(
     *,
     on_event: Callable[[dict[str, Any]], None] | None = None,
     prior: StudyRun | None = None,
+    tools: dict[str, Callable[..., Any]] | None = None,
 ) -> StudyRun:
     """Run every step in order, evaluate its gates, and collect the results.
 
     No model, no network beyond the tools'. ``on_event`` receives dicts
     ``{"role", "step", "event", "detail"}`` as the run goes. ``prior`` is an
     earlier run of the same study whose successful, gate-passing steps are
-    reused rather than fetched again (the team's replan uses it).
+    reused rather than fetched again (the team's replan uses it). ``tools``
+    adds to or replaces the registry's tools by name: the browser worker,
+    where BasinATLAS cannot be read, serves ``describe_catchment`` from what
+    the page already holds.
     """
     from aquascope.gates import evaluate
 
     if not isinstance(study, Study):
         study = load(study)
     say = on_event or (lambda _m: None)
-    tools = _tools()
+    tools = {**_tools(), **(tools or {})}
     run = StudyRun(study=study, started=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     done: dict[str, dict[str, Any]] = {}
     # A version-1 study stays a version-1 file: results are written back only into a plan.

@@ -235,7 +235,7 @@ def test_intake_hints_read_the_text():
 
 def _run_reviewed(study, **kwargs):
     calls = kwargs.pop("calls", [])
-    tools = kwargs.pop("tools", None) or _tools(calls)
+    tools = kwargs.pop("registry", None) or _tools(calls)     # `tools=` goes through to run_reviewed
     with patch.object(aquascope.explore, "assess_site", create=True, return_value=RECON), \
          patch("aquascope.study._tools", return_value=tools):
         return team.run_reviewed(study, **kwargs)
@@ -285,7 +285,8 @@ def test_run_reviewed_replans_on_a_branch_fallback_and_reports_a_failed_gate():
     wide = json.loads(json.dumps(FLOW))
     wide["ffa"]["fits"]["lp3"]["q"][5] = 900          # spread_within fails at T = 100
     calls: list = []
-    res = _run_reviewed(planned.study.to_dict(), recon=RECON, calls=calls, tools=_tools(calls, flow=wide, donors_k=1))
+    res = _run_reviewed(planned.study.to_dict(), recon=RECON, calls=calls,
+                        registry=_tools(calls, flow=wide, donors_k=1))
     assert not res.ok
     assert any("spread_within" in n for n in res.not_established)
     assert any(e["event"] == "fallback" for e in res.timeline), "the playbook's own fallback ran"
@@ -295,3 +296,20 @@ def test_run_reviewed_replans_on_a_branch_fallback_and_reports_a_failed_gate():
 def test_run_reviewed_refuses_an_empty_study():
     with pytest.raises(ValueError):
         team.run_reviewed({"question": "nothing", "version": 2, "steps": []})
+
+
+def test_a_caller_may_serve_a_tool_itself():
+    """The browser worker cannot read BasinATLAS; the page hands describe_catchment's answer in as a tool."""
+    planned = _run("Design flow for a road crossing, 100-year return period", execute=False)
+    served: list = []
+
+    def page_catchment(lat=None, lon=None, **_kw):
+        served.append((lat, lon))
+        return {"latitude": lat, "longitude": lon, "sub_basin": {"hybas_id": 1}, "license": "CC BY 4.0",
+                "attributes": {"upstream_area_km2": 9948.0}, "attribution": "BasinATLAS"}
+
+    calls: list = []
+    res = _run_reviewed(planned.study.to_dict(), recon=RECON, calls=calls, tools={"describe_catchment": page_catchment})
+    assert res.ok and served == [(51.415, -0.308)]
+    assert [c[0] for c in calls] == ["analyze_station", "flood_frequency"], "the registry's tool was not called"
+    assert "9,948" in res.answer

@@ -665,6 +665,7 @@ def solve(
     client: Any | None = None,
     recon: dict[str, Any] | None = None,
     execute: bool = True,
+    tools: dict[str, Callable[..., Any]] | None = None,
 ) -> SolveResult:
     """Solve ``problem`` at (``lat``, ``lon``): recon, plan, review, execute with gates, replan once, report.
 
@@ -675,6 +676,7 @@ def solve(
     already has instead of calling the Scout. ``execute=False`` stops after
     the plan (and the review): the MCP ``solve_plan`` face returns that study
     for the assistant to look at, and ``solve_run`` executes it later.
+    ``tools`` adds to or replaces the runner's tools by name (see ``run_study``).
     """
     from aquascope import playbooks as pbk
 
@@ -784,7 +786,7 @@ def solve(
 
     return _execute(study, pb=pb, kind=kind, text=text, intake=intake, recon=recon, site=site,
                     problem_dict=problem_dict, llm=llm, cfg=cfg, timeline=timeline, cost=cost, say=say,
-                    max_replans=max_replans)
+                    max_replans=max_replans, tools=tools)
 
 
 def _model_for(
@@ -822,12 +824,13 @@ def _execute(
     cost: dict[str, dict[str, int]],
     say: Callable[[dict[str, Any]], None],
     max_replans: int,
+    tools: dict[str, Callable[..., Any]] | None = None,
 ) -> SolveResult:
     """Run a reviewed study with the Reviewer's gates, replan once, then report: the half shared by
     ``solve`` and ``run_reviewed``. ``pb`` is the playbook a branch replan is filled from (None: no replan)."""
     from aquascope import playbooks as pbk
 
-    run = run_study(study, on_event=say)
+    run = run_study(study, on_event=say, tools=tools)
     replans = 0
     while run.stop_reason and replans < max_replans:
         replans += 1
@@ -849,7 +852,7 @@ def _execute(
             say({"role": "specialist", "step": run.stopped_at, "event": "replan",
                  "detail": f"branch {branch} after {run.stop_reason}"})
             study = new
-            run = run_study(study, on_event=say, prior=run)
+            run = run_study(study, on_event=say, prior=run, tools=tools)
             continue
         if llm is None:
             break
@@ -881,7 +884,7 @@ def _execute(
         study.plan.setdefault("replans", []).append({"step": step.id, "reason": run.stop_reason, "fallback": fb_step})
         say({"role": "specialist", "step": step.id, "event": "replan",
              "detail": f"fallback {fb_step['tool']}: {fb_step['rationale']}"})
-        run = run_study(study, on_event=say, prior=run)
+        run = run_study(study, on_event=say, prior=run, tools=tools)
 
     # Reviewer: what the run established and what it did not.
     result = SolveResult(problem=problem_dict, study=study, recon=recon, run=run, timeline=timeline, cost=cost,
@@ -964,6 +967,7 @@ def run_reviewed(
     on_event: Callable[[dict[str, Any]], None] | None = None,
     max_replans: int = 1,
     client: Any | None = None,
+    tools: dict[str, Callable[..., Any]] | None = None,
 ) -> SolveResult:
     """Execute a study planned earlier and reviewed elsewhere, and report as ``solve`` would.
 
@@ -972,7 +976,8 @@ def run_reviewed(
     replan, the Reviewer's "not established" list and the Narrator are the same
     code path. The study carries its problem, site, intake and playbook, so
     nothing is asked twice; ``recon`` is the reconnaissance the caller already
-    has (the Scout runs otherwise). Accepts a Study, its dict or its YAML.
+    has (the Scout runs otherwise); ``tools`` adds to or replaces the runner's
+    tools by name (see ``run_study``). Accepts a Study, its dict or its YAML.
     """
     from aquascope import playbooks as pbk
     from aquascope.study import loads as _loads
@@ -1019,7 +1024,7 @@ def run_reviewed(
          "detail": f"running the reviewed plan: {len(st.steps)} step(s)"})
     return _execute(st, pb=pb, kind=kind, text=text, intake=intake, recon=recon, site=site,
                     problem_dict=problem_dict, llm=llm, cfg=cfg, timeline=timeline, cost=cost, say=say,
-                    max_replans=max_replans)
+                    max_replans=max_replans, tools=tools)
 
 
 def _now() -> str:
