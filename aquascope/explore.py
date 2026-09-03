@@ -1228,9 +1228,19 @@ def assess_site(
             st = station_by[longest]
         row["station"] = {"source": st["source"], "station_id": st["station_id"]} if st else None
 
+    # The nearest few, plus the station each variable's span came from: at a dense site the well that gives
+    # ``years_by_variable.groundwater_level`` can be the 30th nearest, and a playbook reading the context would
+    # otherwise select a branch whose station is not in the list.
+    listed = within[:_MAX_STATIONS_LISTED]
+    keys = {(s["source"], s["station_id"]) for s in listed}
+    for st in station_by.values():
+        if (st["source"], st["station_id"]) not in keys:
+            listed.append(st)
+            keys.add((st["source"], st["station_id"]))
+
     return {
         "point": {"lat": round(lat, 5), "lon": round(lon, 5)},
-        "stations": within[:_MAX_STATIONS_LISTED],
+        "stations": listed,
         "catchment": catchment,
         "context": {
             "years_by_variable": years_by,

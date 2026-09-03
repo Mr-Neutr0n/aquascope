@@ -159,10 +159,18 @@ def _parse_date(text: Any) -> date | None:
 
 
 def _span_years(start: Any, end: Any, today: date) -> float | None:
-    a, b = _parse_date(start), _parse_date(end)
-    if a is None or b is None:
+    """Record length from the catalog span; an open end (a station still listed as open) runs to today.
+
+    The same reading as the reconnaissance (``explore._span_years``), so the
+    kind the sampler gives a gauge is the record the key will be computed on.
+    The collectors leave ``period_end`` empty for an open station (uk_ea
+    ``dateClosed``, hubeau ``date_fermeture_station``); a row with no start
+    at all has no span.
+    """
+    a = _parse_date(start)
+    if a is None:
         return None
-    b = min(b, today)
+    b = min(_parse_date(end) or today, today)
     if b < a:
         return None
     return round((b - a).days / 365.25, 1)
@@ -464,6 +472,8 @@ def tasks_from_playbooks(
     recon: Callable[..., dict[str, Any]] | None = None,
     probes: int | None = 1,
     on_event: Callable[[str], None] | None = None,
+    skip_unreachable: bool = True,
+    skipped: list[dict[str, Any]] | None = None,
 ) -> list[Task]:
     """Tasks for every site and playbook: the tree run on the reconnaissance gives the scoring key.
 
@@ -474,6 +484,15 @@ def tasks_from_playbooks(
     decline rules across the sites, so the suite exercises each rule; ``None``
     gives every probe at every site, ``0`` none. A task whose playbook declines
     (a probe, or a site the data cannot support) is unsolvable.
+
+    A site whose reconnaissance raises (the network, a source that is down)
+    is skipped with a note (``skip_unreachable``; the site and the error go
+    to ``skipped`` when a list is given), because a key computed on an empty
+    snapshot would call a gauged site ungauged. With ``skip_unreachable=False``
+    the site keeps its tasks on the empty snapshot, the failure noted in
+    ``recon.notes``. A task whose key the tree cannot compute (a
+    ``PlaybookError``, neither a branch nor a decline) is skipped the same way,
+    with the playbook named in the ``skipped`` entry.
     """
     from aquascope import playbooks as pbk
 
@@ -489,10 +508,17 @@ def tasks_from_playbooks(
         lat, lon = float(site["lat"]), float(site["lon"])
         try:
             snapshot = recon(lat, lon)
-        except Exception as exc:  # noqa: BLE001 - a site the reconnaissance cannot see still makes tasks
+        except Exception as exc:  # noqa: BLE001 - a site the reconnaissance cannot see is skipped or noted
+            note = f"reconnaissance unavailable: {type(exc).__name__}: {exc}"
+            if skip_unreachable:
+                logger.warning("site %s skipped: %s", site_key(site), note)
+                say(f"site {i + 1} {site_key(site)}: skipped, {note[:120]}")
+                if skipped is not None:
+                    skipped.append({"site": dict(site), "error": note})
+                continue
             snapshot = {"point": {"lat": lat, "lon": lon}, "stations": [], "catchment": {},
                         "context": {"years_by_variable": {}, "resolution_by_variable": {}, "ungauged": True},
-                        "sufficiency": [], "notes": [f"reconnaissance unavailable: {type(exc).__name__}: {exc}"]}
+                        "sufficiency": [], "notes": [note]}
         years = (snapshot.get("context") or {}).get("years_by_variable") or {}
         say(f"site {i + 1} {site_key(site)}: " + (", ".join(f"{k} {v:g} yr" for k, v in years.items()) or "no record"))
         split = split_for(site)
@@ -505,7 +531,16 @@ def tasks_from_playbooks(
                 wanted.append((pb, dict(probe["intake"]), probe["rule"]))
         for pb, raw_intake, rule in wanted:
             intake = pbk.fill_intake(pb, raw_intake)
-            key = scoring_key(pb, snapshot, intake)
+            try:
+                key = scoring_key(pb, snapshot, intake)
+            except pbk.PlaybookError as exc:
+                # Neither a branch nor a decline: the tree itself failed on this snapshot. No key, no task.
+                note = f"no key: {type(exc).__name__}: {exc}"
+                logger.warning("task %s at %s skipped: %s", pb.id, site_key(site), note)
+                say(f"  {pb.id}" + (f" [{rule}]" if rule else "") + f": skipped, {note[:100]}")
+                if skipped is not None:
+                    skipped.append({"site": dict(site), "playbook": pb.id, "intake": intake, "error": note})
+                continue
             tasks.append(Task(
                 id=_task_id(pb.id, site, intake), playbook=pb.id, site=dict(site), intake=intake,
                 problem=problem_text(pb.id, intake), recon=snapshot, expected=key, split=split, created=now,
