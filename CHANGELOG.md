@@ -5,6 +5,7 @@ All notable changes to AquaScope are documented here.
 ## [Unreleased]
 
 ### Added
+- The showcase and repair workflows accept `ANTHROPIC_API_KEY` (and `ANTHROPIC_WORKSPACE_ID`) as repository secrets, so both can run on Claude (#325).
 
 ### Changed
 
