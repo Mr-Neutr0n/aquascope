@@ -4,6 +4,9 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **NVIDIA Build provider support** (#331). Added NVIDIA Build (`https://integrate.api.nvidia.com/v1`) to `aquascope.ai_engine.providers` with default model `openai/gpt-oss-120b`, support for `nvidia/llama-3.1-nemotron-70b-instruct`, `NVIDIA_API_KEY` credential scanning in `ENV_SCAN_ORDER`, documentation in `docs/analyst.md`, and unit test coverage in `tests/test_ai_engine/test_providers.py`.
+
 ### Changed
 - `CITATION.cff` lists the v0.13.0 version DOI `10.5281/zenodo.22152064` (concept DOI unchanged).
 - **WQP collector moved to the WQX 3.0 API** (#170). The old WQX 2.2 endpoint missed USGS data after 2024-03-11. `fetch_raw` now calls `/wqx3/Result/search` with `dataProfile=narrow`; a clean break from 2.2 — only WQX 3.0 field names are read (cross-walked from the official schema, e.g. `ResultMeasureValue` to `Result_Measure`, `CharacteristicName` to `Characteristic_Name`, `MonitoringLocationIdentifier` to `Location_Identifier`), with no dual-version support.
