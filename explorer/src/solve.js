@@ -5,7 +5,10 @@
 // here, the plan, the run, the result. A finished stage folds to one line;
 // reopening an earlier one clears everything after it. No key is ever needed:
 // the tree fills the plan and a template writes the prose. The key Ask holds
-// is borrowed when there is one, never asked for twice.
+// is borrowed when there is one, never asked for twice. A sentence typed with
+// no chip chosen is read on the reader's device when a small model is already
+// there (Chrome's built-in, or the one Ask loaded), and by the keyword rules
+// otherwise; either way the chip and the fields it fills are the ones shown.
 
 import { CONFIG } from "../config.js?v=__BUILD__";
 import { $, actions, copyText, downloadBlob, escapeHtml, sourceStyle, state, stationKey } from "./core.js?v=__BUILD__";
@@ -14,8 +17,10 @@ import { requestAssess } from "./assess.js?v=__BUILD__";
 import { catchmentForWorker } from "./basins.js?v=__BUILD__";
 import { askModelConfig, mdToHtml } from "./ask.js?v=__BUILD__";
 import { closeDrawer, drawerMode, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=__BUILD__";
-import { Cancelled, callCancelable, ensureCatalogInWorker, onSolveProgress } from "./worker-client.js?v=__BUILD__";
+import { Cancelled, call, callCancelable, ensureCatalogInWorker, onSolveProgress } from "./worker-client.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
+import { generateJsonLocally, localModelLabel, localModelReady } from "./local-model.js?v=__BUILD__";
+import { intakePrompt, intakeSchema, parseIntakeReply } from "./intake.js?v=__BUILD__";
 
 const STAGES = ["where", "what", "recon", "plan", "run", "result"];
 
@@ -40,6 +45,7 @@ const S = {
   playbooks: [], playbook: null, pendingChip: null,
   recon: null, plan: null, study: null, result: null,
   editing: false, cancel: null, jobId: null, run: 0, startedAt: 0, whereKey: null,
+  intakeNote: null,   // who read the sentence: the device, or the keyword rules, and why
 };
 
 // ── stages ──────────────────────────────────────────────────────────────────
@@ -176,6 +182,17 @@ function renderIntake(pb) {
   }
 }
 
+// The values a model read off the sentence, put into the inputs so the
+// reader sees them and can change them before anything runs.
+function writeIntake(values) {
+  for (const el of $("solve-intake").querySelectorAll("[data-name]")) {
+    const v = (values || {})[el.dataset.name];
+    if (v === undefined || v === null) continue;
+    if (el.dataset.type === "bool") el.checked = Boolean(v);
+    else el.value = String(v);
+  }
+}
+
 function readIntake() {
   const out = {};
   for (const el of $("solve-intake").querySelectorAll("[data-name]")) {
@@ -218,6 +235,43 @@ function modelForRun() {
   return cfg ? { provider: cfg.provider, model: cfg.model, api_key: cfg.api_key, base_url: cfg.base_url } : {};
 }
 
+// ── the sentence, read on the device ────────────────────────────────────────
+
+const INTAKE_TIMEOUT_MS = 25000;
+
+// A sentence with no chip chosen and no key: one small call to the model on
+// this device, then the package's own rules on what it wrote (coerce_intake in
+// the worker). Returns { playbook, intake, note } when a playbook was read,
+// { note } otherwise; the note says which path read the words.
+async function readOnDevice(text) {
+  if (!(await localModelReady())) {
+    return { note: "No on-device model in this browser; the keyword rules read your words." };
+  }
+  let reply;
+  try {
+    reply = await generateJsonLocally({
+      system: intakePrompt(S.playbooks), prompt: text, schema: intakeSchema(S.playbooks),
+      temperature: 0.1, timeoutMs: INTAKE_TIMEOUT_MS, onProgress: (m) => whatStatus(m, "info"),
+    });
+  } catch (err) {
+    console.info("on-device intake unavailable:", err && err.message);
+    return { note: "The on-device model could not read your words; the keyword rules did." };
+  }
+  const parsed = parseIntakeReply(reply, S.playbooks);
+  if (!parsed) return { note: "The on-device model found no playbook in your words; the keyword rules read them." };
+  whatStatus(state.workerReady ? "Checking the fields..." : "Loading Python in your browser (about 15 MB, once)...", "info");
+  let safe;
+  try {
+    safe = await call("coerce_intake", parsed);
+  } catch (err) {
+    console.info("coerce_intake failed:", err && err.message);
+    return { note: "The on-device model's reading could not be checked; the keyword rules read your words." };
+  }
+  if (!safe || !safe.playbook) return { note: "The on-device model named no playbook; the keyword rules read your words." };
+  return { playbook: safe.playbook, intake: safe.intake || {},
+           note: `Your words were read on your device by ${localModelLabel() || "the on-device model"}.` };
+}
+
 // ── recon and plan ──────────────────────────────────────────────────────────
 
 const whatStatus = (t, k = "warn") => setStatusEl($("solve-what-status"), t, k);
@@ -237,13 +291,29 @@ function reconSummary(recon) {
 async function plan() {
   const w = where();
   if (!w) { whatStatus("Click a gauge or a spot on the map first."); return; }
-  const pb = chosen();
+  let pb = chosen();
   const text = $("solve-text").value.trim();
   if (!pb && !text) { whatStatus("Pick a problem, or say it in your words."); return; }
   whatStatus("");
   const my = ++S.run;
   S.whereKey = w.key;
   S.recon = null; S.plan = null; S.study = null; S.result = null; S.editing = false;
+  S.intakeNote = null;
+
+  // 2. a sentence and no chip: read it here when a model is on the device
+  // (with a key the Python Coordinator may read it instead).
+  if (!pb && text && !modelForRun().provider) {
+    whatStatus("Reading your words on your device...", "info");
+    const read = await readOnDevice(text);
+    if (my !== S.run) return;
+    whatStatus("");
+    S.intakeNote = read.note;
+    if (read.playbook) {
+      chooseChip(read.playbook);
+      writeIntake(read.intake);
+      pb = chosen();
+    }
+  }
   setStage("where", "done", w.text);
   setStage("what", "done", whatSummary(pb, text));
   openStage("recon");
@@ -276,6 +346,7 @@ async function plan() {
     S.plan = res;
     S.study = res.study;
     renderPlan(res);
+    if (S.intakeNote) planStatus(S.intakeNote, "info");
   } catch (err) {
     if (my !== S.run || err instanceof Cancelled) return;
     planStatus(`Could not plan: ${err.message}`, "error");
