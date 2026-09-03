@@ -371,8 +371,9 @@ def resolve_llm(
             provider = "ollama" if base_url or os.environ.get("AQUASCOPE_LLM_BASE_URL") else None
     if provider is None:
         raise RuntimeError(
-            "No LLM configured. Set OPENAI_API_KEY, GROQ_API_KEY or HF_TOKEN, or AQUASCOPE_LLM_API_KEY with "
-            "AQUASCOPE_LLM_BASE_URL/AQUASCOPE_LLM_MODEL, or pass --provider ollama for a local model."
+            "No LLM configured. Set OPENAI_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY or HF_TOKEN, or "
+            "AQUASCOPE_LLM_API_KEY with AQUASCOPE_LLM_BASE_URL/AQUASCOPE_LLM_MODEL, or pass --provider ollama "
+            "for a local model."
         )
     if provider not in PROVIDERS and provider != "custom":
         raise ValueError(f"Unknown provider {provider!r}; choose from {list(PROVIDERS)}")
