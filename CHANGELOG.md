@@ -5,9 +5,11 @@ All notable changes to AquaScope are documented here.
 ## [Unreleased]
 
 ### Added
+- **Explorer: discharge can be displayed in ft³/s (cfs)** (#316). A "Show ft³/s" button in the station header converts the KPIs, hydrograph, flood-frequency table and chart, flow-duration curve, trend slope and GR4J plot at render time. The choice persists in localStorage. Everything internal is untouched: the worker, the model and the CSV downloads stay in the agency's unit.
 - The showcase and repair workflows accept `ANTHROPIC_API_KEY` (and `ANTHROPIC_WORKSPACE_ID`) as repository secrets, so both can run on Claude (#325).
 
 ### Changed
+- **The Environment Agency is labelled England, not UK** (#320), in the Explorer, the registry, the README and the docs tables. The EA is England's public body; Scotland (SEPA, #317), Wales (NRW) and Northern Ireland (DfI Rivers, #318) are separate agencies.
 
 ### Fixed
 
