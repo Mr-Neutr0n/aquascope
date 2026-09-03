@@ -299,8 +299,8 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="http://www1.river.go.jp/",
         variables=("water_level", "discharge", "water_quality", "precipitation"),
         output_model="WaterQualitySample",
-        license="unknown", redistributable=False,
-        attribution="MLIT Water Information System (terms not yet verified)",
+        license="Public Data License (Version 1.0)", redistributable=True,
+        attribution="Ministry of Land, Infrastructure, Transport and Tourism",
     ),
     "korea_wamis": _s(
         key="korea_wamis", label="Korea WAMIS", region="South Korea",
