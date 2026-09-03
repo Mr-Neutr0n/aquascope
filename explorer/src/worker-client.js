@@ -9,8 +9,11 @@ import { bootDone, bootProgress } from "./shell.js?v=__BUILD__";
 
 let worker = null;
 const askListeners = new Set();
+const solveListeners = new Set();
 
 export function onAskProgress(fn) { askListeners.add(fn); return () => askListeners.delete(fn); }
+// Solve's timeline events ({role, step, event, detail}) with the id of the call they belong to.
+export function onSolveProgress(fn) { solveListeners.add(fn); return () => solveListeners.delete(fn); }
 
 export function ensureWorker() {
   if (worker) return worker;
@@ -19,6 +22,7 @@ export function ensureWorker() {
     const m = e.data;
     if (m.type === "progress") { if (!state.workerReady) bootProgress(m.text); return; }
     if (m.type === "ask_progress") { for (const fn of askListeners) fn(m.text); return; }
+    if (m.type === "solve_progress") { for (const fn of solveListeners) fn(m.event, m.id); return; }
     if (m.type === "ready") { state.workerReady = true; bootDone(); return; }
     const pending = state.pending.get(m.id);
     if (!pending) return;                       // cancelled: drop it
