@@ -71,7 +71,10 @@ _DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
 
 #: A unit with a negative exponent, once folded: "mm yr-1", "m3 s-1", "W m-2".
 #: Without this the exponent reads as a claim of -1, repeatedly.
-_EXPONENT_UNIT = re.compile(r"\b[a-zA-Z][a-zA-Z0-9]{0,5}\s?-\d\b")
+#: A unit exponent is glued to its unit and is one digit: "m s-1", "s-1", "kg-1".
+#: With an optional space it also matched "slope -0" in "slope -0.0029", and the
+#: orphaned ".0029" read as 29.
+_EXPONENT_UNIT = re.compile(r"\b[a-zA-Z][a-zA-Z0-9]{0,5}-\d\b(?![.,]\d)")
 
 #: And a positive one, written closed up: "km2", "m3", "km3". No space allowed
 #: here, or "gauge 3" would be swallowed along with it.

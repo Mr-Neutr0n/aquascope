@@ -666,3 +666,12 @@ def test_prose_rounding_and_gate_words_are_not_invented_numbers():
     out = v.verify("Kendall tau = -0.004 over 142.9 years, against the 20 years the gate needs.", results)
     numbers = next(c for c in out.checks if "number" in c.name)
     assert numbers.passed, numbers.detail
+
+
+def test_a_negative_slope_is_not_a_unit_exponent():
+    """The keyless Kingston answer said "Sen's slope -0.0029 m3/s per year" and the check reported 29.0."""
+    from aquascope.ai_engine import verify as v
+
+    assert v._numbers("Sen's slope -0.0029 m3/s per year over 140 years", claims_only=True) == [-0.0029, 140.0]
+    assert v._numbers("tau -0.14 and skew=-0.864", claims_only=True) == [-0.14, -0.864]
+    assert v._numbers("mean flow 65.5 m s-1 and 12 kg-1", claims_only=True) == [65.5, 12.0]
