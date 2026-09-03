@@ -166,12 +166,51 @@ def test_a_caveat_is_not_a_refusal_but_stopping_at_the_reconnaissance_is(suite, 
          patch("aquascope.mcp_server.assess_site", return_value=well.recon):
         a, b, c = gb.run_bench([well, well, well], "ask", client=client, model="fake", provider="custom")
     assert not a.declined and a.correct and a.answer.endswith("abstraction records.")
-    assert b.declined and "in the opening" in b.declined_reason and not b.correct and b.branch_chosen is None
+    assert b.declined and "no tool of any branch" in b.declined_reason and not b.correct and b.branch_chosen is None
     assert not c.answer_present and c.detail["out_of_steps"] and not c.correct and c.answer == ""
     # a tasks file next to the result files is skipped by the loader
     path = tmp_path / "r.jsonl"
     path.write_text(json.dumps(a.to_dict()) + "\n" + json.dumps(well.to_dict()) + "\n")
     assert [r.task_id for r in gb.load_results([path])] == [a.task_id]
+
+
+def test_the_refusal_reading_separates_a_refusal_from_a_method_status_and_a_finding(suite):
+    read = gb.read_refusal
+    # explicit refusals count in the opening of a solvable task's answer, whatever tools were called
+    assert read("Inundation extent is out of scope for these tools.", unsolvable=False, branch="at_site")[0]
+    assert read("I cannot answer this without a well.", unsolvable=False, branch=None)[0]
+    assert read("I must decline: no groundwater record exists here.", unsolvable=False, branch=None)[0]
+    assert read("I cannot say whether pumping is the cause.", unsolvable=True, branch="well")[0]
+    assert read("The tools here do not carry abstraction data, so I can't confirm pumping.", unsolvable=True,
+                branch="well")[0]
+    # a method-status phrase before another estimate is not a refusal when a branch's tools were called
+    text = ("The 7.8-year record is too short to fit a flood-frequency curve, so at-site GEV is not defensible; "
+            "by regionalisation the 100-year flow is about 12 m3/s.")
+    assert read(text, unsolvable=False, branch="regional") == (False, None)
+    declined, why = read(text, unsolvable=False, branch=None)
+    assert declined and "no tool of any branch" in why and "'too short to'" in why
+    # "not a decline" is a finding on the groundwater playbook, not a refusal; "declined to" is
+    assert read("Sen's slope +0.065 m/yr, a slight rise, not a decline.", unsolvable=False, branch="well") == (
+        False, None)
+    assert read("The agency declined to publish; I declined to guess.", unsolvable=False, branch="well")[0]
+    # on an unsolvable task either kind of wording anywhere counts, a caveat after the numbers included
+    caveat = "The level falls 0.1 m/yr. " * 40 + "The cause cannot be attributed."
+    assert read(caveat, unsolvable=True, branch="well")[0] and not read(caveat, unsolvable=False, branch="well")[0]
+    assert read("It is falling by 0.1 m/yr.", unsolvable=True, branch="well") == (False, None)
+    # re-scoring stored rows reads the same answers again and leaves other agents and errors alone
+    well = next(t for t in suite if t.playbook == "flood_risk" and not t.unsolvable)
+    stale = gb.Result(task_id=well.id, playbook=well.playbook, split=well.split, unsolvable=False, agent="ask",
+                      model="m", provider="p", branch_expected=well.expected["branch"], branch_chosen="at_site",
+                      branch_match=True, declined=True, declined_reason="refusal wording in the opening: 'declin'",
+                      answer="The 100-year flow is 520 m3/s; the trend is not a decline.")
+    tree_row = gb.Result(task_id=well.id, playbook=well.playbook, split=well.split, unsolvable=False, agent="tree",
+                         model=None, provider=None, branch_expected=well.expected["branch"], declined=True)
+    errored = gb.Result(task_id=well.id, playbook=well.playbook, split=well.split, unsolvable=False, agent="ask",
+                        model="m", provider="p", branch_expected=well.expected["branch"], declined=True,
+                        error="TimeoutError: no result within 240 s")
+    a, b, c = gb.rescore_ask([stale, tree_row, errored], suite)
+    assert not a.declined and a.declined_reason is None and a.answer_present and a.correct
+    assert b.declined and c.declined and not c.correct
 
 
 def test_infer_branch_and_cost_estimate():

@@ -52,6 +52,8 @@ __all__ = [
     "infer_branch",
     "leaderboard",
     "load_results",
+    "read_refusal",
+    "rescore_ask",
     "run_bench",
     "select_tasks",
     "summarize",
@@ -80,19 +82,32 @@ PRICES_NOTE = ("Cost is estimated from the tokens the provider reported and a sm
                "not modelled, and a model not in the table gets no estimate.")
 
 #: How the ``ask`` agent's refusal is read off its answer. A heuristic: the loop has no decline verdict of its
-#: own. Refusal wording in the opening of an answer is a refusal of the question; the same words at the end of an
-#: answer that quoted its numbers are a caveat, so on a solvable task only the opening counts (unless the loop
-#: called no tool of any branch), while on an unsolvable task a refusal anywhere is the right behaviour: the
-#: playbook's own decline for "why is the well falling" is to report the trend and refuse the cause.
-_REFUSAL = re.compile(
+#: own. Two lists. An *explicit* refusal ("out of scope", "cannot answer", "I decline") in the opening of an answer
+#: is a refusal of the question; the same words at the end of an answer that quoted its numbers are a caveat, so on
+#: a solvable task only the opening counts. A *status* phrase ("not defensible", "too short to", "insufficient
+#: record") is what a good answer says about the method it did not use before giving another estimate, so on a
+#: solvable task it counts only when the loop called no tool of any branch. On an unsolvable task a refusal of
+#: either kind anywhere is the right behaviour: the playbook's own decline for "why is the well falling" is to
+#: report the trend and refuse the cause. The bare stem "declin" is not a refusal: on the groundwater decline
+#: playbook "not a decline" is the finding.
+_REFUSAL_EXPLICIT = re.compile(
     r"(out of scope|outside (?:of )?(?:what|the scope)|"
-    r"cannot (?:be )?(?:answer|estimat|attribut|map|determin|provid|quot|give)|"
-    r"can(?:no|')t (?:answer|estimate|attribute|map|determine|provide|quote|give)|"
-    r"not (?:possible|able|defensible|feasible)|unable to|would be an extrapolation|beyond (?:about )?three times|"
-    r"hydraulic model|does not (?:run|produce|cover|map)|\bdeclin|\brefus|insufficient (?:data|record)|"
-    r"too short (?:a|to|for)|not enough (?:data|years|record)|no (?:usable|suitable) (?:gauge|record|data))",
+    r"cannot (?:be )?(?:answer|estimat|attribut|map|determin|provid|quot|give|say|tell|confirm|verif|establish|"
+    r"conclud|rule out)|"
+    r"can(?:no|')t (?:answer|estimate|attribute|map|determine|provide|quote|give|say|tell|confirm|verify|establish|"
+    r"conclude|rule out)|"
+    r"unable to|hydraulic model|do(?:es)? not (?:run|produce|cover|map|report|carry|include|hold)|"
+    r"\bI (?:must |have to |will )?decline\b|\bdeclin(?:e|ed|ing) to\b|\brefus)",
     re.I,
 )
+_REFUSAL_STATUS = re.compile(
+    r"(not (?:possible|able|defensible|feasible)|would be an extrapolation|beyond (?:about )?three times|"
+    r"insufficient (?:data|record)|too short (?:a|to|for)|not enough (?:data|years|record)|"
+    r"no (?:usable|suitable) (?:gauge|record|data))",
+    re.I,
+)
+#: Both lists in one, for a reading that does not distinguish them (an unsolvable task).
+_REFUSAL = re.compile(f"{_REFUSAL_EXPLICIT.pattern}|{_REFUSAL_STATUS.pattern}", re.I)
 #: The opening of an answer, where a refusal of the question is stated (a caveat comes after the numbers).
 OPENING_CHARS = 600
 #: How much of an answer a result keeps.
@@ -255,18 +270,10 @@ def _run_ask(task: Task, cfg: _Config) -> dict[str, Any]:
     branch = infer_branch(task.playbook, tools)
     text = res.answer or ""
     out_of_steps = text.startswith(_OUT_OF_STEPS)
-    anywhere = _REFUSAL.search(text)
-    up_front = _REFUSAL.search(text[:OPENING_CHARS])
-    if task.unsolvable:
-        declined, where = bool(anywhere), "in the answer"
-    elif up_front:
-        declined, where = True, "in the opening of the answer"
-    else:
-        declined, where = bool(anywhere and branch is None), "in the answer, and no tool of any branch was called"
+    declined, reason = read_refusal(text, unsolvable=task.unsolvable, branch=branch)
     return {
         "playbook": task.playbook, "branch": branch, "gates": [], "tools": tools,
-        "answer": "" if out_of_steps else text, "declined": declined,
-        "declined_reason": f"refusal wording {where}: {(anywhere or up_front).group(0)!r}" if declined else None,
+        "answer": "" if out_of_steps else text, "declined": declined, "declined_reason": reason,
         "usage": dict(res.usage), "model": res.model, "provider": res.provider,
         "detail": {"steps": res.steps, "verified": res.verified, "out_of_steps": out_of_steps,
                    "checks_failed": [c.get("name") for c in res.checks if not c.get("passed")],
@@ -277,6 +284,51 @@ def _run_ask(task: Task, cfg: _Config) -> dict[str, Any]:
 _AGENT_FUNCS: dict[str, Callable[[Task, _Config], dict[str, Any]]] = {
     "tree": _run_tree, "team": _run_team, "ask": _run_ask,
 }
+
+
+def read_refusal(text: str, *, unsolvable: bool, branch: str | None) -> tuple[bool, str | None]:
+    """Whether an answer without a decline verdict of its own refused, and why (see ``_REFUSAL_EXPLICIT``).
+
+    On an unsolvable task any refusal wording anywhere counts. On a solvable
+    one an explicit refusal counts in the opening of the answer, and a
+    method-status phrase (or a refusal after the numbers) only when
+    ``branch`` is None, that is when no tool of any branch was called.
+    """
+    if unsolvable:
+        m = _REFUSAL.search(text)
+        return (True, f"refusal wording in the answer: {m.group(0)!r}") if m else (False, None)
+    m = _REFUSAL_EXPLICIT.search(text[:OPENING_CHARS])
+    if m:
+        return True, f"refusal wording in the opening of the answer: {m.group(0)!r}"
+    if branch is None:
+        m = _REFUSAL.search(text)
+        if m:
+            return True, f"refusal wording in the answer, and no tool of any branch was called: {m.group(0)!r}"
+    return False, None
+
+
+def rescore_ask(results: Iterable[Result], tasks: Iterable[Task]) -> list[Result]:
+    """Re-read the decline of stored ``ask`` rows from their answers (the model is not run again).
+
+    For a change in the refusal lists after a run: ``declined``,
+    ``declined_reason``, ``declined_correctly`` and ``answer_present`` are
+    recomputed from the stored answer, the inferred branch and the task; a
+    row with an error, or of another agent, is returned as it is. Rows keep
+    their order.
+    """
+    by_id = {t.id: t for t in tasks}
+    out: list[Result] = []
+    for r in results:
+        task = by_id.get(r.task_id)
+        if r.agent != "ask" or r.error or task is None:
+            out.append(r)
+            continue
+        declined, reason = read_refusal(r.answer, unsolvable=task.unsolvable, branch=r.branch_chosen)
+        r.declined, r.declined_reason = declined, reason
+        r.declined_correctly = declined if task.unsolvable else None
+        r.answer_present = bool(r.answer.strip()) and not declined
+        out.append(r)
+    return out
 
 
 def infer_branch(playbook: str, tools_called: Iterable[str]) -> str | None:

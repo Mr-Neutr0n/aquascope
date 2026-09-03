@@ -141,6 +141,19 @@ The station lists in the recon snapshots name stations of these three sources on
 The tasks file itself (problem texts, intakes, keys, split) and this README
 are released under CC BY 4.0. The scoring code is MIT (aquascope).
 
+## The first results on this suite
+
+Played on 2026-09-03 with a 240 s timeout per task (rows and answers in the
+repository under `aquascope/gym/results/2026-09-03/`): the playbook tree and
+the keyless plan-first team score 100 percent on the 45 solvable tasks and
+decline all 15 probes, as they should by construction; the team on Claude
+Sonnet 5 scores 100 percent (1.15 USD for 60 tasks) and on Claude Haiku 4.5
+98 percent (one timeout; 0.41 USD); a plain tool loop on Claude Sonnet 5,
+given only the question and the point, scores 68 percent on 25 solvable
+tasks with 4 false declines and declines all 15 probes (3.02 USD for 40
+tasks). The refusal of the tool loop is read off its wording; see
+`docs/hydrogym.md` for what these numbers do and do not establish.
+
 ## Regenerating and running
 
 ```bash

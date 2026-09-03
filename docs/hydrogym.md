@@ -101,7 +101,7 @@ Per task (`aquascope.gym.bench.Result`):
 | `branch_match` | the agent's branch is the key's (and its playbook the task's); for `ask`, the branch is inferred as the playbook branch whose tools its calls cover best |
 | `gates_respected` | the fraction of the key's `(step, check)` gates the run evaluated, pass or fail (the `tree` plans them, the `team` evaluates them, the `ask` loop has none, so it scores 0) |
 | `tools_matched` | the fraction of the key's tools the agent called |
-| `declined_correctly` | on an unsolvable task: did the agent decline. The team's decline is exact; the `ask` agent's is read off its answer by a list of refusal phrases, a heuristic: on an unsolvable task a refusal anywhere counts (the playbook's own decline for "why is the well falling" is to report the trend and refuse the cause), on a solvable one only a refusal in the opening of the answer, or anywhere when the loop called no tool of any branch, so a caveat after the numbers is not a decline |
+| `declined_correctly` | on an unsolvable task: did the agent decline. The team's decline is exact; the `ask` agent's is read off its answer by two lists of phrases (`read_refusal`), a heuristic: on an unsolvable task a refusal of either kind anywhere counts (the playbook's own decline for "why is the well falling" is to report the trend and refuse the cause); on a solvable one an explicit refusal ("out of scope", "cannot answer", "I decline") counts in the opening of the answer, and a method-status phrase ("not defensible", "too short to") only when the loop called no tool of any branch, so a caveat after the numbers, or the reason a method was not used before another estimate, is not a decline. `rescore_ask` re-reads stored rows when the lists change |
 | `answer_present` | prose came back and the agent did not decline |
 | `prompt_tokens`, `completion_tokens`, `calls`, `cost_usd` | from the provider's usage fields (per role for the team, in `detail.cost_by_role`); the cost is a list-price estimate, see below |
 | `seconds`, `error` | wall time; the exception or `TimeoutError` when the task did not finish |
@@ -157,7 +157,131 @@ print(leaderboard(results))
 
 ## Leaderboard
 
-__LEADERBOARD_2026_09_03__
+### 2026-09-03: the 60-task suite
+
+Sixty tasks from fifteen sites (`aquascope gym tasks --n 60 --seed 2026`),
+generated and played on 2026-09-03. The tasks, the result rows (with the
+answers), this table and the deposit package for a DOI (`deposit/`, with a
+README on the format, the scoring, the split and the licences of the
+underlying catalogs) are under `aquascope/gym/results/2026-09-03/`.
+
+The sites, from three sources and two continents: four gauges with 20 years
+and more of discharge (Congleton Park and Easby in England, La Vègre à
+Asnières-sur-Vègre in France, Beaver Creek near Paulina in Oregon), four with
+5 to 20 years (Nene Valley, Le ruisseau de Predecelle, La Gouaneyre à Arue,
+Prickly Pear Creek at East Helena), three Environment Agency boreholes
+(Sprucely, Missenden Abbey, Pallaflat Reservoir Trial) and four bare points
+(Wiltshire, Georgia, Alabama, Oregon). Each site got the three playbooks and
+one probe: 45 tasks are solvable and 15 unsolvable (8 inundation-extent
+probes, 7 attribute-the-cause probes; no data-driven decline arose, because
+every bare point landed within 50 km of a long gauge, the catalog being
+denser than the sampler's offset assumes). Six sites, 24 tasks (18 solvable),
+are held out as `test`. Keys by branch: flood risk `at_site` 11,
+`short_record` 2, `regional` 2; ungauged flow `at_gauge` 15; groundwater
+decline `well` 7, `regional` 8.
+
+The runs, each with a 240 s timeout per task and `--resume`:
+
+```bash
+R=aquascope/gym/results/2026-09-03
+aquascope gym tasks --n 60 --seed 2026 --out $R/tasks.jsonl
+aquascope gym bench --tasks $R/tasks.jsonl --agent tree --timeout 240 --resume --out $R/tree.jsonl
+aquascope gym bench --tasks $R/tasks.jsonl --agent team --timeout 240 --resume --out $R/team-keyless.jsonl
+aquascope gym bench --tasks $R/tasks.jsonl --agent team --provider anthropic --model claude-sonnet-5 \
+    --timeout 240 --resume --out $R/team-claude-sonnet-5.jsonl
+aquascope gym bench --tasks $R/tasks.jsonl --agent team --provider anthropic --model claude-haiku-4-5 \
+    --timeout 240 --resume --out $R/team-claude-haiku-4-5.jsonl
+aquascope gym bench --tasks $R/tasks.jsonl --agent ask --provider anthropic --model claude-sonnet-5 \
+    --limit 40 --unsolvable 15 --spread --timeout 240 --resume --out $R/ask-claude-sonnet-5.jsonl
+aquascope gym leaderboard $R/*.jsonl --out $R/leaderboard.md
+```
+
+The ask loop played 40 tasks: all 15 unsolvable ones and 25 solvable ones
+taken round robin over the sites, so every site is in its row. The three
+model runs cost 4.57 USD at list prices (team on Sonnet 5 1.15, team on
+Haiku 4.5 0.41, ask on Sonnet 5 3.02).
+
+| agent | model | tasks (solvable + unsolvable) | accuracy | accuracy on test | declined unsolvable | false declines | gates | tools | tokens/task | s/task | cost USD | errors | timeouts |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ask | claude-sonnet-5 | 40 (25 + 15) | 68 % | 75 % (8) | 100 % | 16 % | 0 % | 33 % | 30,810 | 61.9 | 3.017 | 1 | 1 |
+| team | keyless | 60 (45 + 15) | 100 % | 100 % (18) | 100 % | 0 % | 100 % | 99 % | 0 | 15.5 | 0.000 | 0 | 0 |
+| team | claude-haiku-4-5 | 60 (45 + 15) | 98 % | 100 % (18) | 100 % | 0 % | 100 % | 99 % | 4,966 | 23.1 | 0.406 | 1 | 1 |
+| team | claude-sonnet-5 | 60 (45 + 15) | 100 % | 100 % (18) | 100 % | 0 % | 100 % | 99 % | 6,575 | 25.0 | 1.145 | 0 | 0 |
+| tree | none | 60 (45 + 15) | 100 % | 100 % (18) | 100 % | 0 % | 100 % | 100 % | 0 | 0.0 | 0.000 | 0 | 0 |
+
+Correct on solvable tasks by expected branch (correct / n):
+
+| agent | model | at_gauge | at_site | regional | short_record | well |
+|---|---|---|---|---|---|---|
+| ask | claude-sonnet-5 | - | 10 / 11 | 1 / 6 | 0 / 2 | 6 / 6 |
+| team | keyless | 15 / 15 | 11 / 11 | 10 / 10 | 2 / 2 | 7 / 7 |
+| team | claude-haiku-4-5 | 15 / 15 | 11 / 11 | 10 / 10 | 1 / 2 | 7 / 7 |
+| team | claude-sonnet-5 | 15 / 15 | 11 / 11 | 10 / 10 | 2 / 2 | 7 / 7 |
+| tree | none | 15 / 15 | 11 / 11 | 10 / 10 | 2 / 2 | 7 / 7 |
+
+**What the numbers say, and what they do not.** The tree is 100 percent by
+construction. The keyless team is the same tree with an executor on the live
+agencies: 100 percent, every gate evaluated, 99 percent of the key's tools
+called (one groundwater step fell to its fallback when a five-year daily pull
+returned nothing), 15.5 s per task, no model; the row checks that the harness
+and the agencies reproduce the key, it is not a result about a model. The
+two model teams are the same story: Sonnet 5 at 100 percent (45 of 45, 18 of
+18 on the held-out sites), Haiku 4.5 at 98 percent (44 of 45; its one miss is
+a 240 s timeout on the Nene Valley short-record flood task), both declining
+all 15 probes before any model call. In the plan-first team the branch is the
+tree's; the model reads the intake, proposes the fallback when a gate fails
+(both models asked for a longer window on the empty groundwater pull, Sonnet
+for the catalogued 31 and 42 years, Haiku for 10 and 20) and writes the
+prose. So the accuracy column says little about the models; where they
+differ is cost and prose: 6,575 tokens and 25 s per task at 1.15 USD for
+Sonnet against 4,966 tokens and 23 s at 0.41 USD for Haiku, the Narrator
+about three quarters of the tokens in both, and the answer checks failing
+"numbers come from tools" on 8 Sonnet and 13 Haiku answers and "units are
+named" on 7 each. The ask loop, given only the question and the point, got
+17 of 25 solvable tasks (68 percent; 6 of 8 on the held-out sites), declined
+all 15 probes in its own words, called a third of the key's tools, and spent
+30,810 tokens and 62 s per task, 3.02 USD for 40 tasks, about three and a
+half times the team per task. Its eight misses: the four false declines are
+all "is the water table falling" at a gauged site with no well, where it
+reads the sufficiency table, says no well and stops, while the playbook goes
+regional and says the water balance is all that can be said, defensible
+either way, the key being the playbook's; at the two short-record gauges (10
+and 15.8 years) it fitted a distribution at the gauge or went regional where
+the short-record branch does both and reconciles them; at the 5.2-year
+Prickly Pear gauge it fitted at the gauge and then did a drainage-area
+transfer in Python where the playbook refuses the fit and goes regional; and
+one task timed out. Two of its runs hit the eight-step cap.
+
+The ask row depends on how a refusal is read, and that reading changed after
+the run. The run-time list counted the stem "declin" as a refusal, which on
+the groundwater decline playbook is the finding ("a slight rise, not a
+decline"), and counted "the record is too short to fit ... so by
+regionalisation ..." as a refusal of the question. The reading was then split
+into explicit refusals (counted in the opening of a solvable answer) and
+method-status phrases (counted only when no tool of any branch was called),
+extended with generic forms three probe answers used to refuse the cause
+("cannot say", "can't confirm", "the tools do not carry ... data"), and the
+stored answers were re-read (`aquascope.gym.bench.rescore_ask`; the model was
+not run again). Five rows moved against the run-time reading: four false
+declines became correct (three `well` tasks and one `regional` flood) and one
+became a plain branch miss; the run-time reading had the ask row at 52
+percent with 36 percent false declines. That gap is the size of the
+heuristic's effect, and the ask row should be read with it in mind.
+
+What the numbers do not establish: the key is agreement with the playbooks,
+not truth (a branch is correct because the tree chose it on the same
+snapshot); the team is given the snapshot the key was computed on while the
+ask loop calls `assess_site` live, which favours the team; the ask decline
+is a wording heuristic; costs are list prices from the tokens the provider
+reported, cache discounts not modelled, and a task that times out does not
+report its tokens although the thread runs on; the suite is one seed, 15
+sites, three sources and two continents, its bare points were not truly
+ungauged (so the regional branch of ungauged flow was not exercised), and the
+test split is a hash of the site, not a different distribution. A run that
+would say more: several seeds; other continents when the catalog carries
+spans for them; an agent whose planner is not the tree, so that the accuracy
+column can move; and the ask loop on other models.
+
 
 ### 2026-09-02: the smoke
 
