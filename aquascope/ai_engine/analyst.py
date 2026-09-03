@@ -339,6 +339,8 @@ class AskResult:
     verified: bool = True
     #: The steps behind the answer as a study file, so it can be run again.
     study: str = ""
+    #: Model calls and tokens, summed from the provider's usage fields when it reports them.
+    usage: dict[str, int] = field(default_factory=lambda: {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
 
     def to_markdown(self) -> str:
         lines = [f"# {self.question}", "", self.answer.strip(), ""]
@@ -419,6 +421,15 @@ def _harvest_provenance(name: str, args: dict[str, Any], result: Any, res: AskRe
             })
 
 
+def _add_usage(total: dict[str, int], usage: Any) -> None:
+    """Add one response's usage (an object or a dict, fields missing on some providers) to ``total``."""
+    total["calls"] = total.get("calls", 0) + 1
+    for key in ("prompt_tokens", "completion_tokens"):
+        v = usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            total[key] = total.get(key, 0) + int(v)
+
+
 def _truncate(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
     return text if len(text) <= limit else text[:limit] + f'... [truncated {len(text) - limit} chars]'
 
@@ -493,19 +504,24 @@ def ask(
     on_event: Callable[[str], None] | None = None,
     data: dict[str, Any] | None = None,
     verify_answer: bool = True,
+    context_chars: int | None = None,
 ) -> AskResult:
     """Answer ``question`` with tool calls over aquascope; returns an :class:`AskResult`.
 
     ``client`` lets tests (or callers with their own SDK setup) pass an
     OpenAI-compatible client; otherwise one is built from ``resolve_llm``
     (the ``openai`` SDK if installed, else the built-in ``urllib`` client).
+    With a client, ``provider`` still names the provider so its context
+    budget applies.
 
     ``data`` is put in reach of the ``run_python`` tool (the Explorer passes the
     record on screen). ``verify_answer`` runs the deterministic checks in
     :mod:`aquascope.ai_engine.verify` and reports what the answer does not
     establish, rather than leaving it to the reader to notice.
+    ``context_chars`` caps how much conversation is kept (the registry's
+    budget for the provider otherwise); a benchmark uses it to bound spend.
     """
-    cfg = {"provider": "custom", "model": model or "test", "api_key": None, "base_url": base_url}
+    cfg = {"provider": provider or "custom", "model": model or "test", "api_key": None, "base_url": base_url}
     if client is None:
         from aquascope.ai_engine.llm_transport import make_client
 
@@ -523,7 +539,7 @@ def ask(
     _SANDBOX_DATA.update(data or {})
     seen: list[dict[str, Any]] = []          # what each tool actually returned, for the checks
 
-    budget = context_budget(cfg["provider"])
+    budget = int(context_chars) if context_chars else context_budget(cfg["provider"])
     result_cap = max(MAX_TOOL_RESULT_CHARS, budget // 2)
     for step in range(1, max_steps + 1):
         result.steps = step
@@ -556,6 +572,7 @@ def ask(
                     messages = [*messages, {"role": "user", "content": TOOL_JSON_REMINDER}]
                 else:
                     raise
+        _add_usage(result.usage, getattr(response, "usage", None))
         choice = response.choices[0]
         msg = choice.message
         calls = getattr(msg, "tool_calls", None) or []
