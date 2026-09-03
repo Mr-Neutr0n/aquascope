@@ -702,9 +702,12 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
                        f"gross irrigation {_fmt(d.get('gross_irrigation_mm'))} mm at an efficiency of "
                        f"{_fmt(payload.get('efficiency'), 2)} (range {_fmt(rng_[0])} to {_fmt(rng_[1])} mm across "
                        f"seasons).")
+            checked = any(s.tool == "supply_reliability" for s in study.steps)
+            tail = ("; the supply check against the gauge follows" if checked
+                    else "; supply was not checked, no gauge with a usable record is within reach")
             out.append(f"That is {_fmt(d.get('gross_m3'), 6)} m3 over the {payload.get('season_days')}-day season, a "
                        f"mean {_fmt(d.get('mean_m3s'), 3)} m3/s and {_fmt(d.get('peak_month_m3s'), 3)} m3/s in the "
-                       f"peak month; supply is checked in the next step when a gauge is within reach.")
+                       f"peak month{tail}.")
     elif tool == "recharge":
         out.append(f"Water-table-fluctuation recharge: {_fmt(payload.get('value_mm_per_year'))} mm per year "
                    f"(specific yield as given).")
@@ -1316,10 +1319,20 @@ def _now() -> str:
 def _scout(site: dict[str, float], kind: str | None, intake: dict[str, Any],
            say: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     rp = intake.get("return_period")
+    # The reconnaissance narrows its table by the registry's problem kind, which is the playbook's `problem`
+    # (drought for drought_status), not its id.
+    problem: str | None = None
+    if kind:
+        from aquascope import playbooks as pbk
+
+        try:
+            problem = pbk.load(kind).problem
+        except pbk.PlaybookError:
+            problem = kind
     try:
         from aquascope.explore import assess_site
 
-        recon = assess_site(site["lat"], site["lon"], problem=kind,
+        recon = assess_site(site["lat"], site["lon"], problem=problem,
                             return_period=float(rp) if isinstance(rp, (int, float)) else None)
     except Exception as exc:  # noqa: BLE001 - no reconnaissance is a fact the plan has to live with
         recon = {"point": dict(site), "stations": [], "catchment": {},

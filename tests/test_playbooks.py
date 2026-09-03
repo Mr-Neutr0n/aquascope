@@ -476,7 +476,8 @@ def test_keyless_irrigation_feasibility_hands_the_demand_to_the_supply_check():
     assert calls[1][1]["crop"] == "maize" and calls[1][1]["planting_month"] == 4
     assert calls[2][1]["demand_m3s"] == 0.00966 and calls[2][1]["months"] == [4, 5, 6, 7, 8], "the runner filled it"
     assert all(g["passed"] for g in res.gates)
-    for needle in ("311.1 mm", "62,220 m3", "0.00966 m3/s", "supply is checked in the next step", "91 % of days"):
+    for needle in ("311.1 mm", "62,220 m3", "0.00966 m3/s", "the supply check against the gauge follows",
+                   "91 % of days"):
         assert needle in res.answer, needle
     assert all(c["passed"] for c in res.checks), [c for c in res.checks if not c["passed"]]
     assert "#310" in res.to_markdown()
@@ -485,4 +486,21 @@ def test_keyless_irrigation_feasibility_hands_the_demand_to_the_supply_check():
                         {"anywhere": CLIMATE, "crop_water_demand": CROPWATER})
     assert res.ok and res.study.plan["branch"] == "demand_only" and [c[0] for c in calls] == ["anywhere",
                                                                                               "crop_water_demand"]
-    assert any("Supply was not checked" in c for c in res.caveats)
+    assert any("Supply was not checked" in c for c in res.caveats) and "supply was not checked" in res.answer
+
+
+def test_the_scout_asks_the_registry_by_the_playbooks_problem_not_its_id():
+    """drought_status is the playbook, drought the problem the sufficiency table knows; the live run had crashed."""
+    seen = {}
+
+    def fake_assess(lat, lon, *, problem=None, return_period=None):
+        seen["problem"] = problem
+        return RICH
+
+    with patch.object(aquascope.explore, "assess_site", create=True, side_effect=fake_assess), \
+         patch("aquascope.study._tools", return_value={"drought_indices": lambda **kw: DROUGHT,
+                                                       "low_flow_context": lambda **kw: LOW,
+                                                       "drought_propagation": lambda **kw: PROPAGATION}):
+        res = team.solve("Is this area in drought?", lat=51.415, lon=-0.308, playbook="drought_status")
+    assert seen["problem"] == "drought" and res.ok
+    assert not any(e["event"] == "error" for e in res.timeline if e["role"] == "scout")
