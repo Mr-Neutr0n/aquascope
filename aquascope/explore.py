@@ -88,6 +88,38 @@ METHODS: dict[str, dict[str, str]] = {
         "citation": "Allen, R. G., Pereira, L. S., Raes, D., & Smith, M. (1998). Crop evapotranspiration. "
         "FAO Irrigation and Drainage Paper 56.",
     },
+    "spi": {
+        "name": "Standardized Precipitation Index",
+        "text": "Monthly precipitation accumulated over 1, 3 and 12 months, a gamma distribution fitted per calendar "
+        "month (a point mass at zero), the probability mapped to a standard-normal score; at or below -1 is drought.",
+        "citation": "McKee, T. B., Doesken, N. J., & Kleist, J. (1993). The relationship of drought frequency and "
+        "duration to time scales. Proc. 8th Conf. on Applied Climatology, 179-184; WMO (2012). Standardized "
+        "Precipitation Index User Guide, WMO-No. 1090.",
+    },
+    "spei": {
+        "name": "Standardized Precipitation-Evapotranspiration Index",
+        "text": "The climatic water balance (precipitation minus PET) accumulated over the timescale, a log-logistic "
+        "distribution fitted per calendar month by probability-weighted moments, the probability mapped to a "
+        "standard-normal score; sees the evaporative-demand drought under warming that SPI misses.",
+        "citation": "Vicente-Serrano, S. M., Begueria, S., & Lopez-Moreno, J. I. (2010). A multiscalar drought index "
+        "sensitive to global warming: the Standardized Precipitation Evapotranspiration Index. J. Climate 23, "
+        "1696-1718. doi:10.1175/2009JCLI2909.1",
+    },
+    "thornthwaite": {
+        "name": "Thornthwaite potential evapotranspiration",
+        "text": "Monthly PET from mean air temperature and the annual heat index, corrected for day length and the "
+        "days in the month; a temperature-only approximation, the PET SPEI was introduced with.",
+        "citation": "Thornthwaite, C. W. (1948). An approach toward a rational classification of climate. "
+        "Geographical Review 38, 55-94.",
+    },
+    "sgi_propagation": {
+        "name": "SPI to SGI drought propagation",
+        "text": "Cross-correlation between SPI at several accumulation periods, lagged 0 to 24 months, and the "
+        "Standardised Groundwater Index; the accumulation period and lag that maximise it say how long a rainfall "
+        "deficit takes to reach the water table.",
+        "citation": "Bloomfield, J. P., & Marchant, B. P. (2013). Analysis of groundwater drought building on the "
+        "standardised precipitation index approach. Hydrol. Earth Syst. Sci. 17, 4769-4787.",
+    },
     "trend": {
         "name": "Mann-Kendall trend on annual means",
         "text": "Non-parametric Mann-Kendall test with Sen's slope on the annual mean series.",
