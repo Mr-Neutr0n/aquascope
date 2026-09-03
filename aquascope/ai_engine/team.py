@@ -32,7 +32,7 @@ from aquascope.study import Study, StudyRun, run_study
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SolveResult", "choose_playbook", "intake_hints", "solve"]
+__all__ = ["SolveResult", "choose_playbook", "intake_hints", "run_reviewed", "solve"]
 
 MAX_CONTEXT_CHARS = 12_000
 
@@ -690,18 +690,7 @@ def solve(
     site = {"lat": float(lat), "lon": float(lon)}
     problem_dict: dict[str, Any] = {"text": text, "site": site, "kind": playbook, "params": dict(intake)}
 
-    llm: _Model | None = None
-    cfg: dict[str, Any] = {"model": None, "provider": None}
-    if client is not None or any((provider, model, api_key, base_url)):
-        if client is None:
-            from aquascope.ai_engine.analyst import resolve_llm
-            from aquascope.ai_engine.llm_transport import make_client
-
-            cfg = resolve_llm(provider, model, api_key, base_url)
-            client = make_client(cfg["api_key"], cfg["base_url"], provider=cfg["provider"])
-        else:
-            cfg = {"model": model or "test", "provider": provider or "custom"}
-        llm = _Model(client, str(cfg["model"]), str(cfg["provider"]), cost, timeline, say)
+    llm, cfg = _model_for(provider, model, api_key, base_url, client, cost, timeline, say)
 
     # Coordinator, first pass: the keyword rules.
     ambiguous = False
@@ -793,13 +782,61 @@ def solve(
         return SolveResult(problem=problem_dict, study=study, recon=recon, timeline=timeline, cost=cost,
                            model=cfg.get("model"), provider=cfg.get("provider"), finished=_now())
 
-    # Execute, with the Reviewer's gates; replan on a failed gate.
+    return _execute(study, pb=pb, kind=kind, text=text, intake=intake, recon=recon, site=site,
+                    problem_dict=problem_dict, llm=llm, cfg=cfg, timeline=timeline, cost=cost, say=say,
+                    max_replans=max_replans)
+
+
+def _model_for(
+    provider: str | None, model: str | None, api_key: str | None, base_url: str | None, client: Any | None,
+    cost: dict[str, dict[str, int]], timeline: list[dict[str, Any]], say: Callable[[dict[str, Any]], None],
+) -> tuple[_Model | None, dict[str, Any]]:
+    """The model the roles may call, or None: only when one was asked for, never from the environment alone."""
+    cfg: dict[str, Any] = {"model": None, "provider": None}
+    if client is None and not any((provider, model, api_key, base_url)):
+        return None, cfg
+    if client is None:
+        from aquascope.ai_engine.analyst import resolve_llm
+        from aquascope.ai_engine.llm_transport import make_client
+
+        cfg = resolve_llm(provider, model, api_key, base_url)
+        client = make_client(cfg["api_key"], cfg["base_url"], provider=cfg["provider"])
+    else:
+        cfg = {"model": model or "test", "provider": provider or "custom"}
+    return _Model(client, str(cfg["model"]), str(cfg["provider"]), cost, timeline, say), cfg
+
+
+def _execute(
+    study: Study,
+    *,
+    pb: Any,
+    kind: str | None,
+    text: str,
+    intake: dict[str, Any],
+    recon: dict[str, Any],
+    site: dict[str, Any],
+    problem_dict: dict[str, Any],
+    llm: _Model | None,
+    cfg: dict[str, Any],
+    timeline: list[dict[str, Any]],
+    cost: dict[str, dict[str, int]],
+    say: Callable[[dict[str, Any]], None],
+    max_replans: int,
+) -> SolveResult:
+    """Run a reviewed study with the Reviewer's gates, replan once, then report: the half shared by
+    ``solve`` and ``run_reviewed``. ``pb`` is the playbook a branch replan is filled from (None: no replan)."""
+    from aquascope import playbooks as pbk
+
     run = run_study(study, on_event=say)
     replans = 0
     while run.stop_reason and replans < max_replans:
         replans += 1
         if run.replan:
             branch = run.replan["branch"]
+            if pb is None:
+                say({"role": "specialist", "step": run.stopped_at, "event": "replan_declined",
+                     "detail": "no playbook to fill the branch from"})
+                break
             try:
                 new = pbk.plan(pb, recon, intake, branch=branch, problem_text=text)
             except pbk.Declined as exc:
@@ -914,6 +951,75 @@ def solve(
          "detail": f"{len(checks.checks) - len(checks.failed)} of {len(checks.checks)} checks passed"})
     result.finished = _now()
     return result
+
+
+def run_reviewed(
+    study: Study | dict[str, Any] | str,
+    *,
+    recon: dict[str, Any] | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+    max_replans: int = 1,
+    client: Any | None = None,
+) -> SolveResult:
+    """Execute a study planned earlier and reviewed elsewhere, and report as ``solve`` would.
+
+    The page plans with ``solve(..., execute=False)``, shows the checklist, lets
+    the reader edit it, and hands the study back here: the gates, one bounded
+    replan, the Reviewer's "not established" list and the Narrator are the same
+    code path. The study carries its problem, site, intake and playbook, so
+    nothing is asked twice; ``recon`` is the reconnaissance the caller already
+    has (the Scout runs otherwise). Accepts a Study, its dict or its YAML.
+    """
+    from aquascope import playbooks as pbk
+    from aquascope.study import loads as _loads
+
+    if isinstance(study, str):
+        st = _loads(study)
+    elif isinstance(study, dict):
+        st = Study.from_dict(dict(study))
+    else:
+        st = study
+    if not st.steps:
+        raise ValueError("the study has no steps")
+
+    timeline: list[dict[str, Any]] = []
+    cost: dict[str, dict[str, int]] = {}
+
+    def say(event: dict[str, Any]) -> None:
+        timeline.append(event)
+        if on_event:
+            on_event(event)
+
+    llm, cfg = _model_for(provider, model, api_key, base_url, client, cost, timeline, say)
+    problem = dict(st.problem or {})
+    plan = st.plan or {}
+    text = str(problem.get("text") or st.question or "")
+    kind = plan.get("playbook") or problem.get("kind")
+    intake = dict(problem.get("params") or {})
+    raw_site = problem.get("site") or {}
+    site: dict[str, Any] = {}
+    if isinstance(raw_site, dict) and raw_site.get("lat") is not None and raw_site.get("lon") is not None:
+        site = {"lat": float(raw_site["lat"]), "lon": float(raw_site["lon"])}
+    problem_dict: dict[str, Any] = {"text": text, "site": site, "kind": kind, "params": dict(intake)}
+    known = {p["id"] for p in pbk.list_playbooks()}
+    pb = pbk.load(kind) if kind in known else None
+    if recon is not None:
+        say({"role": "scout", "step": None, "event": "recon", "detail": "reconnaissance supplied by the caller"})
+    elif site:
+        recon = _scout(site, kind if kind in known else None, intake, say)
+    else:
+        recon = {"point": {}, "stations": [], "catchment": {}, "context": {"years_by_variable": {}},
+                 "sufficiency": [], "notes": ["the study names no site: no reconnaissance"]}
+        say({"role": "scout", "step": None, "event": "recon", "detail": "the study names no site; no reconnaissance"})
+    say({"role": "coordinator", "step": None, "event": "review",
+         "detail": f"running the reviewed plan: {len(st.steps)} step(s)"})
+    return _execute(st, pb=pb, kind=kind, text=text, intake=intake, recon=recon, site=site,
+                    problem_dict=problem_dict, llm=llm, cfg=cfg, timeline=timeline, cost=cost, say=say,
+                    max_replans=max_replans)
 
 
 def _now() -> str:

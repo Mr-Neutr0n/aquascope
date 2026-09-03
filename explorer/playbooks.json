@@ -1,0 +1,128 @@
+{
+  "playbooks": [
+    {
+      "id": "flood_risk",
+      "title": "Flood risk at a site",
+      "problem": "flood_risk",
+      "description": "Design flow or flood screening at a point, from a long gauge record, a short one, or none.",
+      "variable": "discharge",
+      "intake": [
+        {
+          "name": "return_period",
+          "label": "Return period (years)",
+          "type": "int",
+          "default": 100,
+          "options": [],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "decision",
+          "label": "What is being decided",
+          "type": "choice",
+          "default": "design flow",
+          "options": [
+            "design flow",
+            "risk screening",
+            "insurance",
+            "inundation extent"
+          ],
+          "required": false,
+          "help": null
+        }
+      ],
+      "branches": [
+        "at_site",
+        "short_record",
+        "regional"
+      ]
+    },
+    {
+      "id": "groundwater_decline",
+      "title": "Groundwater decline at a well",
+      "problem": "groundwater_decline",
+      "description": "Whether a well's level is declining, how fast (m/yr with confidence), groundwater drought status and recharge; regional signal only when no well is within reach.",
+      "variable": "groundwater_level",
+      "intake": [
+        {
+          "name": "horizon",
+          "label": "Years of recent record to compare with the full record",
+          "type": "int",
+          "default": 10,
+          "options": [],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "concern",
+          "label": "Why it matters",
+          "type": "choice",
+          "default": "other",
+          "options": [
+            "supply",
+            "subsidence",
+            "ecosystem",
+            "other"
+          ],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "attribute_cause",
+          "label": "Attribute the decline to a cause (pumping, drought, land use)",
+          "type": "bool",
+          "default": false,
+          "options": [],
+          "required": false,
+          "help": null
+        }
+      ],
+      "branches": [
+        "well",
+        "regional"
+      ]
+    },
+    {
+      "id": "ungauged_flow",
+      "title": "Flow to expect at an ungauged site",
+      "problem": "ungauged_flow",
+      "description": "The flow regime (mean, Q95, Q05, seasonality) at a point with no gauge, transferred from similar gauged catchments.",
+      "variable": "discharge",
+      "intake": [
+        {
+          "name": "purpose",
+          "label": "What the flow is for",
+          "type": "choice",
+          "default": "other",
+          "options": [
+            "irrigation offtake",
+            "environmental flow",
+            "hydropower screening",
+            "water supply",
+            "other"
+          ],
+          "required": false,
+          "help": null
+        },
+        {
+          "name": "statistic",
+          "label": "Which statistic matters most",
+          "type": "choice",
+          "default": "all",
+          "options": [
+            "mean",
+            "Q95",
+            "Q05",
+            "all"
+          ],
+          "required": false,
+          "help": null
+        }
+      ],
+      "branches": [
+        "at_gauge",
+        "regional"
+      ]
+    }
+  ]
+}

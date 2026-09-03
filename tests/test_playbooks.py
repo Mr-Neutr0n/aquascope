@@ -188,3 +188,24 @@ def test_the_study_a_playbook_emits_runs_with_no_model():
         run = run_study(study)
     assert run.ok and all(g["passed"] for g in run.gates) and len(run.gates) == 7
     assert "gate spread_within: passed" in run.to_markdown()
+
+
+def test_the_explorer_playbook_list_is_the_package_s_own():
+    """explorer/playbooks.json is generated from the YAML files; the page draws its chips from it."""
+    import json
+    from pathlib import Path
+
+    from aquascope.playbooks import as_json
+
+    data = json.loads(as_json())
+    ids = [p["id"] for p in data["playbooks"]]
+    assert ids == ["flood_risk", "groundwater_decline", "ungauged_flow"]
+    flood = data["playbooks"][0]
+    assert flood["title"] and flood["problem"] == "flood_risk"
+    fields = {f["name"]: f for f in flood["intake"]}
+    assert fields["return_period"]["type"] == "int" and fields["return_period"]["default"] == 100
+    assert fields["decision"]["type"] == "choice" and "design flow" in fields["decision"]["options"]
+    shipped = Path(__file__).resolve().parents[1] / "explorer" / "playbooks.json"
+    assert shipped.read_text(encoding="utf-8") == as_json(), (
+        "explorer/playbooks.json is stale: run `python -m aquascope.playbooks`"
+    )

@@ -24,6 +24,7 @@ lengths, the return-period cap from the registry, donors, dams).
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,7 @@ __all__ = [
     "Declined",
     "Playbook",
     "PlaybookError",
+    "as_json",
     "describe",
     "evaluation_context",
     "fill_intake",
@@ -168,6 +170,27 @@ def list_playbooks() -> list[dict[str, Any]]:
             "file": path.name,
         })
     return out
+
+
+def as_json() -> str:
+    """The playbooks with their intake fields, as the JSON the Explorer ships (``explorer/playbooks.json``).
+
+    The page draws its problem chips and intake inputs from this file before
+    Python has booted in the browser; ``python -m aquascope.playbooks`` writes
+    it, and a test keeps it in step with the YAML files.
+    """
+    rows = []
+    for row in list_playbooks():
+        if "error" in row:
+            continue
+        pb = load(row["id"])
+        rows.append({
+            "id": pb.id, "title": pb.title, "problem": pb.problem, "description": pb.description,
+            "variable": pb.variable,
+            "intake": [f.model_dump() for f in pb.intake],
+            "branches": [b.id for b in pb.branches],
+        })
+    return json.dumps({"playbooks": rows}, indent=2, ensure_ascii=False) + "\n"
 
 
 def load(playbook: str | Path | dict[str, Any] | Playbook) -> Playbook:

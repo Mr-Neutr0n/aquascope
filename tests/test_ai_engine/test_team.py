@@ -225,3 +225,73 @@ def test_intake_hints_read_the_text():
     assert team.intake_hints("which streets flood, how deep, 50-year")["decision"] == "inundation extent"
     assert team.intake_hints("Q95 for an environmental flow at an ungauged creek", "ungauged_flow") == {
         "statistic": "Q95", "purpose": "environmental flow"}
+
+
+# ── run_reviewed: the page's half of the loop ────────────────────────────────
+# The Explorer plans with execute=False, shows the checklist, lets the reader
+# edit the arguments, and hands the study back. The run must be the same code
+# path as solve(): gates, replan, the Reviewer's list, the Narrator.
+
+
+def _run_reviewed(study, **kwargs):
+    calls = kwargs.pop("calls", [])
+    tools = kwargs.pop("tools", None) or _tools(calls)
+    with patch.object(aquascope.explore, "assess_site", create=True, return_value=RECON), \
+         patch("aquascope.study._tools", return_value=tools):
+        return team.run_reviewed(study, **kwargs)
+
+
+def test_a_planned_study_runs_through_run_reviewed_like_solve_would():
+    planned = _run("Design flow for a road crossing, 100-year return period", execute=False)
+    assert planned.run is None and not planned.declined
+    calls: list = []
+    events: list = []
+    res = _run_reviewed(planned.study.to_dict(), recon=RECON, calls=calls, on_event=events.append)
+    assert res.ok and not res.declined and res.cost == {} and res.model is None
+    assert [c[0] for c in calls] == ["describe_catchment", "analyze_station", "flood_frequency"]
+    assert len(res.gates) == 7 and all(g["passed"] for g in res.gates)
+    assert "520" in res.answer and "Kingston" in res.answer
+    assert res.not_established == [] and all(c["passed"] for c in res.checks)
+    assert events == res.timeline
+    roles = [e["role"] for e in res.timeline]
+    assert roles[0] == "scout" and "narrator" in roles and roles[-1] == "reviewer"
+    assert res.timeline[0]["detail"] == "reconnaissance supplied by the caller"
+    # the problem, site and intake travel inside the study; nothing is asked twice
+    assert res.problem["kind"] == "flood_risk" and res.problem["params"]["return_period"] == 100
+    assert res.problem["site"] == {"lat": 51.415, "lon": -0.308}
+    assert "## What this answer does not establish" not in res.to_markdown()
+    assert loads(res.study_yaml).results["s3"]["ok"]
+
+
+def test_an_edit_made_at_review_is_what_runs():
+    planned = _run("Design flow for a road crossing, 100-year return period", execute=False)
+    study = planned.study.to_dict()
+    study["steps"][2]["arguments"]["bootstrap_ci"] = False      # the reader turned the slow band off
+    calls: list = []
+    res = _run_reviewed(study, recon=RECON, calls=calls)
+    assert res.ok
+    assert calls[2] == ("flood_frequency", {"source": "uk_ea", "station_id": "3400TH", "bootstrap_ci": False})
+
+
+def test_run_reviewed_takes_yaml_and_scouts_when_no_reconnaissance_is_given():
+    planned = _run("Design flow for a road crossing, 100-year return period", execute=False)
+    res = _run_reviewed(planned.study_yaml)
+    assert res.ok
+    assert res.timeline[0]["role"] == "scout" and "stations within reach" in res.timeline[0]["detail"]
+
+
+def test_run_reviewed_replans_on_a_branch_fallback_and_reports_a_failed_gate():
+    planned = _run("Design flow for a road crossing, 100-year return period", execute=False)
+    wide = json.loads(json.dumps(FLOW))
+    wide["ffa"]["fits"]["lp3"]["q"][5] = 900          # spread_within fails at T = 100
+    calls: list = []
+    res = _run_reviewed(planned.study.to_dict(), recon=RECON, calls=calls, tools=_tools(calls, flow=wide, donors_k=1))
+    assert not res.ok
+    assert any("spread_within" in n for n in res.not_established)
+    assert any(e["event"] == "fallback" for e in res.timeline), "the playbook's own fallback ran"
+    assert "does not establish" in res.to_markdown()
+
+
+def test_run_reviewed_refuses_an_empty_study():
+    with pytest.raises(ValueError):
+        team.run_reviewed({"question": "nothing", "version": 2, "steps": []})
