@@ -5,6 +5,7 @@ All notable changes to AquaScope are documented here.
 ## [Unreleased]
 
 ### Added
+- **`ReportBuilder` can cite the software that produced the report** (#334). `ReportMetadata` gains optional `doi` and `citation` fields plus a `software_version` that defaults to `aquascope.__version__`, and `ReportBuilder.add_software_citation()` renders a "Cite this software" section. A verbatim `citation` is used as given; otherwise one is built from the author, year and software version, with the DOI resolved to a `https://doi.org/...` URL when set and an explicit "DOI not yet assigned" when not. The section is built from the same heading and paragraph elements as the rest of a report, so it renders in both `to_markdown()` and `to_html()`. `version` still identifies the report and keeps its `"1.0"` default.
 - **NVIDIA Build provider support** (#331). Added NVIDIA Build (`https://integrate.api.nvidia.com/v1`) to `aquascope.ai_engine.providers` with default model `openai/gpt-oss-120b`, support for `nvidia/llama-3.1-nemotron-70b-instruct`, `NVIDIA_API_KEY` credential scanning in `ENV_SCAN_ORDER`, documentation in `docs/analyst.md`, and unit test coverage in `tests/test_ai_engine/test_providers.py`.
 
 ### Changed
