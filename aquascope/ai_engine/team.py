@@ -586,45 +586,66 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
 def _template_answer(study: Study, run: StudyRun | None) -> str:
     plan = study.plan or {}
     lines: list[str] = []
+    #: Where a new paragraph starts (one per step, plus every standalone line).
+    starts: set[int] = set()
+    said: dict[str, int] = {}
 
-    said: set[str] = set()
+    def para(text: str) -> None:
+        starts.add(len(lines))
+        lines.append(text)
 
     def add(sentences: list[str]) -> None:
         # Two steps on the same record say the same thing once. analyze_station
-        # and flood_frequency differ by a word, so the key is the numbers when a
-        # sentence carries at least two of them, the text otherwise.
+        # and flood_frequency open the same sentence ("The 100-year return level
+        # from 140 annual maxima: ..."), so the key is the opening clause; when a
+        # later step says it with more in it, the fuller version replaces the
+        # earlier one. Each step's sentences form one paragraph.
+        first = True
         for s in sentences:
-            nums = re.findall(r"-?\d[\d,]*\.?\d*", s)
-            key = " ".join(nums) if len(nums) >= 2 else s.strip()
+            key = s.strip().lower()[:48]
             if key in said:
+                idx = said[key]
+                if len(s) > len(lines[idx]):
+                    lines[idx] = s
                 continue
-            said.add(key)
+            if first:
+                starts.add(len(lines))
+                first = False
+            said[key] = len(lines)
             lines.append(s)
 
     if plan.get("branch"):
-        lines.append(f"Plan {plan.get('playbook')}, branch {plan['branch']}, executed with no model in the loop.")
+        para(f"Plan {plan.get('playbook')}, branch {plan['branch']}, executed with no model in the loop.")
     for r in (run.results if run else []):
         if r.get("skipped"):
-            lines.append(f"Step {r.get('id')} ({r.get('tool')}) was skipped: {r.get('error')}.")
+            para(f"Step {r.get('id')} ({r.get('tool')}) was skipped: {r.get('error')}.")
             continue
         if not r.get("ok"):
-            lines.append(f"Step {r.get('id')} ({r.get('tool')}) failed: {r.get('error')}.")
+            para(f"Step {r.get('id')} ({r.get('tool')}) failed: {r.get('error')}.")
             continue
         payload = r.get("result")
         if isinstance(payload, dict):
             add(_sentences_for(r["tool"], payload, study))
         failed = [g for g in r.get("gates") or [] if not g.get("passed")]
         for g in failed:
-            lines.append(f"Gate {g['check']} on step {r.get('id')} failed: {g.get('detail')}.")
+            para(f"Gate {g['check']} on step {r.get('id')} failed: {g.get('detail')}.")
         fb = r.get("fallback")
         if r.get("fallback_used") and isinstance(fb, dict):
             passed = " and passed its gates." if fb.get("ok") and fb.get("gates_passed") else "."
-            lines.append(f"The fallback {fb.get('tool')} ran" + passed)
+            para(f"The fallback {fb.get('tool')} ran" + passed)
             if isinstance(fb.get("result"), dict):
                 add(_sentences_for(fb["tool"], fb["result"], study))
     if run and run.stop_reason:
-        lines.append(f"The study stopped at step {run.stopped_at}: {run.stop_reason}.")
-    return " ".join(lines) if lines else "No step ran."
+        para(f"The study stopped at step {run.stopped_at}: {run.stop_reason}.")
+    if not lines:
+        return "No step ran."
+    paragraphs: list[list[str]] = []
+    for i, line in enumerate(lines):
+        if i in starts or not paragraphs:
+            paragraphs.append([line])
+        else:
+            paragraphs[-1].append(line)
+    return "\n\n".join(" ".join(p) for p in paragraphs)
 
 
 # ── the loop ────────────────────────────────────────────────────────────────
