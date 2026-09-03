@@ -345,6 +345,15 @@ async function plan() {
     if (my !== S.run) return;
     S.plan = res;
     S.study = res.study;
+    // The keyword rules read the sentence in Python: show their reading the
+    // way the device's is shown, the chip pressed and the fields filled, so
+    // reopening What starts from what was planned rather than from a blank.
+    const picked = res.study && res.study.plan && res.study.plan.playbook;
+    if (!pb && picked && !res.declined && S.playbooks.some((p) => p.id === picked)) {
+      chooseChip(picked);
+      writeIntake((res.study.problem || {}).params || {});
+      setStage("what", "done", whatSummary(chosen(), text));
+    }
     renderPlan(res);
     if (S.intakeNote) planStatus(S.intakeNote, "info");
   } catch (err) {
