@@ -128,10 +128,22 @@ PROVIDERS: dict[str, Provider] = {
         browser=False,
         note="Needs `ollama serve` on this machine; a page served over HTTPS cannot reach it.",
     ),
+    "nvidia": Provider(
+        id="nvidia",
+        label="NVIDIA Build (free trial credits)",
+        base_url="https://integrate.api.nvidia.com/v1",
+        model="openai/gpt-oss-120b",
+        models=["openai/gpt-oss-120b", "nvidia/llama-3.1-nemotron-70b-instruct", "openai/gpt-oss-20b"],
+        env="NVIDIA_API_KEY",
+        free="1,000 API calls on signup, more on request; not a refilling quota.",
+        signup="https://build.nvidia.com",
+        browser=False,
+        note="NVIDIA Build endpoints do not support browser CORS; use from the CLI or behind a proxy.",
+    ),
 }
 
 #: The order the CLI scans the environment in when no provider was named.
-ENV_SCAN_ORDER = ("anthropic", "openai", "groq", "huggingface", "mistral", "openrouter")
+ENV_SCAN_ORDER = ("anthropic", "openai", "groq", "nvidia", "huggingface", "mistral", "openrouter")
 
 
 def provider_ids(*, browser_only: bool = False) -> list[str]:
