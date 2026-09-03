@@ -9,12 +9,14 @@ assembled deterministically from what the tools returned, never from the
 model's memory.
 
 Works with any OpenAI-compatible chat endpoint that supports tool calling
-(OpenAI, Groq, Hugging Face router, Mistral, OpenRouter, Ollama, ...).
-Configuration, in order: explicit arguments, ``AQUASCOPE_LLM_API_KEY`` /
-``AQUASCOPE_LLM_BASE_URL`` / ``AQUASCOPE_LLM_MODEL``, then ``OPENAI_API_KEY``,
-``GROQ_API_KEY``, ``HF_TOKEN``. Uses the ``openai`` SDK when installed and a
-built-in ``urllib`` client otherwise (``aquascope.ai_engine.llm_transport``),
-which is also what runs inside the Explorer's browser worker.
+(OpenAI, Groq, Hugging Face router, Mistral, OpenRouter, Ollama, ...) and with
+Anthropic's Messages API (``--provider anthropic``), which the transport
+translates. Configuration, in order: explicit arguments,
+``AQUASCOPE_LLM_API_KEY`` / ``AQUASCOPE_LLM_BASE_URL`` / ``AQUASCOPE_LLM_MODEL``,
+then ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``, ``GROQ_API_KEY``, ``HF_TOKEN``.
+Uses the provider's SDK when installed and a built-in ``urllib`` client
+otherwise (``aquascope.ai_engine.llm_transport``), which is also what runs
+inside the Explorer's browser worker.
 """
 
 from __future__ import annotations
@@ -35,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_RESULT_CHARS = 14_000
 
+#: Providers with a large window raise both caps through the registry
+#: (``context_chars``): a single result may then take up to half the window.
 #: The whole conversation's budget, in characters (roughly four to a token).
 #: A per-result cap is not enough on a small window: three results at the cap
 #: exceed a free tier's 8,000 tokens a minute on their own, and the provider
@@ -418,6 +422,17 @@ def fit_context(messages: list[dict[str, Any]], budget: int = MAX_CONTEXT_CHARS)
     return out
 
 
+def context_budget(provider: str | None) -> int:
+    """How much conversation to keep before trimming, in characters.
+
+    The default is sized for free tiers that meter tokens per minute. A
+    provider with a large window says so in the registry (``context_chars``)
+    and gets to keep its tool results whole.
+    """
+    spec = _REGISTRY.get(provider or "")
+    return spec.context_chars if spec is not None and spec.context_chars else MAX_CONTEXT_CHARS
+
+
 def ask(
     question: str,
     *,
@@ -447,7 +462,7 @@ def ask(
         from aquascope.ai_engine.llm_transport import make_client
 
         cfg = resolve_llm(provider, model, api_key, base_url)
-        client = make_client(cfg["api_key"], cfg["base_url"])
+        client = make_client(cfg["api_key"], cfg["base_url"], provider=cfg["provider"])
     specs = {s.name: s for s in _tool_specs()}
     tools = _openai_tools(list(specs.values()))
     messages: list[dict[str, Any]] = [
@@ -460,7 +475,8 @@ def ask(
     _SANDBOX_DATA.update(data or {})
     seen: list[dict[str, Any]] = []          # what each tool actually returned, for the checks
 
-    budget = MAX_CONTEXT_CHARS
+    budget = context_budget(cfg["provider"])
+    result_cap = max(MAX_TOOL_RESULT_CHARS, budget // 2)
     for step in range(1, max_steps + 1):
         result.steps = step
         messages = fit_context(messages, budget)
@@ -477,7 +493,7 @@ def ask(
                 break
             except LLMHTTPError as exc:
                 body = (exc.body or "").lower()
-                too_large = exc.status == 413 or "too large" in body
+                too_large = exc.status == 413 or "too large" in body or "too long" in body
                 # Some providers reject the whole request when the model's own
                 # tool call will not parse as JSON. The model wrote it, so the
                 # model can write it again: say what was wrong and resample.
@@ -526,7 +542,8 @@ def ask(
             text = json.dumps(payload, ensure_ascii=False, default=str)
             summary = text[:160]
             result.tool_calls.append(ToolCallRecord(name=name, arguments=args, ok=ok, summary=summary))
-            messages.append({"role": "tool", "tool_call_id": c.id, "name": name, "content": _truncate(text)})
+            messages.append({"role": "tool", "tool_call_id": c.id, "name": name,
+                             "content": _truncate(text, result_cap)})
     else:
         result.answer = (result.answer or "").strip() or (
             "I ran out of tool-call steps before finishing. Here is what the tools returned so far; "

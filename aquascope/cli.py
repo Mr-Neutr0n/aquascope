@@ -1750,14 +1750,14 @@ def main() -> None:
     )
 
     # ── ask ──────────────────────────────────────────────────────────
+    from aquascope.ai_engine.providers import provider_ids  # light: no pandas behind it
+
     p_ask = sub.add_parser("ask", help="Ask a water question in plain language; get a cited answer from real data")
     p_ask.add_argument("question")
-    p_ask.add_argument(
-        "--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"], default=None
-    )
+    p_ask.add_argument("--provider", choices=provider_ids(), default=None)
     p_ask.add_argument("--model", default=None)
     p_ask.add_argument("--api-key", default=None)
-    p_ask.add_argument("--base-url", default=None, help="Any OpenAI-compatible endpoint")
+    p_ask.add_argument("--base-url", default=None, help="Any OpenAI-compatible endpoint (or Anthropic's)")
     p_ask.add_argument("--max-steps", type=int, default=8, help="Tool-call rounds allowed (default 8)")
     p_ask.add_argument("--out", "-o", default=None, help="Save the Markdown report here")
     p_ask.add_argument("--quiet", "-q", action="store_true", help="Do not print tool calls as they happen")
@@ -1776,9 +1776,7 @@ def main() -> None:
     p_ingest.add_argument("--sheet", default=None, help="Excel sheet name or index")
     p_ingest.add_argument("--describe", default=None, help="A sentence about the file (helps the LLM mapping)")
     p_ingest.add_argument("--llm", action="store_true", help="Let a configured LLM propose the column mapping")
-    p_ingest.add_argument(
-        "--provider", choices=["openai", "groq", "huggingface", "mistral", "openrouter", "ollama"], default=None
-    )
+    p_ingest.add_argument("--provider", choices=provider_ids(), default=None)
     p_ingest.add_argument("--model", default=None)
     p_ingest.add_argument("--api-key", default=None)
     p_ingest.add_argument("--out", "-o", default=None, help="Output stem (default: <file>_clean)")
