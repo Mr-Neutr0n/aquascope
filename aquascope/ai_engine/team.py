@@ -680,11 +680,11 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
                        f"{sgi.get('worst_date')}, {sgi.get('events')} drought events.")
         best = (payload.get("propagation") or {}).get("best")
         if isinstance(best, dict):
-            lag = best.get("lag_months")
-            out.append(f"Drought propagation: SPI over {best.get('timescale')} months on ERA5 precipitation "
-                       f"correlates best with the SGI at a lag of {lag} months (r = {_fmt(best.get('correlation'), 2)} "
-                       f"over {best.get('n')} months), so a rainfall deficit takes about {lag} months to reach the "
-                       f"water table here.")
+            lag = _months(best.get("lag_months"))
+            out.append(f"Drought propagation: SPI over {_months(best.get('timescale'))} on ERA5 precipitation "
+                       f"correlates best with the SGI at a lag of {lag} (r = {_fmt(best.get('correlation'), 2)} over "
+                       f"{best.get('n')} months), so a rainfall deficit takes about {lag} to reach the water table "
+                       f"here.")
     elif tool == "low_flow_context":
         out += _low_flow_sentences(payload, unit)
     elif tool == "supply_reliability":
