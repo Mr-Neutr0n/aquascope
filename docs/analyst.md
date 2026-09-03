@@ -7,7 +7,7 @@ and aquascope does the part that has to be right.
 
 ```bash
 pip install aquascope             # the openai and anthropic SDKs are optional (pip install "aquascope[llm]")
-export ANTHROPIC_API_KEY=...       # or GROQ_API_KEY, OPENAI_API_KEY, HF_TOKEN, MISTRAL_API_KEY, OPENROUTER_API_KEY, or AQUASCOPE_LLM_API_KEY + _BASE_URL + _MODEL
+export ANTHROPIC_API_KEY=...       # or GROQ_API_KEY, OPENAI_API_KEY, NVIDIA_API_KEY, HF_TOKEN, MISTRAL_API_KEY, OPENROUTER_API_KEY, or AQUASCOPE_LLM_API_KEY + _BASE_URL + _MODEL
 aquascope ask "What is the 100-year flood of the Seine at Paris, and how sure can we be?" -o seine.md
 ```
 
@@ -25,9 +25,9 @@ them against real data. The Markdown report has three parts:
    also assembled from the tool results (never from the model's memory).
 
 A footer records the model, provider, date and the tools called. `--provider`
-picks anthropic / openai / groq / huggingface / mistral / openrouter / ollama
-(defaults from the environment, scanned in that order), `--model` overrides the
-default model, `--max-steps` bounds the tool loop. Works with any
+picks anthropic / openai / groq / nvidia / huggingface / mistral / openrouter /
+ollama (defaults from the environment, scanned in that order), `--model`
+overrides the default model, `--max-steps` bounds the tool loop. Works with any
 OpenAI-compatible endpoint that supports tool calling, and with Anthropic's
 Messages API: `--provider anthropic` defaults to `claude-opus-5`, and
 `AQUASCOPE_LLM_EFFORT` (`low` to `max`) sets how hard Claude thinks per step.
@@ -50,9 +50,22 @@ ask`. Claude goes through `AnthropicChatClient` in the same module, which
 speaks the Messages API behind the same surface (the `anthropic` SDK when it
 is installed, plain HTTP in the browser) and sends the model's own content
 blocks back on every tool turn so adaptive thinking carries across steps.
-Providers: `anthropic`, `openai`, `groq`, `huggingface`, `mistral`,
-`openrouter`, `ollama`, or `AQUASCOPE_LLM_BASE_URL` for anything else that
-speaks the chat-completions protocol.
+Providers: `anthropic`, `openai`, `groq`, `nvidia` (CLI only), `huggingface`,
+`mistral`, `openrouter`, `ollama`, or `AQUASCOPE_LLM_BASE_URL` for anything
+else that speaks the chat-completions protocol.
+
+### Supported Providers
+
+| Provider | ID | Environment Variable | Default Model | Free Tier / Trial | Browser (Explorer) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5` | Paid | Yes |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | Paid | Yes |
+| **Groq** | `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | Free tier (~1,000 req/day) | Yes |
+| **NVIDIA Build** | `nvidia` | `NVIDIA_API_KEY` | `openai/gpt-oss-120b` | 1,000 trial credits on signup | No (CORS restricted; CLI only) |
+| **Hugging Face** | `huggingface` | `HF_TOKEN` | `Qwen/Qwen2.5-72B-Instruct` | Monthly free tier credit | Yes |
+| **Mistral** | `mistral` | `MISTRAL_API_KEY` | `mistral-small-latest` | Paid | Yes |
+| **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` | `:free` models available | Yes |
+| **Ollama** | `ollama` | Local (`None`) | `qwen2.5:7b` | Free (runs locally) | No (requires local daemon) |
 
 ## `aquascope ingest`: any export in, a clean series and a QA report out
 
