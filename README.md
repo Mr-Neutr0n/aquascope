@@ -263,7 +263,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 25-command CLI (`agri`, `basins`, `caravan` and `gym` carry subcommands) for the most common workflows:
+AquaScope ships a 27-command CLI (`agri`, `basins`, `caravan`, `gym` and `playbooks` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -272,6 +272,7 @@ aquascope harvest stations --out archive          # the open gauge catalog (GeoP
 aquascope basins at 48.85 2.35                    # the catchment of any point: area, climate, land cover, soils, dams (BasinATLAS)
 aquascope basins similar 25.04 121.56             # gauged basins whose catchments look most like this point's (ungauged-site donors)
 aquascope basins regionalize 52.29 -3.51          # estimated flow regime of an ungauged point from those donors, with the leave-one-out skill
+aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive
 aquascope gym run --basin uk_ea/013054a3-670e-49ee-afda-e0865a449197   # HydroGym: calibrate GR4J on a real basin as a gym episode
 aquascope mcp                                     # serve the same tools to Claude / Cursor over MCP
@@ -289,7 +290,7 @@ aquascope agri plan --crop maize --planting-date 2026-04-01 --lat 30.0 --lon 31.
 
 # AI recommendation + natural-language problem solving
 aquascope recommend --parameters DO,BOD5,COD --goal "pollution trend detection"
-aquascope solve --problem "Assess flood risk for a 100-year return period"
+aquascope solve "Design flow for a road crossing, 100-year return period" --lat 51.415 --lon -0.308
 
 # Interactive Streamlit dashboard — multipage workspace with 21 live sources,
 # smart auto-insights, and fully interactive Plotly charts
