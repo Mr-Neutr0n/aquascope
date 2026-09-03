@@ -248,4 +248,6 @@ def test_the_water_quality_playbook_follows_the_use_and_carries_its_guideline_ca
     assert [s.tool for s in aquatic.steps] == ["water_quality_samples", "wqi"]
     assert any("aquatic-life guidelines" in c for c in aquatic.plan["caveats"])
     assert pbk.select_branch("water_quality", LONG) is None
+    unnamed = recon({"water_quality": 7.5}, [dict(WQ_STATION, name=None)])
+    assert "listed at USGS-01646500 (usgs USGS-01646500" in pbk.plan("water_quality", unnamed).plan["rationale"]
     assert pbk.select_branch("water_quality", WQ_SITE, {"use": "irrigation"}).id == "irrigation"
