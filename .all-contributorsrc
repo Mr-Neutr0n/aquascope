@@ -208,6 +208,25 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "leatke",
+      "name": "leatke",
+      "avatar_url": "https://avatars.githubusercontent.com/u/147705788?v=4",
+      "profile": "https://github.com/leatke",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "taliapulsifer",
+      "name": "Talia Pulsifer",
+      "avatar_url": "https://avatars.githubusercontent.com/u/70988138?v=4",
+      "profile": "https://github.com/taliapulsifer",
+      "contributions": [
+        "code",
+        "test"
+      ]
     }
   ],
   "commitType": "docs"
