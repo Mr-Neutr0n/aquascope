@@ -77,17 +77,18 @@ def test_probes_are_read_off_the_playbooks_decline_rules_and_rotate_over_sites()
     assert gt.decline_probes("groundwater_decline")[0]["intake"] == {"attribute_cause": True}
     assert gt.decline_probes("ungauged_flow") == [], "its only decline reads the reconnaissance"
     tasks = gt.tasks_from_playbooks([LONG, SHORT, POINT], None, recon=fake_recon, probes=1)
-    assert len(tasks) == 12, "three playbooks and one probe per site"
+    assert len(tasks) == 15, "four playbooks and one probe per site"
     probes = [t for t in tasks if t.probe]
-    assert [t.playbook for t in probes] == ["flood_risk", "groundwater_decline", "flood_risk"]
+    assert [t.playbook for t in probes] == ["flood_risk", "groundwater_decline", "water_quality"]
     assert all(t.unsolvable and t.expected["decline_kind"] == "declined" for t in probes)
     assert probes[0].intake["decision"] == "inundation extent" and "inundation extent" in probes[0].problem
     assert probes[1].intake["attribute_cause"] is True and "why" in probes[1].problem
-    assert sum(t.unsolvable for t in tasks) == 3
+    # three probes, and water_quality declines at every site without samples
+    assert sum(t.unsolvable for t in tasks) == 6
     everything = gt.tasks_from_playbooks([LONG], None, recon=fake_recon, probes=None)
-    assert len(everything) == 5 and sum(t.unsolvable for t in everything) == 2
+    assert len(everything) == 7 and sum(t.unsolvable for t in everything) == 4
     assert [t.playbook for t in gt.tasks_from_playbooks([LONG], None, recon=fake_recon, probes=0)] == [
-        "flood_risk", "groundwater_decline", "ungauged_flow"]
+        "flood_risk", "groundwater_decline", "ungauged_flow", "water_quality"]
 
 
 def test_a_reconnaissance_that_fails_still_yields_tasks_with_a_note():

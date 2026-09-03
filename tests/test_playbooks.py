@@ -30,11 +30,14 @@ LONG = recon({"discharge": 39.5}, [STATION], donors=8, area=9948, dams=1)
 SHORT = recon({"discharge": 12}, [dict(STATION, years=12)], donors=8, area=300)
 UNGAUGED = recon(None, [], donors=5, area=120)
 WELL = recon({"groundwater_level": 15}, [dict(STATION, variables=["groundwater_level"], years=15)])
+WQ_STATION = {"source": "usgs", "station_id": "USGS-01646500", "name": "Potomac at Little Falls", "distance_km": 7.2,
+              "variables": ["discharge", "water_quality"], "period_start": "1930-03-01", "years": 96.5}
+WQ_SITE = recon({"discharge": 96.5, "water_quality": 96.5}, [WQ_STATION], donors=8, area=29000)
 
 
-def test_the_three_playbooks_list_load_and_validate():
+def test_the_shipped_playbooks_list_load_and_validate():
     ids = [p["id"] for p in pbk.list_playbooks()]
-    assert ids == ["flood_risk", "groundwater_decline", "ungauged_flow"]
+    assert ids == ["flood_risk", "groundwater_decline", "ungauged_flow", "water_quality"]
     for pid in ids:
         pb = pbk.load(pid)
         assert pbk.validate(pb) == [], pid
@@ -62,6 +65,7 @@ def test_the_files_stay_within_the_yaml_subset_the_browser_reads():
     ("groundwater_decline", WELL, "well",
      ["analyze_station", "get_timeseries", "sgi_drought", "get_timeseries", "recharge"]),
     ("groundwater_decline", UNGAUGED, "regional", ["anywhere"]),
+    ("water_quality", WQ_SITE, "drinking", ["water_quality_samples", "who_screen", "wqi"]),
 ])
 def test_each_playbook_selects_the_branch_the_record_supports(pid, site, branch, tools):
     assert pbk.select_branch(pid, site).id == branch
@@ -111,6 +115,12 @@ def test_declines_print_their_own_sentence():
     with pytest.raises(pbk.Declined) as exc:
         pbk.plan("groundwater_decline", WELL, {"attribute_cause": True})
     assert "pumping" in exc.value.reason
+    with pytest.raises(pbk.Declined) as exc:
+        pbk.plan("water_quality", LONG)
+    assert "Phase 3 (#188)" in exc.value.reason and "Water Quality Portal" in exc.value.reason
+    with pytest.raises(pbk.Declined) as exc:
+        pbk.plan("water_quality", WQ_SITE, {"health_verdict": True})
+    assert "health judgement" in exc.value.reason and "never sampled" in exc.value.reason
     # a long record with donors is not declined for T = 100
     assert pbk.plan("flood_risk", LONG, {"return_period": 100}).plan["branch"] == "at_site"
     # and a site with donors unknown is left to the run-time gate
@@ -199,7 +209,7 @@ def test_the_explorer_playbook_list_is_the_package_s_own():
 
     data = json.loads(as_json())
     ids = [p["id"] for p in data["playbooks"]]
-    assert ids == ["flood_risk", "groundwater_decline", "ungauged_flow"]
+    assert ids == ["flood_risk", "groundwater_decline", "ungauged_flow", "water_quality"]
     flood = data["playbooks"][0]
     assert flood["title"] and flood["problem"] == "flood_risk"
     fields = {f["name"]: f for f in flood["intake"]}
@@ -209,3 +219,33 @@ def test_the_explorer_playbook_list_is_the_package_s_own():
     assert shipped.read_text(encoding="utf-8") == as_json(), (
         "explorer/playbooks.json is stale: run `python -m aquascope.playbooks`"
     )
+
+
+def test_the_water_quality_playbook_follows_the_use_and_carries_its_guideline_caveat():
+    """A station with sampled parameters within reach: samples, then the index against the use's guidelines;
+    irrigation adds the FAO 29 suitability index, drinking adds the WHO screen; no station declines."""
+    drinking = pbk.plan("water_quality", WQ_SITE, problem_text="Is the river water safe to drink?")
+    assert drinking.plan["branch"] == "drinking" and drinking.problem["params"]["use"] == "drinking"
+    assert drinking.step_by_id("s1").arguments == {"source": "usgs", "station_id": "USGS-01646500", "years": 5,
+                                                   "use": "drinking"}
+    assert drinking.step_by_id("s3").arguments == {"from_step": "s1", "use": "drinking"}
+    gates = [(g["check"], g.get("path")) for g in drinking.step_by_id("s3").expects]
+    assert gates == [("not_empty", "ccme.score"), ("min_samples", "ccme.sample_counts")]
+    assert drinking.step_by_id("s3").fallback == "stop"
+    assert any("WHO (2022)" in c for c in drinking.plan["caveats"])
+    assert any("not a" in c and "verdict" in c for c in drinking.plan["caveats"])
+    assert any("USGS daily water-quality values" in c for c in drinking.plan["caveats"])
+    assert any("digitised approximations" in c for c in drinking.plan["caveats"])
+    irrigation = pbk.plan("water_quality", WQ_SITE, {"use": "irrigation", "years": 3})
+    assert irrigation.plan["branch"] == "irrigation"
+    assert [s.tool for s in irrigation.steps] == ["water_quality_samples", "wqi", "iwqi"]
+    assert irrigation.step_by_id("s1").arguments["years"] == 3
+    assert irrigation.step_by_id("s2").method == "water_quality_index"
+    assert irrigation.step_by_id("s3").method == "iwqi"
+    assert any("FAO Irrigation and Drainage Paper 29" in c for c in irrigation.plan["caveats"])
+    aquatic = pbk.plan("water_quality", WQ_SITE, {"use": "aquatic life"})
+    assert aquatic.plan["branch"] == "aquatic_life"
+    assert [s.tool for s in aquatic.steps] == ["water_quality_samples", "wqi"]
+    assert any("aquatic-life guidelines" in c for c in aquatic.plan["caveats"])
+    assert pbk.select_branch("water_quality", LONG) is None
+    assert pbk.select_branch("water_quality", WQ_SITE, {"use": "irrigation"}).id == "irrigation"

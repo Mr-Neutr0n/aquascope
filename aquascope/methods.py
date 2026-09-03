@@ -283,13 +283,25 @@ METHODS: dict[str, MethodPrecondition] = {
         ),
         MethodPrecondition(
             "water_quality_index",
-            "Water quality index against guideline values",
+            "Water quality index against guideline values (CCME WQI 1.0, NSF WQI)",
             "water_quality",
             min_years=0,
-            tool="who_screen",
+            tool="wqi",
             problems=("water_quality",),
-            citation="WHO (2022) drinking-water guidelines",
-            note="Only over sampled parameters; the archive carries none until Phase 3.",
+            citation="CCME (2001) WQI 1.0; Brown et al. (1970) NSF WQI; WHO (2022) drinking-water guidelines; "
+            "Ayers & Westcot (1985) FAO 29",
+            note="Only over sampled parameters; the archive carries none until Phase 3. CCME asks for at least "
+            "four parameters sampled four times each.",
+        ),
+        MethodPrecondition(
+            "iwqi",
+            "Irrigation water quality (SAR, sodium percentage, RSC, FAO 29 restriction)",
+            "water_quality",
+            min_years=0,
+            tool="iwqi",
+            problems=("water_quality", "irrigation"),
+            citation="Ayers & Westcot (1985) FAO 29; Richards (1954); Wilcox (1955); Eaton (1950)",
+            note="Needs the major ions (Na, Ca, Mg, HCO3) and conductivity; what was not sampled is not judged.",
         ),
     ]
 }

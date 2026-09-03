@@ -661,7 +661,9 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
             if idx.get("ussl_class"):
                 bits.append(f"USSL class {idx['ussl_class']}")
             drivers = ", ".join(str(d).replace("_", " ") for d in payload.get("drivers") or [])
-            out.append(f"Irrigation suitability (FAO 29): {restriction} restriction on use"
+            verdict = ("no restriction on use from the sampled parameters" if restriction == "none"
+                       else f"{restriction} restriction on use")
+            out.append(f"Irrigation suitability (FAO 29): {verdict}"
                        + (f", driven by {drivers}" if drivers else "") + (": " + "; ".join(bits) if bits else "") + ".")
             missing = payload.get("missing") or []
             if missing:

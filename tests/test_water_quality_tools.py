@@ -287,3 +287,90 @@ def test_the_template_narrator_has_sentences_for_the_water_quality_tools():
     assert team.choose_playbook("Is the river water safe to drink?") == ("water_quality", False)
     assert team.intake_hints("Is the river water safe to drink?", "water_quality") == {"use": "drinking"}
     assert team.intake_hints("water quality for irrigating the orchard", "water_quality")["use"] == "irrigation"
+
+
+# ── the team, keyless ───────────────────────────────────────────────────────
+
+WQ_STATION = {"source": "usgs", "station_id": "USGS-01646500", "name": "Potomac at Little Falls", "distance_km": 7.2,
+              "variables": ["discharge", "water_quality"], "years": 96.5}
+WQ_RECON = {"point": {"lat": 38.9, "lon": -77.05}, "stations": [WQ_STATION], "catchment": {"upstream_area_km2": 29940},
+            "context": {"years_by_variable": {"discharge": 96.5, "water_quality": 96.5},
+                        "resolution_by_variable": {"discharge": "daily", "water_quality": "daily"},
+                        "area_km2": 29940, "donors": 8, "available": ["glofas"], "ungauged": False},
+            "sufficiency": [], "notes": ["Record resolution is not in the catalog; daily is assumed."]}
+NO_WQ_RECON = {**WQ_RECON, "stations": [dict(WQ_STATION, variables=["discharge"])],
+               "context": {**WQ_RECON["context"], "years_by_variable": {"discharge": 96.5}}}
+
+
+def _samples_payload() -> dict:
+    rows = []
+    for d in pd.date_range("2021-01-01", periods=60, freq="MS"):
+        rows += [{"datetime": d.isoformat(), "parameter": "pH", "value": 7.6, "unit": "std units"},
+                 {"datetime": d.isoformat(), "parameter": "DO", "value": 9.5, "unit": "mg/l"},
+                 {"datetime": d.isoformat(), "parameter": "Temperature", "value": 14.0, "unit": "deg C"},
+                 {"datetime": d.isoformat(), "parameter": "Conductivity", "value": 320.0, "unit": "uS/cm @25C"}]
+    return {"source": "usgs", "station_id": "USGS-01646500", "agency": "U.S. Geological Survey", "license": "US-PD",
+            "attribution": "U.S. Geological Survey (public domain)", "n_samples": 240, "n_parameters": 4,
+            "parameters": {"Conductivity": {"n": 60, "unit": "uS/cm @25C"}, "DO": {"n": 60, "unit": "mg/l"},
+                           "Temperature": {"n": 60, "unit": "deg C"}, "pH": {"n": 60, "unit": "std units"}},
+            "sample_counts": {"Conductivity": 60, "DO": 60, "Temperature": 60, "pH": 60},
+            "unit": "mg/l", "start": "2021-01-01", "end": "2025-12-01", "years": 4.92, "samples": rows,
+            "fetch_note": "USGS daily mean values", "methods": []}
+
+
+def _solve(problem: str, recon: dict, **kwargs):
+    import aquascope.explore
+
+    calls: list = []
+
+    def samples(**kw):
+        calls.append(kw)
+        return _samples_payload()
+
+    with patch.object(aquascope.explore, "assess_site", return_value=recon):
+        res = team.solve(problem, lat=38.9, lon=-77.05, playbook="water_quality",
+                         tools={"water_quality_samples": samples}, **kwargs)
+    return res, calls
+
+
+def test_keyless_solve_runs_the_water_quality_playbook_end_to_end():
+    res, calls = _solve("Is the river water safe to drink?", WQ_RECON)
+    assert not res.declined and res.ok and res.cost == {} and res.model is None
+    assert res.study.plan["playbook"] == "water_quality" and res.study.plan["branch"] == "drinking"
+    assert res.problem["params"]["use"] == "drinking" and res.problem["params"]["health_verdict"] is False
+    assert calls == [{"source": "usgs", "station_id": "USGS-01646500", "years": 5, "use": "drinking"}]
+    assert [r["tool"] for r in res.run.results] == ["water_quality_samples", "who_screen", "wqi"]
+    assert all(g["passed"] for g in res.gates) and [g["check"] for g in res.gates] == [
+        "not_empty", "unit_present", "not_empty", "min_samples"]
+    wqi_result = res.run.results[2]["result"]
+    assert wqi_result["score"] == 100.0 and wqi_result["ccme"]["n_variables"] == 2, "pH and DO have WHO values"
+    assert "CCME Water Quality Index 1.0" in res.answer and "100 out of 100, Excellent" in res.answer
+    assert "USGS-01646500" in res.answer and "NSF index was not computed" in res.answer
+    assert all(c["passed"] for c in res.checks), [c for c in res.checks if not c["passed"]]
+    md = res.to_markdown()
+    for needle in ("## Caveats", "not a", "verdict", "digitised approximations", "WHO (2022)", "## Data",
+                   "usgs / USGS-01646500", "US-PD", "CCME (2001)", "Brown, R. M.", "Model calls: 0"):
+        assert needle in md, needle
+    assert not res.not_established, res.not_established
+
+
+def test_keyless_solve_for_irrigation_adds_the_suitability_index():
+    res, calls = _solve("Is this river water fit for irrigating the orchard?", WQ_RECON, intake={"years": 3})
+    assert res.study.plan["branch"] == "irrigation" and calls[0]["use"] == "irrigation" and calls[0]["years"] == 3
+    assert [r["tool"] for r in res.run.results] == ["water_quality_samples", "wqi", "iwqi"]
+    assert res.ok and all(g["passed"] for g in res.gates)
+    iwqi_result = res.run.results[2]["result"]
+    assert iwqi_result["restriction"] == "none" and iwqi_result["drivers"] == [], "EC 0.32 dS/m and pH only"
+    assert iwqi_result["indices"]["sar"]["value"] is None and "sodium" in iwqi_result["missing"]
+    assert "Irrigation suitability (FAO 29): no restriction on use from the sampled parameters" in res.answer
+    assert "Not sampled, so not judged" in res.answer and "sodium" in res.answer
+    assert any("FAO Irrigation and Drainage Paper 29" in c for c in res.caveats)
+
+
+def test_solve_declines_without_sampled_parameters_within_reach():
+    res, calls = _solve("Is the river water safe to drink?", NO_WQ_RECON)
+    assert res.declined and calls == [] and res.run is None or (res.run is not None and not res.run.results)
+    assert "Phase 3 (#188)" in res.declined_reason and "Water Quality Portal" in res.declined_reason
+    assert "**Declined.**" in res.to_markdown()
+    verdict, _ = _solve("Is the river water safe to drink?", WQ_RECON, intake={"health_verdict": True})
+    assert verdict.declined and "health judgement" in verdict.declined_reason

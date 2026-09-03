@@ -431,9 +431,10 @@ def list_analyses() -> dict[str, Any]:
 
 
 def list_playbooks() -> dict[str, Any]:
-    """The problem playbooks: for each class of problem (flood risk, ungauged flow, groundwater decline), the
-    method chain aquascope follows for the data that exists at a site, as data. Each has intake fields, branches
-    over the reconnaissance, gates per step, the sentences it prints when it declines, caveats and citations.
+    """The problem playbooks: for each class of problem (flood risk, ungauged flow, groundwater decline, water
+    quality), the method chain aquascope follows for the data that exists at a site, as data. Each has intake
+    fields, branches over the reconnaissance, gates per step, the sentences it prints when it declines, caveats and
+    citations.
     Use solve_plan to get the study a playbook fills for a problem at a point, and solve_run to execute it.
     """
     from aquascope import playbooks as pbk

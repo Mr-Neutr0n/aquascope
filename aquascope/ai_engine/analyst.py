@@ -258,9 +258,9 @@ def _tool_specs() -> list[ToolSpec]:
         ),
         ToolSpec(
             "list_playbooks",
-            "The problem playbooks (flood risk, ungauged flow, groundwater decline): the method chain aquascope "
-            "follows for the data that exists at a site. Use solve_plan when the user has a problem at a place "
-            "rather than a question about a station.",
+            "The problem playbooks (flood risk, ungauged flow, groundwater decline, water quality): the method chain "
+            "aquascope follows for the data that exists at a site. Use solve_plan when the user has a problem at a "
+            "place rather than a question about a station.",
             {"type": "object", "properties": {}}, t.list_playbooks,
         ),
         ToolSpec(
