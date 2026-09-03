@@ -150,6 +150,12 @@ export function localModelLabel() {
   return engine ? engine.label : null;
 }
 
+// The model a structured call would run on, named for a status line.
+export function localReaderLabel() {
+  if (promptApiAvailable()) return "Chrome's built-in model";
+  return engine ? engine.label : null;
+}
+
 // ── one small structured call ───────────────────────────────────────────────
 // Solve reads a sentence into a playbook and its intake fields with a single
 // call: its own system prompt, a schema, a low temperature, a timeout. It must
@@ -197,13 +203,15 @@ function withTimeout(promise, ms, controller) {
  * One reply from the on-device model as text: `system` and `prompt`, a JSON
  * `schema` the reply is constrained to where the runtime allows, `temperature`
  * where it allows, and `timeoutMs` after which the caller gets an error and
- * falls back. Loads the model through the same path as Ask.
+ * falls back. Chrome's model gets a session of its own for this one call (Ask's
+ * session, with its tool prompt, is not touched); WebLLM is used only when Ask
+ * has already loaded it. Check `localModelReady()` first.
  */
 export async function generateJsonLocally({ system, prompt, schema = null, temperature = 0.1, timeoutMs = 25000,
                                             onProgress = () => {} } = {}) {
-  const eng = await loadLocalModel(onProgress);
   const controller = new AbortController();
-  if (eng.kind === "prompt-api") {
+  if (promptApiAvailable()) {
+    onProgress("Reading your words on your device...");
     const session = await globalThis.LanguageModel.create({
       initialPrompts: [{ role: "system", content: system }],
       ...(await promptOptions(temperature)),
@@ -216,8 +224,9 @@ export async function generateJsonLocally({ system, prompt, schema = null, tempe
       try { session.destroy(); } catch { /* fine */ }
     }
   }
-  const mlc = eng.mlc;
-  const req = mlc.chat.completions.create({
+  if (!engine || engine.kind !== "webllm" || !engine.mlc) throw new Error("no on-device model is loaded in this tab");
+  onProgress(`Reading your words on your device (${engine.label})...`);
+  const req = engine.mlc.chat.completions.create({
     messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
     temperature,
     response_format: schema ? { type: "json_object", schema: JSON.stringify(schema) } : { type: "json_object" },

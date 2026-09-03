@@ -19,7 +19,7 @@ import { askModelConfig, mdToHtml } from "./ask.js?v=__BUILD__";
 import { closeDrawer, drawerMode, drawerOpen, openDrawer, setStatusEl } from "./shell.js?v=__BUILD__";
 import { Cancelled, call, callCancelable, ensureCatalogInWorker, onSolveProgress } from "./worker-client.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
-import { generateJsonLocally, localModelLabel, localModelReady } from "./local-model.js?v=__BUILD__";
+import { generateJsonLocally, localModelReady, localReaderLabel } from "./local-model.js?v=__BUILD__";
 import { intakePrompt, intakeSchema, parseIntakeReply } from "./intake.js?v=__BUILD__";
 
 const STAGES = ["where", "what", "recon", "plan", "run", "result"];
@@ -269,7 +269,7 @@ async function readOnDevice(text) {
   }
   if (!safe || !safe.playbook) return { note: "The on-device model named no playbook; the keyword rules read your words." };
   return { playbook: safe.playbook, intake: safe.intake || {},
-           note: `Your words were read on your device by ${localModelLabel() || "the on-device model"}.` };
+           note: `Your words were read on your device by ${localReaderLabel() || "the on-device model"}.` };
 }
 
 // ── recon and plan ──────────────────────────────────────────────────────────
