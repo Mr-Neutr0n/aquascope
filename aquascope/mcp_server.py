@@ -470,13 +470,21 @@ def solve_run(study: dict[str, Any] | str) -> dict[str, Any]:
         return {"error": f"could not read the study: {exc}"}
     if not st.steps:
         return {"error": "the study has no steps"}
-    run = run_study(st)
+    # The team's execute-and-report tail, keyless: the same gates, Reviewer
+    # list and template prose the Explorer's Solve surface shows.
+    from aquascope.ai_engine.team import run_reviewed
+
+    result = run_reviewed(st)
+    run = result.run if result.run is not None else run_study(st)
     return {
         "ok": run.ok,
         "stopped_at": run.stopped_at,
         "stop_reason": run.stop_reason,
         "gates": run.gates,
-        "report": run.to_markdown(),
+        "answer": result.answer,
+        "not_established": result.not_established,
+        "caveats": result.caveats,
+        "report": result.to_markdown(),
         "manifest": run.manifest(),
         "study": st.to_dict(),
         "study_yaml": st.to_yaml(),

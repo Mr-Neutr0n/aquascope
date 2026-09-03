@@ -587,10 +587,19 @@ def _template_answer(study: Study, run: StudyRun | None) -> str:
     plan = study.plan or {}
     lines: list[str] = []
 
+    said: set[str] = set()
+
     def add(sentences: list[str]) -> None:
-        for s in sentences:  # two steps on the same record say the same thing once
-            if s not in lines:
-                lines.append(s)
+        # Two steps on the same record say the same thing once. analyze_station
+        # and flood_frequency differ by a word, so the key is the numbers when a
+        # sentence carries at least two of them, the text otherwise.
+        for s in sentences:
+            nums = re.findall(r"-?\d[\d,]*\.?\d*", s)
+            key = " ".join(nums) if len(nums) >= 2 else s.strip()
+            if key in said:
+                continue
+            said.add(key)
+            lines.append(s)
 
     if plan.get("branch"):
         lines.append(f"Plan {plan.get('playbook')}, branch {plan['branch']}, executed with no model in the loop.")
