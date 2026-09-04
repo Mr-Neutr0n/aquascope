@@ -714,7 +714,7 @@ def _source_form(source_key: str, ctor: dict, fetch: dict) -> None:  # noqa: C90
         fetch["days"] = st.slider("Days of history", 1, 90, 30, key="bom_days")
 
     elif source_key == "uk_ea":
-        st.caption("UK Environment Agency — real-time river level, flow, rainfall, and groundwater telemetry.")
+        st.caption("Environment Agency (England) — real-time river level, flow, rainfall, and groundwater telemetry.")
         fetch["observed_property"] = st.selectbox(
             "Observed property",
             ["waterFlow", "waterLevel", "rainfall", "groundwaterLevel"],

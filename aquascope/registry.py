@@ -136,7 +136,7 @@ SOURCES: dict[str, SourceMeta] = {
     ),
     # ── Europe ──────────────────────────────────────────────────────────
     "uk_ea": _s(
-        key="uk_ea", label="UK Environment Agency", region="United Kingdom",
+        key="uk_ea", label="Environment Agency (England)", region="United Kingdom",
         description="River level, flow, rainfall and groundwater telemetry from the EA Hydrology API (England)",
         agency="Environment Agency", country="GBR",
         homepage="https://environment.data.gov.uk/hydrology/",
@@ -385,8 +385,8 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="https://unstats.un.org/sdgs/",
         variables=("indicator",),
         output_model="SDG6Indicator",
-        license="unknown", redistributable=False,
-        attribution="United Nations Statistics Division, SDG Global Database",
+        license="UNdata Terms of Use", redistributable=True,
+        attribution="United Nations Statistics Division, SDG Global Database (UNdata)",
     ),
     "aquastat": _s(
         key="aquastat", label="FAO AQUASTAT", region="Global",
@@ -395,8 +395,8 @@ SOURCES: dict[str, SourceMeta] = {
         homepage="https://www.fao.org/aquastat/",
         variables=("indicator",),
         output_model="AquastatRecord",
-        license="unknown", redistributable=False,
-        attribution="FAO AQUASTAT",
+        license="CC-BY-4.0", redistributable=True,
+        attribution="FAO AQUASTAT (© FAO, CC BY 4.0)",
     ),
     "wapor": _s(
         key="wapor", label="FAO WaPOR", region="Africa & Near East",
