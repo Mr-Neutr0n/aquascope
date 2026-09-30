@@ -21,6 +21,7 @@ from typing import Any
 
 import pandas as pd
 
+from aquascope.explorer_capabilities import EXPLORER_SOURCES  # noqa: F401 - public capability export
 from aquascope.registry import SOURCES, build_collector
 from aquascope.utils.http_client import IS_EMSCRIPTEN
 
@@ -389,24 +390,30 @@ def _agency_record_if_longer(
 
     Mirror files harvested before #270 hold the last 40 years only: USGS
     01013500 is catalogued from 1903 and its archive copy starts in 1986, so a
-    study fitted 39 annual maxima where about 120 exist. When no cap was asked
-    for and the catalog lists the station more than a year before the archive
-    starts, the agency is asked for the full record. Its answer is used only
+    study fitted 39 annual maxima where about 120 exist. When the catalog lists
+    the station more than a year before the archive starts, the agency is asked
+    for the full record; with a "last N years" cap, for that window, when it
+    reaches more than a year before the archive copy does. Its answer is used only
     when it reaches further back than the archive; otherwise (or when the
     agency fails) the caller serves the archive and its note says what the
     catalog lists. ``None`` means: serve the archive.
     """
-    if window.get("years") or source in _SHORT_WINDOW_SOURCES:
+    if source in _SHORT_WINDOW_SOURCES:
         return None
     listed = _parse_date(window.get("catalog_start"))
     first = archived.index.min().date()
-    if listed is None or (first - listed).days <= 366:
+    # The earliest date asked for: the catalog's first date, or the start of a "last N years" window (never
+    # before the catalog's first date). A window the archive copy already covers never calls the agency.
+    target = listed
+    if window.get("years"):
+        target = window["start"] if listed is None or listed < window["start"] else listed
+    if target is None or (first - target).days <= 366:
         return None
     if IS_EMSCRIPTEN and not SOURCES[source].browser_reachable:
         return None
     try:
         agency = fetch_series(source, station_id, prefer_archive=False, variable=var,
-                              period_start=window["catalog_start"])
+                              period_start=window["catalog_start"], years=window.get("years"))
     except Exception as exc:  # noqa: BLE001 - the archive copy is still a record
         logger.info("full-record fetch from the agency failed for %s/%s: %s", source, station_id, exc)
         return None
@@ -415,7 +422,8 @@ def _agency_record_if_longer(
         return None
     agency["note"] = (
         f"{agency['note']} The AquaScope archive holds only {first.isoformat()} to "
-        f"{archived.index.max().date().isoformat()} for this station, so the full record came from the agency."
+        f"{archived.index.max().date().isoformat()} for this station, so the "
+        + ("requested window" if window.get("years") else "full record") + " came from the agency."
     )
     return agency
 
@@ -715,16 +723,30 @@ def analyze_series(s: pd.Series, variable: str, unit: str, *,
     }
     if not len(s):
         return out
+    from aquascope.claims import content_digest
+
+    # Hash every analyzed observation before the plotting series is decimated.
+    out["data_snapshot"] = content_digest({
+        "variable": variable, "unit": unit,
+        "observations": [[t.isoformat(), float(v) if math.isfinite(float(v)) else None] for t, v in s.items()],
+    })
     out["sampling"] = _sampling(int(len(s)), float(out["years"]))
 
     # hydrograph: daily means, capped at ~25k points for the browser
     daily = s.resample("D").mean().dropna()
+    out["series_downsampled"] = len(daily) > 25_000
     if len(daily) > 25_000:
         daily = daily.iloc[:: int(math.ceil(len(daily) / 25_000))]
     out["series"] = {"t": [d.strftime("%Y-%m-%d") for d in daily.index], "v": [_clean(float(v)) for v in daily.values]}
 
     am = _annual_max(s)
     out["annual_max"] = {"year": [int(y) for y in am.index.year], "v": [_clean(float(v)) for v in am.values]}
+    out["eligibility"] = {
+        "flood_frequency": variable == "discharge" and len(am) >= MIN_YEARS_FOR_FFA,
+        "complete_years": len(am), "minimum_years": MIN_YEARS_FOR_FFA,
+        "coverage_rule": "At least 292 observed days in each included year",
+        "scope": "Exploratory daily-mean flood screening, not regulatory design certification",
+    }
 
     if variable == "discharge":
         fdc = flow_duration_curve(daily)
@@ -752,6 +774,7 @@ def analyze_series(s: pd.Series, variable: str, unit: str, *,
             try:
                 g = fit_gev_lmoments(am, return_periods=rps_plus)
                 ffa["fits"]["gev_lmoments"] = {
+                    "estimator": "gev_lmoments",
                     "q": [_clean(float(g.return_periods[rp])) for rp in rps],
                     "q_by_T": {f"{rp:g}": _clean(float(g.return_periods[rp])) for rp in rps},
                     "at_record_max": _clean(float(g.return_periods[t_max])),
@@ -763,6 +786,8 @@ def analyze_series(s: pd.Series, variable: str, unit: str, *,
             try:
                 lp3 = fit_lp3(am, return_periods=rps_plus, ci_level=0.90)
                 ffa["fits"]["lp3"] = {
+                    "estimator": "lp3_log_moments", "ci_level": 0.90,
+                    "interval_method": "variance_of_estimate",
                     "q": [_clean(float(lp3.return_periods[rp])) for rp in rps],
                     "q_by_T": {f"{rp:g}": _clean(float(lp3.return_periods[rp])) for rp in rps},
                     "at_record_max": _clean(float(lp3.return_periods[t_max])),
@@ -868,6 +893,8 @@ def flood_ci(s: pd.Series, *, return_periods: list[float] | None = None) -> dict
     am = _annual_max(s.dropna())
     r = fit_gev(am, return_periods=rps, ci_level=0.90)
     return {
+        "estimator": "gev_mle_with_lmoments_fallback", "ci_level": 0.90,
+        "interval_method": "nonparametric_bootstrap_percentile",
         "q": [_clean(float(r.return_periods[rp])) for rp in rps],
         "ci": [[_clean(float(a)), _clean(float(b))] for a, b in
                (r.confidence_intervals.get(rp, (float("nan"), float("nan"))) for rp in rps)],
@@ -920,6 +947,8 @@ def analyze_station(
         "attribution": meta.attribution,
         "fetch_note": fetched["note"],
         "requested": fetched.get("requested"),
+        "archive_revision": (fetched["series"].attrs.get("archive_revision")
+                             if fetched["series"] is not None else None),
     }
     s = fetched["series"]
     if s is None or s.empty:
@@ -1097,21 +1126,20 @@ def snap_glofas_cell(
     window: int = GLOFAS_SNAP_WINDOW, factor: float = GLOFAS_SNAP_FACTOR, probe_years: int = GLOFAS_SNAP_YEARS,
     area_km2: float | None = None,
 ) -> dict[str, Any]:
-    """The GloFAS cell that stands for a gauge: the one in a small window whose mean flow matches the gauge's.
+    """Find a candidate GloFAS cell by flow magnitude, without claiming catchment equivalence.
 
-    A gauge's coordinates often fall in a grid cell on a tributary or the
-    bank, not on the river it measures: USGS 01013500 (2,320 km2) sits in a
-    cell whose annual maxima run 5 to 13 m3/s. GloFAS practice is to move the
-    point to the cell that drains the same river; Open-Meteo does not serve
-    the upstream area, so the gauge's mean flow stands in for it. All
+    A coordinate or similar mean discharge does not establish that a model cell
+    drains the gauge's catchment. Open-Meteo does not provide the model's upstream
+    area or river topology here, so this diagnostic cannot verify comparability. All
     ``(2 * window + 1) ** 2`` cells are asked for in one request (the flood
     API takes lists of coordinates), each over the last ``probe_years``.
 
     Returns ``{"lat", "lon", "site_lat", "site_lon", "offset_km", "mean_flow",
     "gauge_mean_flow", "ratio", "comparable", "n_probed", "why"}``. The cell
     with the smallest log-ratio to the gauge's mean wins (the nearer one on a
-    tie); ``comparable`` is False when even that one is further than
-    ``factor`` from the gauge, and ``why`` says so in a sentence.
+    tie); ``flow_magnitude_matches`` reports the factor test. ``comparable`` remains
+    False until an independent catchment match is available; fitting and cross-checking
+    an unverified cell would create false corroboration.
     """
     import numpy as np
 
@@ -1160,12 +1188,13 @@ def snap_glofas_cell(
     why = (f"{where} has the mean flow closest to the gauge's ({_fmt_q(best['mean_flow'])} against "
            f"{_fmt_q(target)} m3/s, ratio {ratio:.2f}) among {len(cells)} cells within "
            f"{window * GLOFAS_CELL_DEG:.2f} degrees")
-    why = (why + ".") if ok else (
-        f"no comparable model cell: {why}, outside the factor {factor:g} allowed, so the model's river there "
-        "is not the gauge's river."
-    )
+    why = (f"no comparable model cell verified: {why}. "
+           + ("Similar mean flow does not establish a shared catchment. " if ok else
+              f"The mean-flow ratio is outside the factor {factor:g} allowed. ")
+           + "The model upstream area and river-network match are unavailable; the cross-check is skipped.")
     return {**base, "lat": best["lat"], "lon": best["lon"], "offset_km": round(best["offset_km"], 2),
-            "mean_flow": _clean(round(best["mean_flow"], 4)), "ratio": round(ratio, 3), "comparable": ok,
+            "mean_flow": _clean(round(best["mean_flow"], 4)), "ratio": round(ratio, 3), "comparable": False,
+            "flow_magnitude_matches": ok, "catchment_match": "unverified",
             "n_probed": len(cells), "why": why}
 
 
@@ -1288,10 +1317,21 @@ def anywhere(lat: float, lon: float, *, years: int = 10, match_mean_flow: float 
     return out
 
 
-def to_csv(result: dict[str, Any]) -> str:
-    """CSV of the daily series in a result dict (for the download button)."""
-    series = result.get("series") or {"t": [], "v": []}
+def to_csv(result: dict[str, Any], *, series: pd.Series | None = None) -> str:
+    """Export the full observed series when supplied; never silently export a decimated plot.
+
+    Pass ``store['series']`` from :func:`analyze_station` to retain every original
+    timestamp and value. Small legacy result-only calls export their daily chart series.
+    """
     unit = result.get("unit", "")
+    if series is not None:
+        name = f"{result.get('variable', 'value')}_{unit}".replace("/", "_per_")
+        observed = series.dropna()
+        return pd.DataFrame({"date": [t.isoformat() for t in observed.index],
+                             name: observed.to_numpy()}).to_csv(index=False)
+    if result.get("series_downsampled"):
+        raise ValueError("The plotting series is downsampled. Pass the full stored series to export observations.")
+    series = result.get("series") or {"t": [], "v": []}
     lines = [f"date,{result.get('variable', 'value')}_{unit}".replace("/", "_per_")]
     lines += [f"{t},{'' if v is None else v}" for t, v in zip(series["t"], series["v"])]
     return "\n".join(lines) + "\n"
@@ -1351,6 +1391,8 @@ def _station_entry(row: dict[str, Any], lat: float, lon: float, today: date) -> 
         "station_id": row.get("station_id"),
         "name": row.get("name"),
         "distance_km": round(_haversine_km(lat, lon, float(row["latitude"]), float(row["longitude"])), 1),
+        "latitude": round(float(row["latitude"]), 5),
+        "longitude": round(float(row["longitude"]), 5),
         "variables": [v for v in (row.get("variables") or []) if v],
         "period_start": row.get("period_start"),
         "period_end": row.get("period_end"),
@@ -1362,6 +1404,12 @@ def _station_entry(row: dict[str, Any], lat: float, lon: float, today: date) -> 
 def _label(st: dict[str, Any]) -> str:
     name = st.get("name") or st.get("station_id")
     return f"{name} ({st['source']}/{st['station_id']})"
+
+
+#: The degree of regulation (BasinATLAS, % of annual flow a reservoir can hold) at or above which the catchment
+#: counts as regulated and the methods sensitive to regulation turn marginal (#376). An aquascope choice to flag
+#: substantial regulation, not a published threshold; small farm dams stay below it.
+REGULATION_DOR_PCT = 10.0
 
 
 def _catchment_subset(desc: dict[str, Any]) -> dict[str, Any]:
@@ -1386,6 +1434,7 @@ def _catchment_subset(desc: dict[str, Any]) -> dict[str, Any]:
         "precipitation_mm_yr": value("precipitation_mm_yr"),
         "aridity": value("aridity_index"),
         "dams": value("degree_of_regulation_pct"),
+        "snow_cover_pct": value("snow_cover_pct"),
         "source": "BasinATLAS (HydroATLAS v1.0)",
     }
 
@@ -1399,6 +1448,7 @@ def assess_site(
     return_period: float | None = None,
     area_km2: float | None = None,
     donors: int | None = None,
+    change_points: list[int] | None = None,
 ) -> dict[str, Any]:
     """What can be answered at a place: the gauges in reach, the catchment, and what the record supports.
 
@@ -1408,7 +1458,11 @@ def assess_site(
     sufficiency table for every method (or those for one ``problem``), each
     row carrying the station it would use. ``area_km2`` and ``donors`` let a
     caller that already knows them (the Explorer page holds both) skip those
-    lookups. Everything returned is plain JSON.
+    lookups. ``change_points`` (years a change-point test found inside the
+    record, :func:`aquascope.advanced.change_points`) demote the methods that
+    assume stationarity to marginal (#376); a regulated or snowy catchment
+    (BasinATLAS) does the same for the methods sensitive to it. Everything
+    returned is plain JSON.
 
     Returns ``{"point", "stations", "catchment", "context", "sufficiency", "notes"}``.
     """
@@ -1524,11 +1578,24 @@ def assess_site(
                 notes.append(f"{ctx_donors} donor gauges from a pool of {pool:,} gauged catchments.")
 
     # ── point products: the ERA5 / GloFAS path applies to any point on land
-    available = {"glofas", "temperature", "forcing"}
+    available = {"glofas", "temperature", "forcing", "gcms>=3"}
     notes.append("ERA5 temperature and forcing and GloFAS discharge are assumed reachable for any point on land "
                  "(Open-Meteo); not checked here.")
-    notes.append("CMIP6 change factors need model output you supply (aquascope.climate works on downloaded data); "
-                 "not counted.")
+    notes.append("CMIP6 change factors: seven HighResMIP models through the Open-Meteo Climate API (1950-2050, one "
+                 "high-emission pathway), assumed reachable; not checked here.")
+    dams = catchment.get("dams")
+    if isinstance(dams, (int, float)) and dams >= REGULATION_DOR_PCT:
+        available.add("regulation")
+        notes.append(f"Reservoirs regulate the catchment (degree of regulation {dams:g}% in BasinATLAS): the methods "
+                     "sensitive to regulation are marginal here.")
+    snow = catchment.get("snow_cover_pct")
+    if isinstance(snow, (int, float)) and snow >= 10:
+        available.add("snow")
+        notes.append(f"Snow covers {snow:g}% of the catchment in an average year (BasinATLAS): the methods sensitive "
+                     "to snow are marginal here, and the catchment model adds a snow store.")
+    if change_points:
+        notes.append("Change points found inside the record: " + ", ".join(str(int(y)) for y in change_points)
+                     + "; the methods that assume stationarity are marginal here.")
 
     ctx = SiteContext(
         years_by_variable=years_by,
@@ -1537,6 +1604,7 @@ def assess_site(
         return_period=float(return_period) if return_period is not None else None,
         donors=ctx_donors,
         available=available,
+        change_points=[int(y) for y in (change_points or [])],
     )
     if ctx.ungauged:
         notes.append(f"No gauge with a usable record within {radius_km:g} km: at-site methods are not defensible; "

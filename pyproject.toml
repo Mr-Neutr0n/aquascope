@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aquascope"
-version = "0.19.0"
-description = "Open-source water data aggregation toolkit with AI-powered research methodology recommendations"
+version = "0.21.0"
+description = "Explore river records and run reproducible water analyses in your browser or Python"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -121,6 +121,7 @@ studio = [
     "matplotlib>=3.7",
     "openpyxl>=3.1",
     "python-docx>=1.1",
+    "questionary>=2.0",
 ]
 all = [
     "aquascope[ml,forecast,copernicus,viz,llm,scientific,dashboard,spatial,interop,archive,mcp,basins,studio]",
@@ -154,7 +155,7 @@ docs = [
 aquascope = "aquascope.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Rekin226/aquascope"
+Homepage = "https://rekin226-aquascope-explorer.static.hf.space/"
 Documentation = "https://rekin226.github.io/aquascope/"
 Repository = "https://github.com/Rekin226/aquascope"
 Issues = "https://github.com/Rekin226/aquascope/issues"

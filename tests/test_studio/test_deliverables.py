@@ -12,6 +12,7 @@ import math
 import random
 import sys
 import zipfile
+from pathlib import Path
 
 import matplotlib
 
@@ -321,7 +322,27 @@ def _payload_for(kind: str, station: dict, drought: dict, donors: dict, climate:
         return samples, None
     if kind == "site_map":
         return others["site_map"], {**SITE, "stations": recon["stations"]}
+    if kind in ADVANCED_KINDS:
+        return ADVANCED[ADVANCED_KINDS[kind]], None
     return others[kind], None
+
+
+#: Real payloads of the advanced study steps (USGS 01013500, trimmed), by tool.
+ADVANCED = json.loads((Path(__file__).parents[1] / "fixtures" / "advanced_payloads.json").read_text("utf-8"))
+ADVANCED_KINDS = {"change_points": "change_points", "nonstationary_levels": "nonstationary_flood",
+                  "pot_frequency": "pot_flood", "model_fit": "catchment_model", "scenario_bars": "catchment_model",
+                  "projection_spread": "climate_projection", "regional_growth": "regional_flood"}
+
+
+def test_the_advanced_tables_build_from_real_payloads() -> None:
+    from aquascope.studio.deliverables import tables
+
+    for tool, payload in ADVANCED.items():
+        names = catalogue.get(tool).tables
+        arts = tables.tables_for("t", tool, payload)
+        built = {a.meta["name"] for a in arts}
+        assert set(names) - {"annual_maxima"} <= built, (tool, names, built)
+        assert all(a.data.count(b"\n") >= 2 for a in arts), tool
 
 
 def test_every_catalogue_kind_has_a_maker() -> None:
@@ -424,9 +445,13 @@ def test_tables_for_headers_match_meta(station, drought, donors, samples, recon,
 def test_return_levels_table_columns(station) -> None:
     art = tables.tables_for("s2", "analyze_station", station, names=["return_levels"])[0]
     df = tables.frame_of(art)
-    assert list(df.columns) == ["T", "GEV", "LP3", "lower", "upper"]
-    assert df["T"].tolist() == RP
-    assert df["upper"].iloc[-1] == 72  # the bootstrap band wins over the LP3 band
+    assert list(df.columns) == ["T", "estimator", "unit", "estimate", "lower", "upper",
+                                "interval_method", "confidence_level"]
+    lm = df[df.estimator == "gev_lmoments"]
+    lp3 = df[df.estimator == "lp3"]
+    boot = df[df.estimator == "gev_bootstrap"]
+    assert lm["T"].tolist() == RP and lm["lower"].isna().all() and lm["upper"].isna().all()
+    assert lp3["upper"].iloc[-1] == 69 and boot["upper"].iloc[-1] == 72
     series = tables.tables_for("s2", "analyze_station", station, names=["series"])[0]
     assert series.meta["columns"] == ["datetime", "value"] and series.meta["rows"] == station["n"]
 
@@ -488,7 +513,7 @@ def test_report_markdown_has_sections_numbers_and_figures(ws) -> None:
     assert "## Caveats" in md and "## References" in md and "Hosking" in md
     assert "Produced by AquaScope Studio" in md
     assert "](figures/s2_frequency_curve.png)" in md and "](figures/s3_drought_strip.png)" in md
-    assert "| T | GEV | LP3 | lower | upper |" in md
+    assert "| T | estimator | unit | estimate | lower | upper | interval_method | confidence_level |" in md
     assert "nan" not in md
     order = [md.index(h) for h in ("## Limitations", "## What this study does not establish", "## Caveats",
                                    "## Recommendations", "## References", "## Appendix")]
@@ -513,13 +538,14 @@ def test_docx_reloads_with_headings_figures_and_tables(ws) -> None:
     headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
     for s in ws.report["sections"]:
         assert s["title"] in headings
-    assert "What this study does not establish" in headings and "Appendix: reproducibility" in headings
+    assert "What this study does not establish" in headings
+    assert sum(h.startswith("Appendix") for h in headings) == 1
     assert len(doc.inline_shapes) == 3
     assert len(doc.tables) >= 4  # key numbers, two site tables, return levels, index divergence, ledger
     assert doc.tables[0].rows[0].cells[0].text == "Quantity"
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "version: 3" in text and "tool: \"analyze_station\"" in text  # the study.yaml appendix
-    assert "Prepared by AquaScope Studio" in text and "No model was used" in text
+    assert "Prepared by AquaScope Studio" in text and "No language model was used" in text
     assert "1,550 tokens" in text
 
 
@@ -566,9 +592,9 @@ def test_notebook_is_valid_nbformat(ws) -> None:
         if c["cell_type"] == "code":
             assert c["outputs"] == [] and c["execution_count"] is None
     code = "\n".join(c["source"] for c in cells if c["cell_type"] == "code")
-    assert "run_study" in code and 'load("study.yaml")' in code and "workbook_bytes" in code
-    assert code.count("results.get(") == 3 and "draw(kind, payload" in code
-    assert "'frequency_curve'" in code
+    assert 'rerun_workspace("study.yaml", "workspace.json")' in code and "export(ws, out)" in code
+    assert code.count("results.get(") == 3 and "plt.imread(io.BytesIO(artifact.data)" in code
+    assert 'rerun-{ws.id}' in code
     nbformat = pytest.importorskip("nbformat")
     nbformat.validate(nbformat.reads(text, as_version=4))
 
@@ -613,7 +639,7 @@ def test_export_writes_every_artifact(ws, tmp_path) -> None:
     assert set(paths) == {a.id for a in ws.artifacts}
     assert (tmp_path / "out" / "figures" / "s2_frequency_curve.png").read_bytes().startswith(PNG)
     csv_text = (tmp_path / "out" / "tables" / "s2_return_levels.csv").read_text(encoding="utf-8")
-    assert csv_text.startswith("T,GEV,LP3,lower,upper")
+    assert csv_text.startswith("T,estimator,unit,estimate,lower,upper,interval_method,confidence_level")
     assert (tmp_path / "out" / "report.html").stat().st_size > 10_000
     assert (tmp_path / "out" / "bundle.zip").exists()
 

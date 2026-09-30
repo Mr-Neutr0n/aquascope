@@ -232,7 +232,7 @@ def _frequency_curve(payload: dict[str, Any], unit: str | None, site: dict[str, 
     if rl["lp3"] is not None:
         curves.append(("Log-Pearson III", _floats(rl["lp3"]), DARK, "--"))
     if rl["boot"] is not None:
-        curves.append(("GEV (bootstrap)", _floats(rl["boot"]), SECONDARY, ":"))
+        curves.append(("GEV (MLE with L-moments fallback)", _floats(rl["boot"]), SECONDARY, ":"))
     for label, q, colour, style in curves:
         ax.plot(t, q, style, color=colour, linewidth=1.8, marker="o", markersize=4, label=label)
     emp = rl["empirical"]
@@ -244,7 +244,7 @@ def _frequency_curve(payload: dict[str, Any], unit: str | None, site: dict[str, 
     ax.set_ylabel(_ylabel(variable, u))
     ax.set_title(f"Flood frequency at {record_name(payload, site)}")
     ax.legend(loc="upper left", frameon=False)
-    fits = " and ".join(c[0] for c in curves[:2]) if curves else "the fitted"
+    fits = ", ".join(c[0] for c in curves) if curves else "the fitted"
     caption = f"Return levels of annual maximum {variable} at {record_name(payload, site)}: {fits} fits"
     if rl["band"]:
         caption += f" with the {rl['band']} band"
@@ -292,6 +292,8 @@ def _trend(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | Non
     from aquascope.trend_series import reported_trend
 
     tr = reported_trend(payload)
+    if isinstance(tr, dict) and tr.get("unavailable"):
+        return None
     if isinstance(tr, dict) and tr.get("on") == "annual maxima":
         return _trend_on_maxima(payload, tr, unit, site)
     tr = payload.get("trend")
@@ -943,6 +945,198 @@ def _recharge(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | 
     return fig, caption
 
 
+# ── advanced study steps (aquascope.advanced) ─────────────────────────────
+
+
+def _change_points(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    ann = payload.get("annual") or {}
+    years, vals = ann.get("year") or [], _floats(ann.get("value") or [])
+    if len(years) < 5:
+        return None
+    import numpy as np
+
+    u = unit_of(payload, unit)
+    what = "annual maximum" if payload.get("tested") == "annual_max" else "annual mean"
+    fig, ax = _figure()
+    ax.plot(years, vals, "o-", color=PRIMARY, markersize=3, linewidth=1, label=what)
+    for seg in (payload.get("pelt") or {}).get("segments") or []:
+        if seg.get("mean") is not None:
+            ax.hlines(seg["mean"], seg["start_year"], seg["end_year"], colors=DARK, linewidth=2)
+    pet = payload.get("pettitt") or {}
+    if pet.get("change_year"):
+        ax.axvline(pet["change_year"], color=DANGER if pet.get("significant") else NEUTRAL, linestyle="--",
+                   label=f"Pettitt change {pet['change_year']} (p {_fmt(pet.get('p_value'), 2)})")
+    mk = payload.get("mann_kendall") or {}
+    slope = num(mk.get("sen_slope_per_year"))
+    if slope is not None:
+        x = np.asarray(years, dtype=float)
+        mid = float(np.nanmedian(vals))
+        ax.plot(x, mid + slope * (x - np.median(x)), ":", color=WARNING,
+                label=f"Sen's slope (MK p {_fmt(mk.get('p_value'), 2)})")
+    ax.set_xlabel("Year")
+    ax.set_ylabel(_ylabel(what, u))
+    ax.set_title(f"Change points at {record_name(payload, site)}")
+    ax.legend(loc="upper left", frameon=False, fontsize=8)
+    verdict = "stationary" if payload.get("stationary") else "not stationary"
+    caption = (f"{what.capitalize()} at {record_name(payload, site)} ({len(years)} years) with the PELT segment "
+               f"means (solid), the Pettitt change year (dashed) and Sen's slope (dotted); the record reads as "
+               f"{verdict} at the {_fmt(payload.get('alpha') or 0.05, 2)} level.")
+    return fig, caption
+
+
+def _nonstationary_levels(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    tt = payload.get("through_time") or {}
+    years = tt.get("year") or []
+    keys = [k for k in tt if k != "year"]
+    if not years or not keys:
+        return None
+    u = unit_of(payload, unit or "m3/s")
+    fig, ax = _figure()
+    am = payload.get("annual_maxima") or {}
+    if am.get("year"):
+        ax.scatter(am["year"], _floats(am.get("value") or []), s=10, color=NEUTRAL, label="annual maxima")
+    colours = [SECONDARY, PRIMARY]
+    for i, k in enumerate(keys):
+        ax.plot(years, _floats(tt[k]), color=colours[i % 2], linewidth=2, label=f"{k}-year level (nonstationary)")
+        st = ((payload.get("stationary") or {}).get("q_by_T") or {}).get(k)
+        if st is not None:
+            ax.axhline(st, color=colours[i % 2], linestyle="--", linewidth=1, label=f"{k}-year level (stationary)")
+    last = payload.get("last_year")
+    if last and payload.get("horizon_year") and payload["horizon_year"] > last:
+        ax.axvspan(last, payload["horizon_year"], color=ACCENT, alpha=0.3, label="beyond the record")
+    ci = (payload.get("nonstationary") or {}).get("ci_last_year")
+    if ci and last:
+        ax.errorbar([last], [(ci["lower"] + ci["upper"]) / 2], yerr=[[(ci["upper"] - ci["lower"]) / 2]],
+                    color=DARK, capsize=4, label=f"90% interval, {ci['T']:g}-year in {last}")
+    ax.set_xlabel("Year")
+    ax.set_ylabel(_ylabel("discharge", u))
+    ax.set_title(f"Flood levels through time at {record_name(payload, site)}")
+    ax.legend(loc="upper left", frameon=False, fontsize=7)
+    lr = payload.get("likelihood_ratio") or {}
+    caption = (f"T-year daily-mean flows at {record_name(payload, site)} from a GEV whose location moves with time "
+               f"(solid) against the stationary GEV (dashed); the trend term has likelihood-ratio p = "
+               f"{_fmt(lr.get('p_value'), 2)} and the preferred model is the {payload.get('preferred')} one.")
+    return fig, caption
+
+
+def _pot_frequency(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    rows = payload.get("table") or []
+    if not rows:
+        return None
+    u = unit_of(payload, unit or "m3/s")
+    t = _floats([r["T"] for r in rows])
+    fig, ax = _figure()
+    ax.plot(t, _floats([r.get("pot_gpd") for r in rows]), "o-", color=PRIMARY,
+            label=f"peaks over threshold (GPD, {payload.get('n_peaks')} peaks)")
+    if any(r.get("annual_max_gev") is not None for r in rows):
+        ax.plot(t, _floats([r.get("annual_max_gev") for r in rows]), "s--", color=DARK, label="annual maxima (GEV)")
+    ax.set_xscale("log")
+    ax.set_xlabel("Return period (years)")
+    ax.set_ylabel(_ylabel("discharge", u))
+    ax.set_title(f"Peaks over threshold at {record_name(payload, site)}")
+    ax.legend(loc="upper left", frameon=False)
+    caption = (f"Return levels at {record_name(payload, site)} from {payload.get('n_peaks')} independent peaks over "
+               f"{_fmt(payload.get('threshold'))} {u} ({_fmt(payload.get('peaks_per_year'), 2)} a year) fitted to a "
+               "Generalised Pareto, against the annual-maximum GEV.")
+    return fig, caption
+
+
+def _model_fit(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    mo = payload.get("monthly") or {}
+    if not mo.get("month"):
+        return None
+    x = _dates(mo["month"])
+    fig, ax = _figure()
+    ax.plot(x, _floats(mo.get("observed") or []), color=NEUTRAL, linewidth=1.2, label="observed")
+    ax.plot(x, _floats(mo.get("simulated") or []), color=PRIMARY, linewidth=1.2, label="GR4J")
+    val = payload.get("validation") or {}
+    if val.get("start"):
+        ax.axvspan(_dates([val["start"]])[0], _dates([val["end"]])[0], color=ACCENT, alpha=0.25,
+                   label="validation years")
+    ax.set_ylabel(_ylabel("monthly mean discharge", "m3/s"))
+    ax.set_title(f"GR4J against the gauge at {record_name(payload, site)}")
+    ax.legend(loc="upper left", frameon=False, fontsize=8)
+    snow = " with a degree-day snow store" if (payload.get("snow") or {}).get("used") else ""
+    caption = (f"Monthly mean flow at {record_name(payload, site)}, observed and simulated by GR4J{snow} on ERA5 "
+               f"forcing; validation KGE {_fmt(val.get('kge'), 2)} and NSE {_fmt(val.get('nse'), 2)} on the shaded "
+               "years the model was not calibrated on.")
+    return fig, caption
+
+
+def _scenario_bars(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    runs = payload.get("scenarios") or []
+    if not runs:
+        return None
+    import numpy as np
+
+    labels = [r.get("label") or "" for r in runs]
+    metrics = [("mean_flow_change_pct", "mean flow", PRIMARY), ("q95_change_pct", "low flow (Q95)", WARNING),
+               ("amax_median_change_pct", "median annual max", DANGER)]
+    fig, ax = _figure(height=max(3.0, 0.7 * len(runs) + 1.5))
+    y = np.arange(len(runs))
+    h = 0.25
+    for i, (key, name, colour) in enumerate(metrics):
+        ax.barh(y + (i - 1) * h, _floats([r.get(key) for r in runs]), height=h, color=colour, label=name)
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_yticks(y, labels)
+    ax.set_xlabel("Change against the model's own baseline (%)")
+    ax.set_title(f"What if: flow at {record_name(payload, site)}")
+    ax.legend(loc="lower right", frameon=False, fontsize=8)
+    caption = (f"Change in mean flow, low flow and the median annual maximum at {record_name(payload, site)} when "
+               "the calibrated GR4J runs on scaled rainfall and evaporation (and a warmer snow store); a sensitivity, "
+               "not a projection.")
+    return fig, caption
+
+
+def _projection_spread(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    rows = payload.get("models") or []
+    ens = payload.get("ensemble") or {}
+    keys = [(k, n) for k, n in (("precip_change_pct", "annual rainfall"), ("pet_change_pct", "evaporation"),
+                                ("wettest_day_change_pct", "wettest day"), ("mean_flow_change_pct", "mean flow"),
+                                ("q95_change_pct", "low flow (Q95)"), ("flood_change_pct", "flood"))
+            if (ens.get(k) or {}).get("n")]
+    if not rows or not keys:
+        return None
+    fig, ax = _figure(height=max(3.0, 0.55 * len(keys) + 1.5))
+    for i, (k, _name) in enumerate(keys):
+        vals = _floats([r.get(k) for r in rows])
+        ax.scatter(vals, [i] * len(vals), color=SECONDARY, s=22, zorder=3)
+        med = ens[k].get("median")
+        if med is not None:
+            ax.scatter([med], [i], marker="D", color=DARK, s=40, zorder=4)
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_yticks(range(len(keys)), [n for _k, n in keys])
+    ax.set_xlabel(f"Change {payload.get('baseline', ['', ''])[0]}-{payload.get('baseline', ['', ''])[1]} to "
+                  f"{payload.get('future', ['', ''])[0]}-{payload.get('future', ['', ''])[1]} (%)")
+    ax.set_title("CMIP6 HighResMIP: one dot per model, diamond the median")
+    caption = (f"Change factors from {payload.get('n_models')} CMIP6 HighResMIP models at the site (Open-Meteo, "
+               "bias-corrected onto ERA5-Land): one dot per model, the diamond the ensemble median. The spread is the "
+               "result; the median alone is not.")
+    return fig, caption
+
+
+def _regional_growth(payload: dict[str, Any], unit: str | None, site: dict[str, Any] | None) -> Drawn | None:
+    rf = payload.get("regional_frequency") or {}
+    reg = rf.get("regional") or {}
+    growth = reg.get("growth") or reg.get("growth_curve") or {}
+    if not isinstance(growth, dict) or not growth:
+        return None
+    t = sorted(float(k) for k in growth)
+    fig, ax = _figure()
+    ax.plot(t, _floats([growth.get(str(int(x)) if x.is_integer() else str(x)) for x in t]), "o-", color=PRIMARY,
+            linewidth=2, label=f"pooled growth curve ({rf.get('n_sites')} gauges)")
+    ax.set_xscale("log")
+    ax.set_xlabel("Return period (years)")
+    ax.set_ylabel("Flood / index flood (-)")
+    het = rf.get("heterogeneity") or {}
+    ax.set_title(f"Regional growth curve (H = {_fmt(het.get('H'), 2)})")
+    ax.legend(loc="upper left", frameon=False)
+    caption = (f"The pooled GEV growth curve from {rf.get('n_sites')} gauges within {_fmt(payload.get('radius_km'))} "
+               f"km of the site (Hosking and Wallis index flood); heterogeneity H = {_fmt(het.get('H'), 2)} "
+               f"({het.get('class') or 'n/a'}).")
+    return fig, caption
+
+
 MAKERS: dict[str, Callable[[dict[str, Any], str | None, dict[str, Any] | None], Drawn | None]] = {
     "series": _series,
     "annual_maxima": _annual_maxima,
@@ -964,6 +1158,13 @@ MAKERS: dict[str, Callable[[dict[str, Any], str | None, dict[str, Any] | None], 
     "wqi_bars": _wqi_bars,
     "baseflow": _baseflow,
     "recharge": _recharge,
+    "change_points": _change_points,
+    "nonstationary_levels": _nonstationary_levels,
+    "pot_frequency": _pot_frequency,
+    "model_fit": _model_fit,
+    "scenario_bars": _scenario_bars,
+    "projection_spread": _projection_spread,
+    "regional_growth": _regional_growth,
 }
 
 

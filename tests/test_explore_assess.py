@@ -75,7 +75,7 @@ def test_gauged_site_with_a_long_record_supports_at_site_flood_frequency(small_c
     assert not ctx["ungauged"] and ctx["years_by_variable"]["discharge"] > 140
     assert ctx["resolution_by_variable"] == {"discharge": "daily", "water_level": "daily", "precipitation": "daily"}
     assert ctx["area_km2"] == 9948.0 and ctx["donors"] == 10 and ctx["return_period"] == 100.0
-    assert set(ctx["available"]) == {"forcing", "glofas", "temperature"}
+    assert set(ctx["available"]) == {"forcing", "gcms>=3", "glofas", "temperature"}
     assert res["catchment"]["upstream_area_km2"] == 9948.0 and res["catchment"]["dams"] == 3.0
     ffa = _row_for(res, "at_site_flood_frequency")
     assert ffa["status"] == DEFENSIBLE and ffa["station"] == {"source": "uk_ea", "station_id": "8496ce69"}

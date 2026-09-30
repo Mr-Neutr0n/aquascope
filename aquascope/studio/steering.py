@@ -147,6 +147,39 @@ def _declarations() -> dict[str, tuple[Control, ...]]:
             Control("efficiency", "Irrigation efficiency", "number", min=0.3, max=1.0, default=0.7,
                     argument="efficiency"),
         ),
+        # the advanced steps (aquascope.advanced)
+        "change_points": (
+            Control("series", "Series tested", "choice", choices=("annual_max", "annual_mean"), default="annual_max",
+                    argument="series", help="the annual maxima (floods) or the annual means (the water balance)"),
+            Control("alpha", "Significance level", "choice", choices=(0.01, 0.05, 0.1), default=0.05,
+                    argument="alpha"),
+        ),
+        "nonstationary_flood": (
+            _return_period(),
+            Control("horizon_year", "Horizon year for the trend", "integer", min=2026, max=2075, default=2050,
+                    argument="horizon_year", help="beyond the record the fitted trend is extended, not forecast"),
+        ),
+        "pot_flood": (
+            _return_period(),
+            Control("events_per_year", "Peaks a year the threshold aims for", "number", min=0.5, max=6.0, default=2.0,
+                    argument="events_per_year"),
+            Control("min_separation_days", "Days between independent peaks", "integer", min=1, max=60, default=7,
+                    argument="min_separation_days", help="a slow, large river needs a longer separation"),
+        ),
+        "catchment_model": (
+            Control("years", "Years of record to calibrate and validate on", "integer", min=10, max=40, default=20,
+                    argument="years", help="split in two: the first half calibrates, the second validates"),
+            Control("snow", "Snow store", "choice", choices=("auto", "true", "false"), default="auto",
+                    argument="snow", help="auto adds it when a tenth of the precipitation falls below freezing"),
+        ),
+        "climate_projection": (
+            Control("return_period", "Flood and wettest-day return period (years)", "choice",
+                    choices=(5, 10, 20, 50, 100), default=20, argument="return_period"),
+        ),
+        "regional_flood": (
+            Control("radius_km", "Radius of the region (km)", "number", min=20, max=250, default=75,
+                    argument="radius_km"),
+        ),
     }
 
 

@@ -209,7 +209,26 @@ _KIND_ANSWERS: dict[str, str] = {
     "irrigation": r"demand|requirement|reliab|peak",
     "irrigation_feasibility": r"demand|requirement|reliab|peak",
     "water_quality": r"index|wqi|exceed|class",
+    "flood_change": r"preferred model",
+    "climate_change": r"cmip6 median",
+    "catchment_response": r"change in mean flow",
+    "regional_flood": r"pooled|return level",
 }
+
+
+def _asks_trend(ws: Workspace) -> bool:
+    """The client's goal is the trend itself (the flood checklist's "flood trend")."""
+    return "flood trend" in (str(ws.brief.intake.get("decision") or ""), str(ws.brief.decision or ""))
+
+
+def _trend_verdict(key: list[dict[str, Any]]) -> str:
+    """", Mann-Kendall p = 0.32: no significant trend at 5 %" from the key numbers, or "" when there is no test."""
+    p = next((kn.get("value") for kn in key if re.search(r"mann-kendall p", str(kn.get("label") or ""), re.I)
+              and _is_number(kn.get("value"))), None)
+    if p is None:
+        return ""
+    return (f", Mann-Kendall p = {float(p):.2g}: "
+            + ("a significant trend at 5 %" if float(p) < 0.05 else "no significant trend at 5 %"))
 
 
 def _headline(ws: Workspace, key: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -231,6 +250,8 @@ def _headline(ws: Workspace, key: list[dict[str, Any]]) -> dict[str, Any] | None
     first = words_of(quantities[0]) if quantities else set()
     rest = {w for q in quantities[1:] for w in words_of(q)}
     kind_pattern = _KIND_ANSWERS.get(str(ws.brief.kind or ""), None) or _KIND_ANSWERS.get(str(ws.brief.playbook or ""))
+    if _asks_trend(ws):
+        kind_pattern = r"sen's slope"     # "are floods getting bigger" is answered by the trend, not a return level
     if kind_pattern:
         # the problem kind says what an answer is called: a flood question is answered by a return level or
         # nothing, never by the record's mean flow because the brief happened to say "flow"
@@ -377,23 +398,15 @@ def _consistency(ws: Workspace) -> list[dict[str, Any]]:
     return out
 
 
-def _interval_for(key: list[dict[str, Any]], label: str) -> list[float] | None:
-    """The [low, high] key numbers that belong to a headline label: the interval whose label shares the most
-    words with it ("100-year return level, GEV (L-moments)" pairs with "100-year GEV bootstrap 90 % interval",
-    not with the LP3 one)."""
-    words = {w for w in re.findall(r"[a-z0-9-]+", label.lower()) if len(w) > 1 and w not in ("return", "level")}
-    first = label.split(" ")[0].lower()
-
-    def pick(kind: str) -> dict[str, Any] | None:
-        rows = [k for k in key if f"interval, {kind}" in str(k.get("label", "")).lower()
-                and first in str(k.get("label", "")).lower() and _is_number(k.get("value"))]
-        if not rows:
-            return None
-        return max(rows, key=lambda k: sum(1 for w in words if w in str(k.get("label", "")).lower()))
-
-    low, high = pick("low"), pick("high")
-    if low is not None and high is not None:
-        return [float(low["value"]), float(high["value"])]
+def _interval_for(headline: dict[str, Any]) -> list[float] | None:
+    """Only the uncertainty belonging to this exact result, estimator and period."""
+    evidence = headline.get("evidence") or {}
+    interval = evidence.get("interval") or {}
+    if interval.get("result_id") != evidence.get("result_id") or not evidence.get("result_id"):
+        return None
+    bounds = interval.get("bounds")
+    if isinstance(bounds, (list, tuple)) and len(bounds) == 2 and all(_is_number(x) for x in bounds):
+        return [float(x) for x in bounds]
     return None
 
 
@@ -448,6 +461,26 @@ def decision_text(decision: dict[str, Any]) -> str:
     return " ".join(parts) + "." if parts else ""
 
 
+#: Steps whose payload carries a one-sentence ``verdict`` (aquascope.advanced).
+_VERDICT_TOOLS = frozenset({"change_points", "nonstationary_flood", "pot_flood", "catchment_model",
+                            "climate_projection", "regional_flood"})
+
+
+def _verdicts(ws: Workspace) -> list[dict[str, str]]:
+    """The established advanced steps' verdict sentences, in plan order (a fallback's when it stood in)."""
+    out: list[dict[str, str]] = []
+    for r in (ws.run or {}).get("results") or []:
+        if not _established(r):
+            continue
+        rec, sid = r, str(r.get("id"))
+        if not r.get("gates_passed", True) and isinstance(r.get("fallback"), dict):
+            rec, sid = r["fallback"], f"{sid}.fallback"
+        payload = rec.get("result")
+        if str(rec.get("tool")) in _VERDICT_TOOLS and isinstance(payload, dict) and payload.get("verdict"):
+            out.append({"step": sid, "tool": str(rec.get("tool")), "text": str(payload["verdict"])})
+    return out
+
+
 def rules_findings(ws: Workspace) -> dict[str, Any]:
     """The keyless Interpreter: one finding per key number with the path its value sits at, consistency from
     the comparison gates, the decision from the brief and the primary number, the data requests from the
@@ -462,7 +495,8 @@ def rules_findings(ws: Workspace) -> dict[str, Any]:
         sid = str(kn.get("step") or "")
         value = kn.get("value")
         payload = _result_of(ws, sid)
-        path = (_basis_for(payload, str(kn.get("label") or ""), float(value))
+        evidence = dict(kn.get("evidence") or {})
+        path = evidence.get("basis") or (_basis_for(payload, str(kn.get("label") or ""), float(value))
                 if _is_number(value) and payload is not None else None)
         if path is None:
             continue
@@ -473,33 +507,51 @@ def rules_findings(ws: Workspace) -> dict[str, Any]:
                       else f"{kn.get('label')}: {value}"),
             "basis": [f"{sid}.{path}"],
             "grade": grade_for_step(ws, sid),
+            "evidence": {**evidence, "checks": (_record(ws, sid) or {}).get("gates") or [],
+                         "grade": grade_for_step(ws, sid),
+                         "grade_scope": "result step"},
         })
     grade, primary = grade_for_study(ws, key)
     headline = _headline(ws, key)
     decision: dict[str, Any] = {"answer": "", "value": None, "unit": None, "band": None, "grade": grade,
-                                "basis": [], "conditions": [], "what_would_change_it": []}
+                                "basis": [], "conditions": [], "limitations": [], "what_would_change_it": [],
+                                "grade_scope": "primary result and applicable supporting checks"}
     if headline is not None and _is_number(headline.get("value")):
         f_head = next((f for f in findings if f["basis"][0].startswith(f"{headline.get('step')}.")
                        and f["claim"].startswith(str(headline.get("label")))), None)
-        band = _interval_for(key, str(headline.get("label")))
+        band = _interval_for(headline)
         decision.update({"value": float(headline["value"]), "unit": headline.get("unit") or "", "band": band,
-                         "basis": list(f_head["basis"]) if f_head else []})
+                         "basis": list(f_head["basis"]) if f_head else [],
+                         "evidence": dict(f_head.get("evidence") or {}) if f_head else {}})
         what = ws.brief.decision or (study.plan or {}).get("objective") if study else ws.brief.decision
         band_text = f", band {band[0]:g} to {band[1]:g} {headline.get('unit') or ''}".rstrip() if band else ""
         decision["answer"] = (f"{(what or 'The answer').strip().rstrip('.')}: {headline.get('label')} "
                               f"{float(headline['value']):g} {headline.get('unit') or ''}".rstrip()
-                              + f"{band_text} ({grade.replace('_', ' ')}).")
+                              + f"{band_text}" + (_trend_verdict(key) if _asks_trend(ws) else "")
+                              + f" ({grade.replace('_', ' ')}).")
     else:
         answers = [kn for kn in key if not _FRAMING_LABELS.search(str(kn.get("label") or ""))][:3]
         have = "; ".join(f"{kn.get('label')} {kn.get('value')} {kn.get('unit') or ''}".strip() for kn in answers
                          if _is_number(kn.get("value")))
         decision["answer"] = (f"No number in the results answers the decision ({grade.replace('_', ' ')})"
                               + (f"; the study established {have}." if have else "."))
+    # The advanced steps say what their numbers mean in one sentence each (``verdict`` in the payload, written
+    # by aquascope.advanced from the payload's own values): those sentences are the answer to a question about
+    # change, a model or a projection, so they follow the headline number.
+    verdicts = _verdicts(ws)
+    if verdicts:
+        decision["verdicts"] = verdicts
+        decision["answer"] = (decision["answer"] + " " + " ".join(v["text"] for v in verdicts[:4])).strip()
+    decision["conditions"].extend((decision.get("evidence") or {}).get("assumptions") or [])
     run = ws.run or {}
+    if decision.get("evidence"):
+        decision["evidence"].update({"grade": grade, "grade_scope": decision["grade_scope"],
+                                     "checks": run.get("gates") or [],
+                                     "failed_checks": run.get("failed_gates") or []})
     for g in (run.get("failed_gates") or [])[:3]:
-        decision["conditions"].append(f"step {g.get('step')} did not pass {g.get('check')}: {g.get('detail')}")
+        decision["limitations"].append(f"step {g.get('step')} did not pass {g.get('check')}: {g.get('detail')}")
     for c in ((study.plan or {}).get("caveats") or [])[:2] if study else []:
-        decision["conditions"].append(str(c).split(". ")[0].rstrip(".") + ".")
+        decision["limitations"].append(str(c))
     for f in (run.get("failed_steps") or []):
         if not f.get("skipped"):
             decision["what_would_change_it"].append(f"{f.get('tool')} ({f.get('id')}) establishing its result: "
@@ -604,7 +656,9 @@ def validate_findings(ws: Workspace, obj: dict[str, Any], *, rules: dict[str, An
         rule_grade = grade_for_step(ws, sid)
         grade = str(raw.get("grade") or rule_grade)
         findings.append({"id": f"f{len(findings) + 1}", "claim": str(raw["claim"]).strip(), "basis": bases,
-                         "grade": _lower(grade if grade in GRADES else rule_grade, rule_grade)})
+                         "grade": _lower(grade if grade in GRADES else rule_grade, rule_grade),
+                         "evidence": next((f.get("evidence", {}) for f in rules["findings"]
+                                           if f["basis"] == bases), {})})
     if not findings:
         out = dict(rules)
         out["written_by"], out["dropped"] = "rules", dropped
@@ -612,16 +666,9 @@ def validate_findings(ws: Workspace, obj: dict[str, Any], *, rules: dict[str, An
         return out
     decision = dict(rules["decision"])
     raw_d = obj.get("decision") if isinstance(obj.get("decision"), dict) else {}
-    value = raw_d.get("value")
-    if _is_number(value) and any(any(_close(float(value), v) for v in _basis_values(ws, f["basis"])) for f in findings):
-        decision["value"] = float(value)
-        decision["unit"] = str(raw_d.get("unit") or decision.get("unit") or "")
-        band = raw_d.get("band")
-        if isinstance(band, (list, tuple)) and len(band) == 2 and all(_is_number(x) for x in band):
-            decision["band"] = [float(band[0]), float(band[1])]
     if isinstance(raw_d.get("answer"), str) and raw_d["answer"].strip():
         claimed = _claimed_numbers(raw_d["answer"])
-        pool = [v for f in findings for v in _basis_values(ws, f["basis"])]
+        pool = [decision["value"]] if _is_number(decision.get("value")) else []
         pool += [x for x in (decision.get("band") or []) if _is_number(x)]
         if all(any(_close(c, v) for v in pool) for c in claimed):
             decision["answer"] = raw_d["answer"].strip()

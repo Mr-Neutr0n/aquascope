@@ -217,9 +217,9 @@ def test_solve_tools_plan_then_run_with_no_model():
     from tests.test_ai_engine.test_team import CATCHMENT, FLOW, GLOFAS, RECON
 
     listed = m.list_playbooks()
-    assert listed["n"] == 7 and {p["id"] for p in listed["playbooks"]} == {
+    assert listed["n"] == 10 and {p["id"] for p in listed["playbooks"]} == {
         "flood_risk", "ungauged_flow", "groundwater_decline", "drought_status", "supply_reliability",
-        "irrigation_feasibility", "water_quality"}
+        "irrigation_feasibility", "water_quality", "flood_change", "climate_change", "catchment_response"}
     assert "error" in m.describe_playbook("nope") and m.describe_playbook("flood_risk")["id"] == "flood_risk"
     tools = {"describe_catchment": lambda **kw: CATCHMENT, "analyze_station": lambda **kw: FLOW,
              "flood_frequency": lambda **kw: FLOW, "anywhere": lambda **kw: {"glofas": GLOFAS}}
