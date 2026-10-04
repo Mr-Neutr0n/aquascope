@@ -20,6 +20,10 @@ date: 23 September 2026
 bibliography: paper.bib
 ---
 
+<!-- Counts here (sources, methodologies, ...) describe the base release named below, not main.
+     Leave them for the whole-paper refresh at submission; bumping only the numbers makes the paper
+     less internally consistent. See #453. -->
+
 # Summary
 
 AquaScope Hydrology combines a browser Explorer with an open-source Python toolkit

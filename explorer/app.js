@@ -19,7 +19,7 @@ import { buildRail, syncRail, updateCount } from "./src/rail.js?v=__BUILD__";
 import { setBasinsVisible } from "./src/basins.js?v=__BUILD__";
 import { initSearch } from "./src/search.js?v=__BUILD__";
 import { initShell, initTabs, selectTab, setStatusEl, showSurface } from "./src/shell.js?v=__BUILD__";
-import { initStationPanel, selectStation } from "./src/panel-station.js?v=__BUILD__";
+import { initStationPanel, reanalyze, selectStation, setPeriod } from "./src/panel-station.js?v=__BUILD__";
 import { initPointPanel, selectPoint } from "./src/panel-point.js?v=__BUILD__";
 import { initWorkbench, openSampleTable, openWorkbench } from "./src/panel-workbench.js?v=__BUILD__";
 import { initAsk } from "./src/ask.js?v=__BUILD__";
@@ -67,7 +67,7 @@ function openStudyIf(url) {
 }
 
 // Everything that can arrive from a URL: a station, a point, a tab, the map
-// view, the source filter and the Study drawer. Called at boot, on hashchange
+// view, the source filter, the analysis period and the Study drawer. Called at boot, on hashchange
 // and on Back.
 function applyUrl(url, { fromHistory = false } = {}) {
   if (url.hidden) {
@@ -81,10 +81,12 @@ function applyUrl(url, { fromHistory = false } = {}) {
   if (url.mode === "workbench") { openWorkbench(); return; }
   if (url.station) {
     const key = decodeURIComponent(url.station);
+    const periodChanged = setPeriod(url.period);   // &yr= (#270); no yr is the page default
     if (!state.selected || `${state.selected.source}/${state.selected.station_id}` !== key) {
       selectStation(key, { fly: !url.view, tab: url.tab, push: false });
-    } else if (url.tab) {
-      selectTab($("panel-station"), url.tab);
+    } else {
+      if (periodChanged) reanalyze();
+      if (url.tab) selectTab($("panel-station"), url.tab);
     }
     openStudyIf(url);
     return;

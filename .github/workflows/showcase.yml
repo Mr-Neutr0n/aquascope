@@ -71,11 +71,18 @@ jobs:
 
       # Start from whatever is already recorded, on main or on the open branch,
       # so a run that runs out of daily budget tops up instead of starting over.
+      # Only while a pull request is open: once it merges (or closes), the branch
+      # is older than main and seeding from it rolls main's recordings back.
+      # And only the Analyst's answers at the top level: studies/ is written by
+      # `aquascope studio-showcase`, not this job.
       - name: Seed from the existing recordings
         if: steps.key.outputs.have_key == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git fetch --quiet origin showcase/recordings 2>/dev/null; then
-            git checkout FETCH_HEAD -- explorer/showcase 2>/dev/null || true
+          OPEN_PR=$(gh pr list --head showcase/recordings --state open --json number --jq '.[].number')
+          if [ -n "$OPEN_PR" ] && git fetch --quiet origin showcase/recordings 2>/dev/null; then
+            git checkout FETCH_HEAD -- ':(glob)explorer/showcase/*.json' 2>/dev/null || true
           fi
           ls -1 explorer/showcase 2>/dev/null | wc -l | xargs echo "recordings already present:"
 
@@ -114,7 +121,11 @@ jobs:
           git commit -m "showcase: re-record the Analyst's worked examples" \
                      -m "Recorded by .github/workflows/showcase.yml so the Explorer can show what the Analyst does without an API key (#233)."
           git push --force origin "$BRANCH"
-          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+          # Only an open pull request carries the push. `gh pr view <branch>`
+          # also finds the merged ones, so after the first merge (#263) every
+          # later recording sat on the branch with no pull request at all.
+          OPEN_PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')
+          if [ -n "$OPEN_PR" ]; then
             echo "the open pull request now carries the new recordings"
           else
             # printf rather than a heredoc: YAML strips this block's indent, so a

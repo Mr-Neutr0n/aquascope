@@ -622,6 +622,43 @@ def test_the_explorer_asks_for_the_full_record_by_default() -> None:
     assert "period_start: r.period_start" in panel
 
 
+@pytestmark_node
+def test_the_period_is_read_from_the_link() -> None:
+    """#270: full record, 40 or 20 years, as &yr=all / &yr=40 / &yr=20; anything else is ignored."""
+    url_js = (EXPLORER / "src" / "url.js").as_uri()
+    script = f"""
+    const m = await import({json.dumps(url_js)});
+    console.log(JSON.stringify({{
+      default: m.defaultPeriod(),
+      all: m.readUrl("#s=usgs/USGS-01013500&yr=all"),
+      forty: m.readUrl("#s=usgs/USGS-01013500&yr=40&tab=floods"),
+      odd: m.readUrl("#s=usgs/USGS-01013500&yr=30"),
+      none: m.readUrl("#s=usgs/USGS-01013500"),
+    }}));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(out.stdout)
+    assert data["default"] is None, "the page starts on the full record"
+    assert data["all"]["period"] is None and data["forty"]["period"] == 40 and data["forty"]["tab"] == "floods"
+    assert "period" not in data["odd"] and "period" not in data["none"], "an unknown or missing yr keeps the default"
+
+
+def test_the_station_panel_lets_the_reader_choose_the_period() -> None:
+    """#270: a period control next to the record, sent to the worker and written to the link."""
+    html = (EXPLORER / "index.html").read_text(encoding="utf-8")
+    select = html[html.index('<select id="st-period-select"'):]
+    select = select[:select.index("</select>")]
+    assert [v for v in re.findall(r'value="([^"]+)"', select)] == ["all", "40", "20"]
+    panel = (EXPLORER / "src" / "panel-station.js").read_text(encoding="utf-8")
+    assert "years: state.period" in panel and "years: CONFIG.years" not in panel
+    assert "export function setPeriod" in panel and "export function reanalyze" in panel
+    url = (EXPLORER / "src" / "url.js").read_text(encoding="utf-8")
+    assert 'q.set("yr", state.period === null ? "all" : String(state.period))' in url
+    app = (EXPLORER / "app.js").read_text(encoding="utf-8")
+    assert "setPeriod(url.period)" in app and "if (periodChanged) reanalyze();" in app, (
+        "Back to a different period of the same station fetches it again")
+
+
 # ── Study (the crew in the page) ────────────────────────────────────────────
 
 

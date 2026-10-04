@@ -230,6 +230,14 @@
         <div class="panes">
           <section id="tab-overview" role="tabpanel" aria-labelledby="t-overview" tabindex="0">
             <div id="st-kpis-card" class="card" hidden>
+              <div class="card-title period-pick" id="st-period-pick">
+                <label for="st-period-select">Period</label>
+                <select id="st-period-select" title="How much of the agency's record to fetch and analyse">
+                  <option value="all">Full record</option>
+                  <option value="40">Last 40 years</option>
+                  <option value="20">Last 20 years</option>
+                </select>
+              </div>
               <div class="card-body"><div class="kpis" id="kpis"></div></div>
             </div>
             <div id="st-hydro-card" class="card" hidden>

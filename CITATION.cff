@@ -13,8 +13,8 @@ authors:
     given-names: Abdoul Rachid
     orcid: "https://orcid.org/0000-0002-4616-4153"
     affiliation: "National Central University, Taiwan"
-version: 0.21.0
-date-released: "2026-09-30"
+version: 0.22.0
+date-released: "2026-10-04"
 doi: 10.5281/zenodo.21903143
 license: MIT
 repository-code: https://github.com/Rekin226/aquascope
@@ -34,6 +34,12 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.21903143
     description: Concept DOI, resolves to the latest archived version
+  - type: doi
+    value: 10.5281/zenodo.23132668
+    description: Version DOI for v0.22.0
+  - type: doi
+    value: 10.5281/zenodo.23048856
+    description: Version DOI for v0.21.0
   - type: doi
     value: 10.5281/zenodo.23009178
     description: Version DOI for v0.20.0
@@ -87,9 +93,9 @@ preferred-citation:
     - family-names: Ouédraogo
       given-names: Abdoul Rachid
       orcid: "https://orcid.org/0000-0002-4616-4153"
-  version: 0.21.0
-  date-released: "2026-09-30"
-  doi: 10.5281/zenodo.21903143
+  version: 0.22.0
+  date-released: "2026-10-04"
+  doi: 10.5281/zenodo.23132668
   license: MIT
   repository-code: https://github.com/Rekin226/aquascope
   url: https://rekin226.github.io/aquascope

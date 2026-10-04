@@ -57,6 +57,7 @@ export const LAYER_DEFAULTS = {
 export const state = {
   stations: [], byKey: new Map(), hidden: new Set(),
   selected: null, result: null, point: null,
+  period: null,   // the station's analysis period (#270): null = full record, else the last N years
   workerReady: false, booting: true, pending: new Map(), reqId: 0,
   mapOk: false, marker: null, basinsOn: false,
   // layers (#232)

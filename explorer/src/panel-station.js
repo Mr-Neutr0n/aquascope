@@ -3,7 +3,6 @@
 // The science is unchanged; what is new is that each tab reports its own state
 // and can be cancelled, and that the record and every table export.
 
-import { CONFIG } from "../config.js?v=__BUILD__";
 import {
   $, VAR_LABEL, actions, article, copyText, downloadBlob, escapeHtml, fmt, fmtP, sourceStyle, state, stationKey,
 } from "./core.js?v=__BUILD__";
@@ -14,7 +13,7 @@ import { flyToStation, highlightStation, clearPointMarker } from "./map.js?v=__B
 import { GR4J_METHODS, addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
 import { hideCard, selectTab, setCard, setStatusEl, setTab, showSurface } from "./shell.js?v=__BUILD__";
 import { Cancelled, call, callCancelable } from "./worker-client.js?v=__BUILD__";
-import { canonicalUrl, writeUrl } from "./url.js?v=__BUILD__";
+import { canonicalUrl, defaultPeriod, writeUrl } from "./url.js?v=__BUILD__";
 import { siteKey } from "./sites.js?v=__BUILD__";
 import { syncPlaceButton } from "./places.js?v=__BUILD__";  // My places: the ☆ Save button
 import { metrics } from "./metrics.js?v=__BUILD__";
@@ -99,11 +98,50 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   writeUrl({ push });
   selectTab(root(), state.activeTab);
 
-  setCard($("st-kpis-card"), "loading", { message: state.workerReady ? "Fetching the record from the agency…" : "Loading Python in your browser (about 15 MB, once)…" });
+  setCard($("st-kpis-card"), "loading", { message: state.workerReady ? fetchingMessage() : "Loading Python in your browser (about 15 MB, once)…" });
   requestAnalysis(r, my);
   requestCatchment({ station: r, target: "st" });
   requestBasin(r.lat, r.lon, "st");
   requestAssess({ lat: r.lat, lon: r.lon, target: "st", key });
+}
+
+// The analysis period (#270): the full record by default, or the last 40 or 20 years. A full USGS record
+// can be a century of daily values, so the loading line says which one is on its way.
+const fetchingMessage = () => (state.period
+  ? `Fetching the last ${state.period} years from the agency…`
+  : "Fetching the full record from the agency…");
+
+function syncPeriodSelect() {
+  const sel = $("st-period-select");
+  if (sel) sel.value = state.period === null ? "all" : String(state.period);
+}
+
+// Set the period from a link or Back (undefined means the page default). True when it changed.
+export function setPeriod(period) {
+  const next = period === undefined ? defaultPeriod() : period;
+  const changed = next !== state.period;
+  state.period = next;
+  syncPeriodSelect();
+  return changed;
+}
+
+// Fetch the selected station again for a new period. The catchment, basin and assessment do not depend on
+// the period, so only the record and what is computed from it are reset.
+export function reanalyze() {
+  const r = state.selected;
+  if (!r) return;
+  const my = ++analysisRun;
+  state.result = null;
+  $("btn-csv").disabled = true;
+  for (const id of ["st-hydro-card", "st-ffa-card", "st-fdc-card", "st-trend-card", "st-gr4j-card", "st-notes-card"]) {
+    hideCard($(id));
+  }
+  resetGr4j();
+  for (const name of ["floods", "flows", "model"]) {
+    setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
+  }
+  setCard($("st-kpis-card"), "loading", { message: fetchingMessage() });
+  requestAnalysis(r, my);
 }
 
 function tabExists(name) {
@@ -118,13 +156,14 @@ async function requestAnalysis(r, my) {
     if (my === analysisRun) $("st-observation-status").textContent = text;
   });
   setStatus("");
+  $("st-period-pick").hidden = catalogOnly(r.source);
   if (catalogOnly(r.source)) {
     setCard($("st-kpis-card"), "empty", { message: "Catalog-only station: Explorer has no observation retrieval path for this source yet. Open the agency page, or import your own downloaded table." });
     return;
   }
   try {
     const result = await call("analyze", {
-      source: r.source, station_id: r.station_id, years: CONFIG.years, period_start: r.period_start || null,
+      source: r.source, station_id: r.station_id, years: state.period, period_start: r.period_start || null,
     });
     if (my !== analysisRun || !state.selected || stationKey(state.selected) !== key) return; // user moved on
     state.result = result;
@@ -466,6 +505,14 @@ async function runGr4j() {
 
 export function initStationPanel() {
   const r = root();
+  state.period = defaultPeriod();
+  syncPeriodSelect();
+  $("st-period-select").addEventListener("change", (e) => {
+    const v = e.target.value;
+    if (!setPeriod(v === "all" ? null : Number(v))) return;
+    writeUrl();
+    reanalyze();
+  });
   r.addEventListener("tabchange", (e) => {
     state.activeTab = e.detail.tab;
     writeUrl();

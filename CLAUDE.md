@@ -39,7 +39,7 @@ aquascope/
   registry.py      SOURCES: the single source of truth about every collector
   archive/         the harvester behind the Hugging Face dataset
   explore.py       station/point analysis used by the Explorer and the Analyst
-  workbench.py     the sixteen analyses shared by every face
+  workbench.py     the analyses shared by every face (the `TOOLS` table)
   mcp_server.py    `aquascope mcp`
   ai_engine/       the Analyst tool loop (analyst.py) and the recommender
   hydrology/ groundwater/ agri/ climate/ spatial/ analysis/ models/
@@ -71,8 +71,10 @@ ruff-format, mypy) and clears most lint problems before they reach CI.
 
 ## What CI enforces
 
-`ci.yml` runs three jobs, and two more workflows gate a PR:
+`ci.yml` runs four jobs, and two more workflows gate a PR:
 
+- **explorer-contracts**: `node --test explorer/tests/*.test.mjs` on Node 24,
+  the Explorer's JavaScript unit tests.
 - **lint**: ruff over `aquascope/` and `tests/`, then informational mypy.
 - **test**: the matrix is **Python 3.10, 3.11 and 3.12**.
 - **contributors-board**: fails when a commit author is missing from the README
@@ -193,8 +195,8 @@ a deployable directory.
 
 - `harvest.yml` (Mondays 03:17 UTC) rebuilds the archive, publishes to Hugging
   Face, and opens, updates or closes one `collector-health` issue per failing
-  source. Scope is the sources that implement `stations()` (six of them today,
-  see `station_sources()`), not every collector. The issue step only runs on the
+  source. Scope is the sources that implement `stations()` (see
+  `station_sources()`), not every collector. The issue step only runs on the
   scheduled event, so a `workflow_dispatch` run never files anything.
 - `repair.yml` runs after it, tries a model-written patch per failing source,
   verifies it with lint, the collector's tests and a live smoke call, and opens a

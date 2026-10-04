@@ -3,6 +3,7 @@
 // view, and "Copy link" hands someone else exactly what you are looking at.
 //
 // #s=<source>/<id>&tab=floods&v=8.1/51.41/-0.31&hide=usgs,uk_ea&basins=1
+// #s=<source>/<id>&yr=40               (the analysis period: yr=40, yr=20, or yr=all for the full record)
 // #p=<lat>,<lon>&tab=climate&v=...
 // #s=<source>/<id>&study=1            (the Study drawer, open at that place)
 // #study=kingston-flood                (a recorded study, by its id)
@@ -11,10 +12,22 @@
 // The legacy forms (#s=key, #p=lat,lon, #solve=...) still parse, so old links
 // keep working: a Solve link opens Study at the same place.
 
+import { CONFIG } from "../config.js?v=__BUILD__";
 import { LAYER_DEFAULTS, actions, state, trace } from "./core.js?v=__BUILD__";
 
 let applying = false;      // ignore our own hashchange
 let lastWritten = "";
+
+// The station's analysis period (#270). null is the full record, a number caps it to the last N years.
+// CONFIG.years is where a page starts; a link only carries the period when it differs from that.
+export const PERIODS = [null, 40, 20];
+export const defaultPeriod = () => (PERIODS.includes(CONFIG.years) ? CONFIG.years : null);
+
+export function parsePeriod(value) {
+  if (value === "all") return null;
+  const n = Number(value);
+  return PERIODS.includes(n) ? n : undefined;   // anything else is ignored, not guessed
+}
 
 export function readUrl(hash = location.hash) {
   const raw = String(hash || "").replace(/^#/, "");
@@ -27,6 +40,7 @@ export function readUrl(hash = location.hash) {
     if (m) out.point = { lat: Number(m[1]), lon: Number(m[2]) };
   }
   if (q.has("tab")) out.tab = q.get("tab");
+  if (q.has("yr") && parsePeriod(q.get("yr")) !== undefined) out.period = parsePeriod(q.get("yr"));
   // The Study drawer, open at the selection. A Solve link from before opens it too; #study=<id> with an
   // id from the recorded studies' index opens that recording.
   if (q.has("study") || q.has("solve")) {
@@ -60,6 +74,9 @@ function currentHash({ view } = {}) {
   else if (state.selected) q.set("s", `${state.selected.source}/${state.selected.station_id}`);
   else if (state.point) q.set("p", `${state.point.lat},${state.point.lon}`);
   if (state.activeTab) q.set("tab", state.activeTab);
+  if (state.selected && state.mode !== "workbench" && state.period !== defaultPeriod()) {
+    q.set("yr", state.period === null ? "all" : String(state.period));
+  }
   if (state.drawerOpen && state.drawerMode === "study") q.set("study", state.study.recorded || "1");
   if (state.drawerOpen && state.drawerMode === "study" && state.study.link) q.set("study", state.study.link);   // a shared study stays in the address
   if (view) q.set("v", `${view.zoom.toFixed(2)}/${view.lat.toFixed(4)}/${view.lon.toFixed(4)}`);

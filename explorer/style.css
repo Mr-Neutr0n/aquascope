@@ -568,6 +568,9 @@ table.regime td:first-child { white-space: nowrap; }
 .site-records { margin-top: .5rem; font-size: .8rem; }
 .site-records:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .site-records select { min-width: 0; max-width: 100%; font: inherit; }
+/* The analysis period (#270): stays visible while the record loads, so a slow full record can be cut short. */
+.period-pick { align-items: center; justify-content: flex-start; margin-bottom: .35rem; font-size: .8rem; color: var(--muted); }
+.period-pick select { min-width: 0; max-width: 100%; font: inherit; color: var(--ink); }
 
 /* ── drawer (Ask) ────────────────────────────────────────────────────────── */
 
