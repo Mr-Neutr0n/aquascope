@@ -2,10 +2,27 @@
 
 All notable changes to AquaScope are documented here.
 
+<!-- Each entry describes its release as it shipped. Counts in past entries are not updated
+     afterwards, and tests/test_docs_counts.py does not check this file. See #453. -->
+
 ## [Unreleased]
+
+### Added
+- **The Explorer's station panel lets you choose the period** (#270): the full record (the default), the last 40 years or the last 20, next to the record card. The choice travels in the link as `&yr=40`, `&yr=20` or `&yr=all`, and the loading line says which one is on its way, since a full USGS record can be a century of daily values.
 
 ### Fixed
 - **Windows test assumptions:** repair evidence carries POSIX paths, and the workflow shell check skips on Windows (part of #432).
+- Record the verified v0.22.0 Zenodo DOI (`10.5281/zenodo.23132668`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.
+
+## [0.22.0] - 2026-10-04
+
+### Changed
+- **The design-flow study checks the annual maxima for a step change too** (#376). The flood fit that `analyze_station` and `flood_frequency` run now carries Pettitt's test on the same maxima (`ffa.amax_change`), next to the Mann-Kendall trend it already had. A significant shift keeps the estimate and grades it indicative, with the year named and a pointer to the flood change study. There is no new plan step, so every recorded study and HydroGym score stays as it was.
+
+### Fixed
+- Stale counts outside the count guard (#453). `docs/api.md` and `docs/faq.md` state the registry's source count and are now guarded; the banner, the architecture guide and the troubleshooting page no longer carry decorative counts; the dashboard's AI page reads the methodology count from the knowledge base; and `.github/copilot-instructions.md` describes the current repo. Counts in `paper.md`, `ROADMAP.md` and past CHANGELOG entries are snapshots and stay as written, with a comment saying so.
+- Record the verified v0.21.0 Zenodo DOI (`10.5281/zenodo.23048856`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.
+- The showcase workflow opens a pull request for each new recording again; it had mistaken the long-merged #263 for an open one, so recordings since then sat on `showcase/recordings` unseen. It also stops seeding from that branch once its pull request has closed, which had rolled the recorded studies back to their 2026-09-14 copies.
 
 ## [0.21.0] - 2026-09-30
 
@@ -67,7 +84,6 @@ All notable changes to AquaScope are documented here.
   normalizing enum members to their string values. Docs:
   [Data Quality Flags](docs/data_sources.md#data-quality-flags).
 - **`aquascope studio` on its own starts a study.** In a terminal with no place or question, the Studio asks where (a gauge name or river words searched in the station catalog, a station id such as `USGS-01013500`, or `lat, lon`) and what you want to know, then carries on as before: questions, plan, approval, bundle. When a model key is set in the environment it offers to use it, with a $1 spend ceiling, instead of staying silently keyless; the Studio still never uses a key it was not told to. A new `--at PLACE` does the same lookup without questions. When the `studio` extra is missing, the CLI now says the bundle holds only the Markdown and HTML report and the tables, and names `pip install "aquascope[studio]"`. The README gains a "Run a study on your machine" section and lists the `studio` and `basins` extras.
->>>>>>> origin/main
 
 ### Fixed
 - **A "last N years" window longer than the archive copy now comes from the agency.** The archive mirror holds 40 years for many gauges; asking for the last 50 served those 40 and said so. The agency is now asked for the window when it reaches more than a year before the archive copy, as the full record already was.
