@@ -11,6 +11,7 @@ All notable changes to AquaScope are documented here.
 - **`fetch_series` reads BOM and ANA records**, so the Studio's Scout and the Explorer can use an Australian or Brazilian gauge instead of falling back to regionalisation. `bom` reads BOM Water Data Online's quality-checked daily mean for the requested window, discharge first and water level when the gauge has none (A4261794 carries level only). `brazil_ana` reads ANA's conventional network (`HidroSerieHistorica`), which needs no credentials: daily discharge then stage, reviewed months preferred over provisional ones. Each note says the series lags real time: weeks for BOM, months for ANA. A station on ANA's telemetric or water-quality networks only still has no record. `DIRECT_FETCH_SOURCES` lists the sources `fetch_series` reaches directly. BOM refuses cross-origin requests, so it is marked browser-unreachable and the Explorer says so. Nothing from either source is mirrored.
 
 ### Fixed
+- **`uk_ea` attribution** (#473): use the Environment Agency Hydrological Open Data attribution statement from [data.gov.uk](https://www.data.gov.uk/dataset/98a4d46e-23e7-4430-883c-9e5f14645e8f/hydrological-open-data) (OGL v3.0 requires the provider-specified wording).
 - Record the verified v0.23.0 Zenodo DOI (`10.5281/zenodo.23200452`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.
 
 ## [0.23.0] - 2026-10-07
