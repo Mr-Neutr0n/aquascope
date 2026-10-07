@@ -8,6 +8,7 @@ All notable changes to AquaScope are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **The weekly harvest now reaches the files the 40-year cap truncated** (#501). The 0.21.0 change (#270) sorted them first among stations due a refresh, but behind every station never harvested; USGS has about 25,000 of those, enough to fill each weekly budget of 150, so its 133 truncated files would have waited about three years. They now go ahead of new stations, and the stations the Explorer's daily live check reads (Fish River, Thames at Kingston, Seine at Paris) go first of all while new, stale or truncated.
 - Record the verified v0.23.0 Zenodo DOI (`10.5281/zenodo.23200452`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.
 
 ## [0.23.0] - 2026-10-07

@@ -176,6 +176,16 @@ def sync_from_hub(out_dir: str | Path, repo_id: str, *, token: str | None = None
     return out
 
 
+#: Stations the Explorer's daily live check reads (``.github/scripts/explorer_smoke.mjs``). Their mirror files are
+#: harvested before anything else while they are new, stale or truncated, so the check does not depend on an agency
+#: answering a browser (#501).
+REFERENCE_STATIONS: frozenset[tuple[str, str]] = frozenset({
+    ("usgs", "USGS-01013500"),                                  # Fish River near Fort Kent, from 1903
+    ("uk_ea", "8496ce69-482c-406a-a2f0-ac418ef8f099"),           # Thames at Kingston, from 1883
+    ("hubeau_hydrometrie", "F700000103"),                       # Seine at Paris-Austerlitz
+})
+
+
 def _pick_stations(
     catalog: list[dict[str, Any]],
     manifest: dict[str, Any],
@@ -220,9 +230,16 @@ def _pick_stations(
             if when < cutoff:
                 stale.append(row)
     # A file that starts years after the catalog says the station does was harvested under the old 40-year cap
-    # (#270); a full-record fetch now merges the earlier years in, so those go first, the most truncated first.
-    stale.sort(key=lambda r: -_missing_years(r, done.get(r["station_id"]) or {}))
-    return (fresh + stale)[:max_stations]
+    # (#270); a full-record fetch now merges the earlier years in. Those go ahead of stations never harvested:
+    # USGS alone catalogues ~25,000 of those, enough to fill every weekly budget, so behind them the truncated
+    # files would wait years (#501). The reference stations go first of all.
+    gap = {r["station_id"]: _missing_years(r, done.get(r["station_id"]) or {}) for r in stale}
+    truncated = sorted((r for r in stale if gap[r["station_id"]] > 0), key=lambda r: -gap[r["station_id"]])
+    rest = [r for r in stale if gap[r["station_id"]] == 0]
+    ordered = truncated + fresh + rest
+    reference = [r for r in ordered if (source, r["station_id"]) in REFERENCE_STATIONS]
+    ordered = reference + [r for r in ordered if (source, r["station_id"]) not in REFERENCE_STATIONS]
+    return ordered[:max_stations]
 
 
 def _missing_years(row: dict[str, Any], entry: dict[str, Any]) -> float:
