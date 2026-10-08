@@ -393,6 +393,56 @@ def trace_downstream(river_id: int | None = None, lat: float | None = None, lon:
     return res
 
 
+def flow_status(source: str, station_id: str, date: str | None = None) -> dict[str, Any]:
+    """Today against normal at a gauge: where its latest flow (or level) sits against the same days of the year
+    (7 either side) in every other year of its record, as a percentile and one of the five classes the USGS
+    dashboard and WMO HydroSOS use (much below normal, below, normal, above, much above). The Archive copy is
+    topped up with the agency's newest days first. date (YYYY-MM-DD) asks about another day. Needs 10 years in
+    that window; quote the sentence it returns, which says the date and how many years it rests on."""
+    from aquascope import nownext
+
+    try:
+        res = nownext.station_status(source, station_id, date=date)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    res.pop("recent", None)
+    return res
+
+
+def flow_forecast(lat: float | None = None, lon: float | None = None, river_id: int | None = None,
+                  station: str | None = None, days: int = 15) -> dict[str, Any]:
+    """The next 15 days of river flow from two global models, MODELLED: GEOGLOWS v2 (ECMWF 51-member ensemble
+    statistics for the river reach: mean, median, 25-75 and min-max bands, high-res run) and GloFAS v4 via
+    Open-Meteo (daily ensemble statistics for the 5 km cell), with the reach's 2- to 100-year flows from its
+    simulated record since 1940. Give a point (snapped to its reach), a river_id, or station "source/station_id":
+    a gauge also gets today's status and the forecast corrected to its own record, with the correction's
+    hindcast skill. Say it is a model forecast whenever you quote it."""
+    from aquascope import nownext
+
+    try:
+        return nownext.now(lat, lon, station=station, river_id=river_id, days=days)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
+def correct_to_gauge(source: str, station_id: str, river_id: int | None = None, days: int = 15) -> dict[str, Any]:
+    """The GEOGLOWS forecast at a gauge's river reach corrected to the gauge's own record (flow-duration quantile
+    mapping per calendar month, the MFDC-QM / SABER family), and how much to trust it: KGE (with r, alpha, beta),
+    percent bias, and the hit rate and false alarms above the gauge's 2-year flow, raw against corrected, scored
+    on the later part of the overlap after fitting on the earlier part. Quote the skill_line with the forecast."""
+    from aquascope import nownext
+
+    try:
+        res = nownext.now(station=f"{source}/{station_id}", river_id=river_id, days=days)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    fc = res.get("forecast") or {}
+    corr = fc.get("correction") or {"error": fc.get("error") or "No forecast to correct at this gauge."}
+    return {"station": res.get("station"), "river_id": fc.get("river_id"), "raw": fc.get("geoglows"),
+            "correction": corr, "gauge_thresholds": fc.get("gauge_thresholds"), "sentence": fc.get("sentence"),
+            "notes": fc.get("notes"), "attribution": fc.get("attribution")}
+
+
 def describe_methods() -> dict[str, Any]:
     """What each analysis computes and the reference to cite."""
     from aquascope.explore import METHODS, MIN_YEARS_FOR_FFA, RETURN_PERIODS
@@ -1090,6 +1140,9 @@ def build_server():
     server.tool()(reach_record)
     server.tool()(upstream_area)
     server.tool()(trace_downstream)
+    server.tool()(flow_status)
+    server.tool()(flow_forecast)
+    server.tool()(correct_to_gauge)
     server.tool()(place_context)
     server.tool()(area_context)
     server.tool()(similar_basins)

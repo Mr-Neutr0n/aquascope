@@ -65,6 +65,8 @@ export const state = {
   // time (#522): the map date above is the one every dated layer follows; these
   // say how it moves. Change any of them through setTime(), never directly.
   timeStep: "day", timeRange: null, compare: null, playing: false,
+  // today against normal (#517): the daily status snapshot, read when the gauges are coloured by it
+  nowStatus: null, nowMeta: null,
   ...LAYER_DEFAULTS,
   ask: { running: false, catalogSent: false, markdown: null, run: 0 },
   // One drawer, two modes (Ask, Study); an open Study drawer is part of the URL.

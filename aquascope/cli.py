@@ -1183,6 +1183,105 @@ def _river_target(args: argparse.Namespace) -> tuple[int | None, dict | None]:
     return int(args.river_id), None
 
 
+def cmd_now(args: argparse.Namespace) -> None:
+    """`aquascope now LAT LON | --station SOURCE/ID | --river-id ID`: today against normal and the next 15 days."""
+    from aquascope import nownext
+
+    coords = list(args.coords or [])
+    if coords and len(coords) != 2:
+        print("  Give LAT LON, --station SOURCE/ID or --river-id ID.")
+        sys.exit(2)
+    lat, lon = (coords[0], coords[1]) if coords else (None, None)
+    if lat is None and not args.station and args.river_id is None:
+        print("  Give LAT LON, --station SOURCE/ID or --river-id ID.")
+        sys.exit(2)
+    try:
+        res = nownext.now(lat, lon, station=args.station, river_id=args.river_id, days=args.days, date=args.date,
+                          with_forecast=not args.status_only, correct=not args.raw)
+    except ValueError as exc:
+        print(f"  {exc}")
+        sys.exit(2)
+    fc = res.get("forecast") or {}
+    if args.csv and fc:
+        _now_csv(fc, args.csv)
+        print(f"  forecast -> {args.csv}")
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+    st = res.get("status") or {}
+    if res.get("station"):
+        s = res["station"]
+        print(f"  {s.get('name') or s['station_id']} ({s['source']}/{s['station_id']}), {s.get('variable')}")
+    if st:
+        print(f"  {st.get('sentence') or st.get('error')}")
+        if st.get("top_up"):
+            print(f"    {st['top_up']}")
+    if not fc:
+        return
+    if fc.get("snap"):
+        print(f"  {fc['snap'].get('message')}")
+    if not st and (fc.get("status") or {}).get("sentence"):
+        print(f"  {fc['status']['sentence']}")
+    rows = _now_table(fc)
+    if rows:
+        corrected = any(r[2] is not None for r in rows)
+        head = f"  {'day':<10}  {'GEOGLOWS mean [25-75 %]':>28}" + (f"  {'corrected':>10}" if corrected else "")
+        print(head + f"  {'GloFAS mean':>11}   (m3/s, modelled)")
+        for day, g, c, gl in rows:
+            band = f"{g[0]:,.4g} [{g[1]:,.4g}-{g[2]:,.4g}]" if g and g[0] is not None else "-"
+            line = f"  {day:<10}  {band:>28}"
+            if corrected:
+                line += f"  {c:>10,.4g}" if c is not None else f"  {'-':>10}"
+            line += f"  {gl:>11,.4g}" if gl is not None else f"  {'-':>11}"
+            print(line)
+    thr = fc.get("gauge_thresholds") if (fc.get("correction") or {}).get("forecast") else fc.get("thresholds")
+    if thr and thr.get("q"):
+        pairs = ", ".join(f"{t:g}-yr {q:,.4g}" for t, q in zip(thr["return_periods"], thr["q"]) if q is not None)
+        print(f"  Thresholds from {thr.get('source')}, {thr.get('method')}: {pairs}")
+    print(f"  {fc.get('sentence')}")
+    corr = fc.get("correction") or {}
+    if corr.get("skill_line"):
+        print(f"  {corr['skill_line']}")
+        if corr.get("skill_detail"):
+            print(f"    {corr['skill_detail']}")
+    elif corr.get("error"):
+        print(f"  No correction: {corr['error']}")
+    if (fc.get("reach_check") or {}).get("note"):
+        print(f"  {fc['reach_check']['note']}")
+    for g in ("geoglows", "glofas"):
+        if (fc.get(g) or {}).get("error"):
+            print(f"  {g}: {fc[g]['error']}")
+    print("  Data: GEOGLOWS v2 (CC BY 4.0); GloFAS v4 via Open-Meteo (CC BY 4.0).")
+
+
+def _now_table(fc: dict) -> list[tuple]:
+    g, gl = fc.get("geoglows") or {}, fc.get("glofas") or {}
+    c = (fc.get("correction") or {}).get("forecast") or {}
+    days = sorted(set(g.get("date") or []) | set(gl.get("date") or []))
+
+    def at(part: dict, key: str, day: str):
+        dates = part.get("date") or []
+        vals = part.get(key) or []
+        return vals[dates.index(day)] if day in dates and dates.index(day) < len(vals) else None
+
+    return [(d, (at(g, "mean", d), at(g, "p25", d), at(g, "p75", d)), at(c, "mean", d), at(gl, "mean", d))
+            for d in days]
+
+
+def _now_csv(fc: dict, path: str) -> None:
+    from aquascope.nownext import STAT_KEYS
+
+    c = (fc.get("correction") or {}).get("forecast") or {}
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("model,date," + ",".join(STAT_KEYS) + ",corrected\n")
+        for model in ("geoglows", "glofas"):
+            part = fc.get(model) or {}
+            for i, day in enumerate(part.get("date") or []):
+                vals = [part.get(k)[i] if isinstance(part.get(k), list) else None for k in STAT_KEYS]
+                corrected = (c.get("mean") or [None] * (i + 1))[i] if model == "geoglows" and c else None
+                fh.write(",".join([model, day, *("" if v is None else f"{v:g}" for v in [*vals, corrected])]) + "\n")
+
+
 def cmd_river(args: argparse.Namespace) -> None:
     """`aquascope river snap|record|area|trace`: GEOGLOWS v2 river reaches, keyless (the modelled record is CC BY)."""
     from aquascope import rivers
@@ -3660,6 +3759,17 @@ def main() -> None:
     p_lframes.add_argument("--max-frames", type=int, default=60)
     p_lframes.add_argument("--json", action="store_true")
     # ── basins ───────────────────────────────────────────────────────
+    p_now = sub.add_parser("now", help="Today against normal and the next 15 days (GEOGLOWS, GloFAS), corrected to a gauge")
+    p_now.add_argument("coords", nargs="*", type=float, metavar="LAT LON", help="A point, snapped to its river reach")
+    p_now.add_argument("--station", default=None, metavar="SOURCE/ID", help="A gauge: its status, and the forecast "
+                       "corrected to its record")
+    p_now.add_argument("--river-id", type=int, default=None, help="A GEOGLOWS river reach")
+    p_now.add_argument("--days", type=int, default=15, help="Forecast days (15)")
+    p_now.add_argument("--date", default=None, help="The status on another day (YYYY-MM-DD)")
+    p_now.add_argument("--raw", action="store_true", help="Do not correct the forecast to the gauge")
+    p_now.add_argument("--status-only", action="store_true", help="Only today against normal, no forecast")
+    p_now.add_argument("--csv", default=None, help="Write the forecast to this CSV")
+    p_now.add_argument("--json", action="store_true")
     p_river = sub.add_parser("river", help="River reaches (GEOGLOWS v2): snap a point, the modelled record, the trace")
     river_sub = p_river.add_subparsers(dest="river_cmd", required=True)
     p_rsnap = river_sub.add_parser("snap", help="The river reach nearest a point, or 'no stream within N m'")
@@ -4349,6 +4459,7 @@ def main() -> None:
         "basins": cmd_basins,
         "layers": cmd_layers,
         "river": cmd_river,
+        "now": cmd_now,
         "assess": cmd_assess,
         "context": cmd_context,
         "area-study": cmd_area_study,
