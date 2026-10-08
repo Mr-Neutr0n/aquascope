@@ -96,6 +96,37 @@ analysis.to_csv(_STORE["result"], series=_STORE.get("series"))
   post("result", { id, result: out });
 }
 
+// "Export for...": aquascope.io.engineering over the stored record. op "menu" lists the tools that take
+// this variable; op "export" returns one tool's files as a base64 zip (text formats only: DSS goes as the
+// CSV hecdss reads, since its native library cannot load here).
+async function engineering({ id, op, tool, name, lat, lon }) {
+  self.__aqEng = JSON.stringify({
+    op: op === "menu" ? "menu" : "export", tool: String(tool || ""), name: name ? String(name) : null,
+    lat: Number.isFinite(Number(lat)) && lat !== null ? Number(lat) : null,
+    lon: Number.isFinite(Number(lon)) && lon !== null ? Number(lon) : null,
+  });
+  const code = `
+import json
+from js import __aqEng
+from aquascope.io import engineering as _eng
+_a = json.loads(__aqEng)
+_r = _STORE.get("result") or {}
+if _a["op"] == "menu":
+    _out = _eng.menu(_r.get("variable"))
+else:
+    _out = _eng.export_series(_STORE["series"], _a["tool"], variable=_r.get("variable"), unit=_r.get("unit"),
+                              location=_STORE.get("station_id"), name=_a.get("name"), source=_STORE.get("source"),
+                              lat=_a.get("lat"), lon=_a.get("lon"), with_text=False, as_zip=True, dss_binary=False)
+json.dumps(_out)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqEng = null;
+  }
+}
+
 // "What can be answered here": aquascope.explore.assess_site over the catalog
 // the page handed over (send it first with "catalog"). The page passes the
 // catchment area and donor count it already holds, since BasinATLAS and the
@@ -899,6 +930,7 @@ self.onmessage = async (e) => {
     if (m.type === "compare") return await compare(m);
     if (m.type === "flood_ci") return await floodCi(m);
     if (m.type === "csv") return await csv(m);
+    if (m.type === "engineering") return await engineering(m);
     if (m.type === "catalog") return await catalog(m);
     if (m.type === "ask") return await ask(m);
     if (m.type === "solve_plan") return await solvePlan(m);

@@ -55,6 +55,7 @@ See [docs/data_sources.md](data_sources.md) for the full list with endpoints and
 
 - **Spatial hydrology** — DEM processing, D8 flow direction, watershed delineation, Strahler ordering
 - **Scientific I/O** — WaterML 2.0, HEC-DSS/RAS, EPA SWMM, NetCDF, HDF5, GeoJSON
+- **Engineering exports**: any record as inputs for HEC-HMS, HEC-RAS, HEC-SSP (with a Bulletin 17C check against the published examples), HEC-DSS, SWMM, MODFLOW 6, Delft-FEWS and Raven ([details](engineering_exports.md))
 
 ---
 
@@ -94,5 +95,5 @@ For when-to-use-which guidance, see the [methodology matrix](methodology_matrix.
 
 - **Regression tests and numerical benchmarks** — see the [observed/synthetic validation scope](validation_scope.md)
 - **Interactive dashboard** — 10-page Streamlit app
-- **33 CLI commands** — `collect`, `recommend`, `eda`, `quality`, `run`, `completion`, `list-methods`, `list-sources`, `stations`, `harvest`, `ask`, `ingest`, `basins`, `assess`, `gym`, `caravan`, `mcp`, `playbooks`, `solve`, `studio`, `desk`, `studio-showcase`, `eval`, `forecast`, `plot`, `dashboard`, `agri`, `alerts`, `groundwater`, `climate`, `hydro`, `area-study`, `update`
+- **34 CLI commands**: `collect`, `recommend`, `eda`, `quality`, `run`, `completion`, `list-methods`, `list-sources`, `stations`, `harvest`, `ask`, `ingest`, `basins`, `assess`, `gym`, `caravan`, `mcp`, `playbooks`, `solve`, `studio`, `desk`, `studio-showcase`, `eval`, `forecast`, `plot`, `dashboard`, `agri`, `alerts`, `groundwater`, `climate`, `hydro`, `area-study`, `export`, `update`
 - **[Theory guide](theory.md)** — mathematical equations, DOI citations, decision trees
