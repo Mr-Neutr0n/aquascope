@@ -53,6 +53,7 @@ __all__ = [
     "forecast_stats",
     "reach_record",
     "reach_summary",
+    "reaches_near",
     "snap_to_river",
     "trace_downstream",
     "upstream_area",
@@ -626,6 +627,35 @@ def snap_to_river(lat: float, lon: float, *, max_distance_m: float = DEFAULT_MAX
     else:
         out["message"] = (f"No stream within {_fmt_distance(max_d)} of this point. The nearest mapped reach is "
                           f"{best[1]}, {_fmt_distance(d_m)} away.")
+    return out
+
+
+def reaches_near(lat: float, lon: float, *, max_distance_m: float = 2000.0, limit: int = 6) -> list[dict[str, Any]]:
+    """The distinct river reaches within ``max_distance_m`` of a point, nearest first (at most ``limit``).
+
+    The same tile read as :func:`snap_to_river`, keeping every reach rather than the closest one: a gauge on a
+    main stem sits a few hundred metres from its tributaries too, and the reach that matches it is the one whose
+    upstream area matches the gauge's catchment, not always the nearest line (:mod:`aquascope.evidence`).
+    Each item is ``{"river_id", "strahler_order", "distance_m", "lat", "lon"}``.
+    """
+    lat, lon = _check_point(lat, lon)
+    max_d = max(1.0, float(max_distance_m))
+    z = SNAP_ZOOM
+    gx, gy = _world(lon, lat, z)
+    mpu = _metres_per_unit(lat, z)
+    best: dict[int, tuple[float, int | None, float, float]] = {}
+    for tx, ty in _tiles_around(gx, gy, max_d / mpu, z):
+        for rid, reach in _tile_reaches(z, tx, ty).items():
+            for line in reach["lines"]:
+                for a, b in zip(line, line[1:]):
+                    d, _t, qx, qy = _segment_distance(gx, gy, a[0], a[1], b[0], b[1])
+                    if d * mpu <= max_d and (rid not in best or d < best[rid][0]):
+                        best[rid] = (d, reach.get("order"), qx, qy)
+    out = []
+    for rid, (d, order, qx, qy) in sorted(best.items(), key=lambda kv: kv[1][0])[: max(1, int(limit))]:
+        qlon, qlat = _lonlat(qx, qy, z)
+        out.append({"river_id": rid, "strahler_order": order, "distance_m": round(d * mpu, 1),
+                    "lat": round(qlat, 6), "lon": round(qlon, 6)})
     return out
 
 

@@ -245,6 +245,7 @@
           <h2 id="st-name">Station</h2>
           <div class="st-meta">
             <span id="st-id"></span> · <span id="st-vars"></span><span id="st-period"></span>
+            <span id="st-grade" class="grade-badge" hidden></span>
           </div>
           <label id="st-site-records" class="site-records" hidden>
             <span id="st-site-count"></span>
@@ -276,10 +277,12 @@
 
         <div class="tabs" role="tablist" aria-label="Station analyses">
           <button role="tab" data-tab="overview" aria-controls="tab-overview" aria-selected="true" id="t-overview">Overview</button>
+          <button role="tab" data-tab="now" aria-controls="tab-now" aria-selected="false" tabindex="-1" id="t-now">Now</button>
           <button role="tab" data-tab="floods" aria-controls="tab-floods" aria-selected="false" tabindex="-1" id="t-floods">Floods</button>
           <button role="tab" data-tab="flows" aria-controls="tab-flows" aria-selected="false" tabindex="-1" id="t-flows">Flows</button>
           <button role="tab" data-tab="model" aria-controls="tab-model" aria-selected="false" tabindex="-1" id="t-model">Model</button>
           <button role="tab" data-tab="river" aria-controls="tab-river" aria-selected="false" tabindex="-1" id="t-river">River</button>
+          <button role="tab" data-tab="evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1" id="t-evidence">Evidence</button>
           <button role="tab" data-tab="catchment" aria-controls="tab-catchment" aria-selected="false" tabindex="-1" id="t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="tab-similar" aria-selected="false" tabindex="-1" id="t-similar">Similar<span class="tab-badge" hidden></span></button>
           <button role="tab" data-tab="methods" aria-controls="tab-methods" aria-selected="false" tabindex="-1" id="t-methods">Methods</button>
@@ -316,6 +319,10 @@
               <div class="card-title"><h3>Notes</h3></div>
               <div class="card-body"><ul id="notes"></ul></div>
             </div>
+          </section>
+
+          <section id="tab-now" role="tabpanel" aria-labelledby="t-now" tabindex="0" hidden>
+            <div id="st-now" class="now"></div>
           </section>
 
           <section id="tab-floods" role="tabpanel" aria-labelledby="t-floods" tabindex="0" hidden>
@@ -374,6 +381,22 @@
             <div id="st-river" class="river"></div>
           </section>
 
+          <section id="tab-evidence" role="tabpanel" aria-labelledby="t-evidence" tabindex="0" hidden>
+            <div id="st-evidence" class="card evidence" hidden>
+              <div class="card-title">
+                <h3>Models against this gauge</h3>
+                <span id="ev-actions" class="card-tools"></span>
+              </div>
+              <div class="card-body">
+                <p id="ev-sentence" class="ev-sentence"></p>
+                <div id="plot-evidence" class="plot"></div>
+                <div class="table-scroll"><table class="ffa" id="ev-table"></table></div>
+                <div id="ev-status" class="status" hidden></div>
+                <div id="ev-foot" class="basin-foot muted"></div>
+              </div>
+            </div>
+          </section>
+
           <section id="tab-catchment" role="tabpanel" aria-labelledby="t-catchment" tabindex="0" hidden>
             <div id="st-catchment" class="card catchment" hidden><div class="card-body"></div></div>
             <div id="st-basin" class="card basin" hidden><div class="card-body"></div></div>
@@ -415,6 +438,7 @@
 
         <div class="tabs" role="tablist" aria-label="Point analyses">
           <button role="tab" data-tab="overview" aria-controls="pt-tab-overview" aria-selected="true" id="pt-t-overview">Overview</button>
+          <button role="tab" data-tab="now" aria-controls="pt-tab-now" aria-selected="false" tabindex="-1" id="pt-t-now">Now</button>
           <button role="tab" data-tab="river" aria-controls="pt-tab-river" aria-selected="false" tabindex="-1" id="pt-t-river">River</button>
           <button role="tab" data-tab="context" aria-controls="pt-tab-context" aria-selected="false" tabindex="-1" id="pt-t-context">Context</button>
           <button role="tab" data-tab="modelled" aria-controls="pt-tab-modelled" aria-selected="false" tabindex="-1" id="pt-t-modelled">Modelled</button>
@@ -451,6 +475,10 @@
               <div class="card-title"><h3>Notes</h3></div>
               <div class="card-body"><ul id="pt-notes"></ul></div>
             </div>
+          </section>
+
+          <section id="pt-tab-now" role="tabpanel" aria-labelledby="pt-t-now" tabindex="0" hidden>
+            <div id="pt-now" class="now"></div>
           </section>
 
           <section id="pt-tab-river" role="tabpanel" aria-labelledby="pt-t-river" tabindex="0" hidden>

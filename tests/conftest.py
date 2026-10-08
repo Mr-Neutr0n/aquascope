@@ -64,3 +64,13 @@ def _no_flood_history_reads(monkeypatch):
     monkeypatch.setattr(scout, "_read_flood_history", lambda lat, lon: {})
     monkeypatch.setattr(scout, "_read_upstream_dams", lambda lat, lon, river_id=None: {})
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_model_skill_reads(monkeypatch):
+    """The Studio Scout reads the published model-skill table near the site (#518); tests never reach the network
+    for it. A test that wants a model choice patches ``scout._read_model_skill`` itself."""
+    from aquascope.studio.roles import scout
+
+    monkeypatch.setattr(scout, "_read_model_skill", lambda lat, lon: {})
+    yield

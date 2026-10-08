@@ -242,3 +242,34 @@ def test_no_reach_means_no_dams_upstream_to_read(monkeypatch):
     with patched(RICH):
         inv = scout.scout(ws)
     assert calls == [] and not any(n.startswith("Dams upstream") for n in inv.notes)
+# ── which global model to lean on near the site (#518) ──────────────────────
+
+LEAN = {"model": "grrr", "label": "Google GRRR", "median_kge": 0.61, "n_gauges": 3,
+        "sentence": "Near this site, Google GRRR tracked the gauges best: median KGE 0.61 at 3 gauges within 80 km. "
+                    "Lean on Google GRRR's numbers here and read the others as a second opinion."}
+
+
+def test_the_scout_reads_which_model_to_lean_on_and_notes_it(monkeypatch):
+    monkeypatch.setattr(scout, "_read_model_skill", lambda lat, lon: LEAN)
+    ws = _ws()
+    with patched(UNGAUGED):
+        inv = scout.scout(ws)
+    assert inv.models == LEAN
+    assert any(n.startswith("Model skill near the site: Near this site, Google GRRR") for n in inv.notes)
+    again = type(inv).from_dict(inv.to_dict())
+    assert again.models == LEAN
+
+
+def test_no_published_skill_leaves_the_inventory_as_it_was(monkeypatch):
+    def offline(lat, lon):
+        raise RuntimeError("Hub offline")
+
+    monkeypatch.setattr(scout, "_read_model_skill", offline)
+    assert scout.model_evidence(1.0, 2.0) is None
+    monkeypatch.setattr(scout, "_read_model_skill", lambda lat, lon: {"model": None, "sentence": "No graded gauge."})
+    ws = _ws()
+    with patched(UNGAUGED):
+        inv = scout.scout(ws)
+    assert inv.models == {"model": None, "sentence": "No graded gauge."}
+    assert not any(n.startswith("Model skill near the site") for n in inv.notes)
+    assert "models" in inv.to_dict()

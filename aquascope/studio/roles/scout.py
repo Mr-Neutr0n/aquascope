@@ -165,6 +165,24 @@ def reach_dataset(lat: float, lon: float) -> tuple[Dataset | None, str | None]:
     return ds, None
 
 
+def _read_model_skill(lat: float, lon: float) -> dict[str, Any]:
+    """Which global model tracked the gauges near the site (network; the tests replace it)."""
+    from aquascope.evidence import lean_on
+
+    return lean_on(lat, lon)
+
+
+def model_evidence(lat: float, lon: float) -> dict[str, Any] | None:
+    """The evidence ladder near the site (#518): the published skill of each global model at the nearest graded
+    gauges, and which one to lean on. None when the table cannot be read; the study goes on without it."""
+    try:
+        res = _read_model_skill(lat, lon)
+    except Exception as exc:  # noqa: BLE001 - the inventory stands without it
+        logger.info("model skill near %s, %s unavailable: %s", lat, lon, exc)
+        return None
+    return res if isinstance(res, dict) and res.get("sentence") else None
+
+
 def context_layers() -> list[dict[str, Any]]:
     """The place-context layers as inventory rows: what each says and whose data it is (no network)."""
     from aquascope.context import LAYER_SOURCES
@@ -288,6 +306,9 @@ def scout(ws: Workspace) -> Inventory:
         inv.datasets.append(reach)
     if reach_note:
         inv.notes.append(reach_note)
+    inv.models = model_evidence(inv.site["lat"], inv.site["lon"])
+    if inv.models and inv.models.get("model"):
+        inv.notes.append(f"Model skill near the site: {inv.models['sentence']}")
     inv.context = context_layers()
     if ws.brief.playbook in FLOOD_PLAYBOOKS:
         _flood_history_note(ws, inv)

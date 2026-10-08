@@ -112,6 +112,57 @@ json.dumps(_res, default=str)
   post("result", { id, result: JSON.parse(out) });
 }
 
+// The evidence ladder (#518): aquascope.evidence.model_skill on the record the page just analysed (the same
+// function as `aquascope evidence skill` and the MCP tool). GEOGLOWS and GloFAS are read here; the NWM and
+// Google GRRR rows come from the published skill table, which the page reads with DuckDB and passes in.
+async function evidence({ id, args }) {
+  const payload = JSON.stringify(JSON.stringify(args || {}));
+  const code = `
+import json
+from aquascope import evidence as _ev
+_k = json.loads(${payload})
+_same = (_STORE.get("source"), str(_STORE.get("station_id"))) == (_k.get("source"), str(_k.get("station_id")))
+_res = _ev.model_skill(_k.get("source"), _k.get("station_id"), series=_STORE.get("series") if _same else None,
+                       lat=_k.get("lat"), lon=_k.get("lon"), area_km2=_k.get("area_km2"),
+                       published=_k.get("published") or [], include_series=True)
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
+// Now and next (#517): aquascope.nownext, the same functions as `aquascope now` and the MCP tools. op "status"
+// places the stored gauge record's newest day (topped up from the agency) against the same days in other years;
+// op "forecast" reads GEOGLOWS and GloFAS for the reach and, with use_gauge, corrects GEOGLOWS to the stored
+// record. The gauge in the request must be the one in _STORE, so a reply for a gauge the reader has left is
+// never computed from the next one's record.
+async function nowNext({ id, op, args }) {
+  const payload = JSON.stringify(JSON.stringify({ op: String(op || ""), args: args || {} }));
+  const code = `
+import json
+from aquascope import nownext as _nn
+_a = json.loads(${payload})
+_op, _k = _a["op"], _a["args"]
+_mine = (_STORE.get("source"), _STORE.get("station_id")) == (_k.get("source"), _k.get("station_id"))
+_r = _STORE.get("result") or {}
+if _op == "status":
+    if not _mine or _STORE.get("series") is None:
+        _res = {"error": "This gauge's record is not loaded any more."}
+    else:
+        _res = _nn.station_status(_k["source"], _k["station_id"], series=_STORE["series"],
+                                  variable=_r.get("variable"), unit=_r.get("unit"))
+elif _op == "forecast":
+    _obs = _STORE.get("series") if (_k.get("use_gauge") and _mine) else None
+    _res = _nn.forecast(_k.get("lat"), _k.get("lon"), river_id=_k.get("river_id"), obs=_obs,
+                        match_mean_flow=_k.get("match_mean_flow"), snap=False)
+else:
+    raise ValueError(f"unknown now operation {_op!r}")
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
 async function floodCi({ id }) {
   const code = `
 import json
@@ -992,6 +1043,8 @@ self.onmessage = async (e) => {
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
     if (m.type === "river") return await river(m);
+    if (m.type === "evidence") return await evidence(m);
+    if (m.type === "now") return await nowNext(m);
     if (m.type === "assess") return await assess(m);
     if (m.type === "compare") return await compare(m);
     if (m.type === "flood_ci") return await floodCi(m);
