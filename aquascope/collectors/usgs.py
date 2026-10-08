@@ -51,15 +51,6 @@ COLLECTION_ALIASES: dict[str, str] = {
     "site": "monitoring-locations",
 }
 
-#: The properties ``normalise`` reads, asked for explicitly on the value collections so a long daily record
-#: downloads less (the API's own advice). ``id`` and the geometry still come back unless skipped.
-VALUE_PROPERTIES: dict[str, tuple[str, ...]] = {
-    "daily": ("monitoring_location_id", "parameter_code", "statistic_id", "time", "value", "unit_of_measure",
-              "approval_status", "qualifier"),
-    "continuous": ("monitoring_location_id", "parameter_code", "statistic_id", "time", "value", "unit_of_measure",
-                   "approval_status", "qualifier"),
-}
-
 # Common USGS parameter codes relevant to water quality
 PARAM_LABELS: dict[str, str] = {
     "00010": "Temperature",
@@ -447,7 +438,7 @@ class USGSCollector(BaseCollector):
             return []
         params: dict[str, Any] = {"f": "json", "limit": 10_000, "computation_identifier": "Mean"}
         if self.keyed:
-            params["api_key"] = self.api_key  # keyed calls are not throttled like the shared demo path
+            params["api_key"] = self.api_key  # a keyed call gets the higher rate limit
         if bbox:
             params["bbox"] = ",".join(str(v) for v in bbox)
         if codes and len(codes) == 1:

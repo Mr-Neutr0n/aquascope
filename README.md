@@ -216,7 +216,7 @@ from aquascope.collectors import USGSCollector, AquastatCollector, WaPORCollecto
 gauges = find_stations(bbox=(-0.5, 51.3, 0.3, 51.7), variable="discharge")
 print(gauges[0].name, gauges[0].url)
 
-usgs = USGSCollector()   # pass api_key=... for reliable access
+usgs = USGSCollector()   # keyless; a free api_key=... raises the rate limit
 flow = usgs.collect(days=7, bbox="-77.6,38.7,-76.9,39.1")   # Potomac basin, last week
 
 aquastat = AquastatCollector()
