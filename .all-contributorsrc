@@ -333,6 +333,16 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "didemkastan",
+      "name": "Didem KAŞTAN",
+      "avatar_url": "https://avatars.githubusercontent.com/u/273810938?v=4",
+      "profile": "https://github.com/didemkastan",
+      "contributions": [
+        "code",
+        "test"
+      ]
     }
   ],
   "commitType": "docs"
