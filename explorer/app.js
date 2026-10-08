@@ -14,10 +14,12 @@ import {
   whenMapLoadsLate,
 } from "./src/map.js?v=__BUILD__";
 import { defaultDate } from "./src/layers.js?v=__BUILD__";
-import { applyLayerState, initLayerUI, syncRailControls } from "./src/layer-ui.js?v=__BUILD__";
+import { applyLayerState, initLayerUI, renderCredits, syncRailControls } from "./src/layer-ui.js?v=__BUILD__";
 import { initTimeBar } from "./src/time-ui.js?v=__BUILD__";
 import { buildRail, syncRail, updateCount } from "./src/rail.js?v=__BUILD__";
 import { setBasinsVisible } from "./src/basins.js?v=__BUILD__";
+import { setRiversVisible } from "./src/river-map.js?v=__BUILD__";
+import { clearRiver, initRiver } from "./src/river.js?v=__BUILD__";
 import { initSearch } from "./src/search.js?v=__BUILD__";
 import { initShell, initTabs, selectTab, setStatusEl, showSurface } from "./src/shell.js?v=__BUILD__";
 import { initStationPanel, reanalyze, selectStation, setPeriod } from "./src/panel-station.js?v=__BUILD__";
@@ -82,6 +84,7 @@ function applyUrl(url, { fromHistory = false } = {}) {
       compare: url.compare || null }, { source: "url" });
   }
   if (url.basins !== undefined && url.basins !== state.basinsOn) setBasinsVisible(url.basins);
+  if (url.rivers !== undefined && url.rivers !== state.riversOn) { setRiversVisible(url.rivers); renderCredits(); }
   if (url.view) { state.view = url.view; setView(url.view); }
   if (url.mode === "workbench") { openWorkbench(); return; }
   if (url.station) {
@@ -164,6 +167,7 @@ function bringMapOnline(url) {
   applyLayerState();
   syncRailControls();
   if (state.basinsOn || url.basins) setBasinsVisible(true);
+  if (state.riversOn || url.rivers) { setRiversVisible(true); renderCredits(); }
   // A selection made while the map was still dark has nothing on the map yet.
   if (state.selected) {
     highlightStation(`${state.selected.source}/${state.selected.station_id}`);
@@ -177,6 +181,7 @@ function goHome() {
   state.selected = null;
   state.point = null;
   state.activeTab = null;
+  clearRiver();  // the trace to the sea belongs to the panel being closed
   showSurface("panel-empty");
   writeUrl({ push: true });
 }
@@ -192,6 +197,7 @@ function goHome() {
   initTabs($("panel-workbench"));
   initStationPanel();
   initPointPanel();
+  initRiver();
   initWorkbench();
   initPlaces();  // My places + Compare
   initAsk();   // async: fills the provider list from providers.json

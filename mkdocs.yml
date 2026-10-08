@@ -115,6 +115,7 @@ nav:
     - Data sources: data_sources.md
     - The Archive (open gauge catalog): archive.md
     - Caravan export (large-sample datasets): caravan.md
+    - Engineering exports (HEC, SWMM, MODFLOW, FEWS, Raven): engineering_exports.md
     - Use the Archive from R, QGIS, DuckDB: readers.md
     - The Explorer (click any gauge): explorer.md
     - Save and share a study: adoption/sharing.md

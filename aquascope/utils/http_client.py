@@ -92,6 +92,23 @@ class _EmscriptenClient:
     def get(self, url: str, params=None, headers=None):
         return self._request("GET", url, params=params, headers=headers)
 
+    def get_bytes(self, url: str, headers=None) -> tuple[int, bytes]:
+        """GET *url* and return ``(status, body bytes)``: a binary body (a byte range of a tile archive)
+        survives, where :meth:`get` decodes to text. pyodide-http hands a worker's XHR back as bytes."""
+        import urllib.error
+        import urllib.request
+
+        req = urllib.request.Request(url, method="GET")
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read() if exc.fp else b""
+        except (urllib.error.URLError, OSError) as exc:
+            raise httpx.TransportError(f"Browser fetch failed for {url}. ({exc})") from exc
+
     def post(self, url: str, json=None, params=None, headers=None):
         body = None if json is None else _dumps(json).encode("utf-8")
         return self._request("POST", url, params=params, headers=headers, body=body)
@@ -404,6 +421,36 @@ class CachedHTTPClient:
                 if attempt < self.retries or _is_429(exc):
                     self._backoff(exc, attempt, url)
 
+        raise RuntimeError(self._format_retry_error(url, last_exc)) from last_exc
+
+    def get_bytes(self, url: str, *, start: int | None = None, end: int | None = None) -> bytes:
+        """GET *url* (or the inclusive byte range ``start``-``end`` of it) and return the body as bytes.
+
+        For binary files read in place, such as a PMTiles archive: no disk cache (the caller keeps what it
+        needs in memory), the same retries. A server that ignores the range and sends the whole file is
+        cut down to the range asked for.
+        """
+        headers = {"Range": f"bytes={int(start)}-{int(end)}"} if start is not None and end is not None else None
+        last_exc: Exception | None = None
+        for attempt in range(1, self.retries + 1):
+            if self.rate_limiter:
+                self.rate_limiter.wait_if_needed()
+            try:
+                if IS_EMSCRIPTEN:
+                    status, body = self._client.get_bytes(url, headers=headers)
+                    if status >= 400:
+                        raise httpx.TransportError(f"HTTP {status} for {url}")
+                else:
+                    resp = self._client.get(url, headers=headers)
+                    resp.raise_for_status()
+                    status, body = resp.status_code, resp.content
+                if headers and status == 200 and start is not None and end is not None:
+                    body = body[int(start): int(end) + 1]
+                return body
+            except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+                last_exc = exc
+                if attempt < self.retries or _is_429(exc):
+                    self._backoff(exc, attempt, url)
         raise RuntimeError(self._format_retry_error(url, last_exc)) from last_exc
 
     def post_json(

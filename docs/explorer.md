@@ -20,7 +20,9 @@ aquascope in your browser (Pyodide) to compute:
 The full record is fetched by default; the **Period** control on the record card
 cuts it to the last 40 or 20 years. Every result has a permalink
 (`#s=<source>/<station_id>`, plus `&yr=40` or `&yr=20` for a shorter period), a
-CSV download, and a link to the agency page. Data licence and attribution are shown per source.
+CSV download, an **Export for…** menu that writes the record as inputs for HEC-HMS, HEC-RAS,
+HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven ([engineering exports](engineering_exports.md)),
+and a link to the agency page. Data licence and attribution are shown per source.
 
 Click anywhere that is not a gauge and you get the **hydrology of that point**
 (`#p=<lat>,<lon>`): ERA5 rainfall and temperature, FAO-56 reference
@@ -90,7 +92,8 @@ which reads as an empty page rather than as a map.
 
 **Overlays**, each with an opacity slider and its own colour scale: GPM IMERG
 precipitation rate, SMAP root-zone soil moisture, MODIS snow cover, MODIS land
-surface temperature, GRACE water storage anomaly, and ESA WorldCover land cover.
+surface temperature, GRACE water storage anomaly, ESA WorldCover land cover, and
+JRC Global Surface Water (how often each 30 m pixel was water from 1984 to 2024).
 The time-driven ones follow one date, set in the time bar (below).
 
 ## Time on the map
@@ -139,7 +142,8 @@ European sources), so identity carries two channels. They can also be coloured
 by record length or by how recently they last reported, with a legend, and the
 shape goes on saying the agency underneath; a density heat map shows where the
 world is actually measured. **Select an area** drags a box and hands back
-the gauges inside it as CSV.
+the gauges inside it as CSV; its **Context** button lists what the box holds
+(see below) and puts its flood events on the map.
 
 The whole state (basemap, overlays, opacity, date, terrain, globe, colouring)
 lives in the URL, so a view is a link.
@@ -147,6 +151,30 @@ lives in the URL, so a view is a link.
 Google Maps and Google Earth tiles are deliberately absent: their terms forbid
 this use. Esri's legacy imagery answers without a token but Esri's own
 documentation requires one, so it is out too.
+
+## Context of a place
+
+Click a point and open the **Context** tab: one line per layer, each read when
+the tab is opened, with the sources and licences at the foot and one small chart
+(flood events per year, or the rain gauge's yearly totals).
+
+| line | what it says | data (licence) |
+| --- | --- | --- |
+| Flood history | flood events in the news within 25 km, and the months Sentinel-1 radar saw flooding, 2014 to 2024 | Google Groundsource (CC BY 4.0); Microsoft AI for Good flood dataset (MIT) |
+| Surface water | how often this 30 m pixel was water from 1984 to 2024, and the change since 1984-1999 | JRC Global Surface Water v1.5 (Copernicus, free and without restriction) |
+| Flood depth | modelled river flood depth at the 10 to 500-year floods | JRC CEMS-GloFAS hazard maps v2.1.2, via a Source Cooperative COG mirror (CC BY 4.0) |
+| Dams | dams within 50 km, nearest first, with their storage | Global Dam Watch v1.0 (CC BY 4.0) |
+| Rain gauge | the nearest GHCN-Daily station with precipitation, its span and mean yearly total | NOAA NCEI GHCN-Daily (CC0) |
+| Evaporation | actual evapotranspiration and interception for the latest year, 300 m | FAO WaPOR v3 |
+| Soil | topsoil texture and plant-available water in the top metre, 1 km | ISRIC SoilGrids 2.0 (CC BY 4.0) |
+
+The same lines come from `aquascope context LAT LON` and the MCP tool
+`place_context`. Rasters are read a pixel at a time with HTTP range requests by
+a small pure-Python Cloud-Optimized GeoTIFF reader (`aquascope.utils.cog`), so
+nothing needs GDAL. Flood events and dams come from the Archive's `context/`
+mirror, built by the `mirror-context` workflow; until it is published those
+lines say so. Global Water Watch reservoir series are not used: their licence
+is not confirmed.
 
 ## Catchments
 
@@ -183,10 +211,44 @@ and `regionalization_skill.json`, computed weekly by the harvest; see
 [archive.md](archive.md#estimated-flow-regime-prediction-in-ungauged-basins-the-predictive-half)).
 Not a measurement, and it says so.
 
+A click on a hillside is not a river. Every point click is first snapped to the
+river network (see **Rivers** below), and when no stream runs within 1 km the
+card says so, rather than quoting the upstream area of the level-12 sub-basin
+the point sits in: that area belongs to the river at the bottom of the slope,
+which used to be reported as the point's own catchment.
+
 Why not HydroBASINS itself: the HydroSHEDS core licence forbids distributing
 the data "as a stand-alone product" and requires an end-user licence, so it
 cannot be hosted on the free-tier archive; HydroATLAS is CC BY 4.0, which is
 why BasinATLAS is what we mirror. MERIT-Basins is CC BY-NC.
+
+## Rivers
+
+A click lands on a river, not just a coordinate. The point is snapped to the
+nearest reach of the GEOGLOWS v2 river network (about 6.8 million reaches,
+TDX-Hydro geometry) within 1 km, the marker moves onto the river, and a line
+under the title says how far it moved and which reach it is. With no stream
+within 1 km it says that instead, and the River tab offers the nearest mapped
+reach. A gauge shows the reach it sits on.
+
+The **River** tab shows that reach's simulated daily discharge from 1940 to the
+latest weekly update, analysed the way a gauge is: the hydrograph with the
+annual maxima, the return-period table (GEV by L-moments and Log-Pearson III
+with 90 % intervals, downloadable as CSV), the flow-duration curve and the
+monthly regime with its 10th to 90th percentile band. It is a model (ERA5 runoff
+routed down the network), labelled modelled everywhere, and a gauge on the same
+river outranks it. The record comes from the GEOGLOWS REST API, under CC BY 4.0.
+
+**Trace to the sea** follows the reach downstream to its outlet with the
+model's own routing tables, draws the path on the map, and lists the gauges
+within 2 km of it in the order the water reaches them, with the length and the
+area that drains to the starting reach. The **Rivers (GEOGLOWS)** layer in the
+rail draws the whole network by stream order, read in place from the 2.4 GB
+`streams.pmtiles` in the GEOGLOWS bucket. The network geometry is CC BY-SA 4.0:
+shown here, never republished. Dams on the path are not there yet.
+
+The same functions are `aquascope river snap|record|area|trace` and the MCP
+tools `snap_to_river`, `reach_record`, `upstream_area` and `trace_downstream`.
 
 ## Ask ✨: the Analyst in the page
 

@@ -112,6 +112,11 @@
             <i style="background:#6a3ab2;border-radius:2px"></i>
             <span class="rail-label">Catchments (BasinATLAS)</span>
           </label>
+          <label class="rail-row" title="GEOGLOWS v2 stream network (TDX-Hydro, CC BY-SA 4.0), from zoom 3">
+            <input type="checkbox" id="toggle-rivers" />
+            <i style="background:#1e88e5;border-radius:2px;height:3px"></i>
+            <span class="rail-label">Rivers (GEOGLOWS)</span>
+          </label>
         </div>
       </details>
 
@@ -249,6 +254,7 @@
             <button id="btn-study-st" class="btn" title="A complete study at this gauge, planned and checked, with a report">Study this place</button>
             <button id="btn-place" class="btn" aria-pressed="false" title="Add this gauge to My places">☆ Save</button>
             <button id="btn-csv" class="btn" disabled title="Download the observed record as CSV">Download CSV</button>
+            <select id="st-export" class="btn export-select" hidden aria-label="Export the record for an engineering tool" title="Inputs for HEC-HMS, HEC-RAS, HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven, as a zip"></select>
             <button id="btn-unit" class="btn" hidden title="Switch the displayed discharge unit. Analyses and CSV downloads stay in m³/s.">Show ft³/s</button>
             <details class="more">
               <summary class="btn" title="More actions" aria-label="More actions">···</summary>
@@ -273,6 +279,7 @@
           <button role="tab" data-tab="floods" aria-controls="tab-floods" aria-selected="false" tabindex="-1" id="t-floods">Floods</button>
           <button role="tab" data-tab="flows" aria-controls="tab-flows" aria-selected="false" tabindex="-1" id="t-flows">Flows</button>
           <button role="tab" data-tab="model" aria-controls="tab-model" aria-selected="false" tabindex="-1" id="t-model">Model</button>
+          <button role="tab" data-tab="river" aria-controls="tab-river" aria-selected="false" tabindex="-1" id="t-river">River</button>
           <button role="tab" data-tab="catchment" aria-controls="tab-catchment" aria-selected="false" tabindex="-1" id="t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="tab-similar" aria-selected="false" tabindex="-1" id="t-similar">Similar<span class="tab-badge" hidden></span></button>
           <button role="tab" data-tab="methods" aria-controls="tab-methods" aria-selected="false" tabindex="-1" id="t-methods">Methods</button>
@@ -363,6 +370,10 @@
             </div>
           </section>
 
+          <section id="tab-river" role="tabpanel" aria-labelledby="t-river" tabindex="0" hidden>
+            <div id="st-river" class="river"></div>
+          </section>
+
           <section id="tab-catchment" role="tabpanel" aria-labelledby="t-catchment" tabindex="0" hidden>
             <div id="st-catchment" class="card catchment" hidden><div class="card-body"></div></div>
             <div id="st-basin" class="card basin" hidden><div class="card-body"></div></div>
@@ -394,6 +405,7 @@
           <span class="badge" style="background:#455a64">Anywhere</span>
           <h2 id="pt-title">Point</h2>
           <div class="st-meta"><span id="pt-coords"></span> · ERA5 climate + GloFAS modelled discharge, last 10 years</div>
+          <div id="pt-snap" class="st-meta pt-snap" role="status" hidden></div>
           <div class="st-actions">
             <button id="btn-study-pt" class="btn" title="A complete study at this point, planned and checked, with a report">Study this place</button>
             <button id="btn-share-pt" class="btn" title="Copy a link to exactly this view">Copy link</button>
@@ -403,6 +415,8 @@
 
         <div class="tabs" role="tablist" aria-label="Point analyses">
           <button role="tab" data-tab="overview" aria-controls="pt-tab-overview" aria-selected="true" id="pt-t-overview">Overview</button>
+          <button role="tab" data-tab="river" aria-controls="pt-tab-river" aria-selected="false" tabindex="-1" id="pt-t-river">River</button>
+          <button role="tab" data-tab="context" aria-controls="pt-tab-context" aria-selected="false" tabindex="-1" id="pt-t-context">Context</button>
           <button role="tab" data-tab="modelled" aria-controls="pt-tab-modelled" aria-selected="false" tabindex="-1" id="pt-t-modelled">Modelled</button>
           <button role="tab" data-tab="catchment" aria-controls="pt-tab-catchment" aria-selected="false" tabindex="-1" id="pt-t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="pt-tab-similar" aria-selected="false" tabindex="-1" id="pt-t-similar">Similar<span class="tab-badge" hidden></span></button>
@@ -439,6 +453,10 @@
             </div>
           </section>
 
+          <section id="pt-tab-river" role="tabpanel" aria-labelledby="pt-t-river" tabindex="0" hidden>
+            <div id="pt-river" class="river"></div>
+          </section>
+
           <section id="pt-tab-modelled" role="tabpanel" aria-labelledby="pt-t-modelled" tabindex="0" hidden>
             <div id="pt-glofas-card" class="card" hidden>
               <div class="card-title">
@@ -448,6 +466,20 @@
               <div class="card-body">
                 <div id="pt-glofas-kpis" class="kpis"></div>
                 <table class="ffa" id="pt-ffa-table"></table>
+              </div>
+            </div>
+          </section>
+
+          <section id="pt-tab-context" role="tabpanel" aria-labelledby="pt-t-context" tabindex="0" hidden>
+            <div id="pt-context" class="card ctx" hidden>
+              <div class="card-title"><h3>What this place has seen</h3></div>
+              <div class="card-body">
+                <ul id="pt-context-lines" class="ctx-lines" aria-live="polite"></ul>
+                <div id="pt-context-chart" hidden>
+                  <h4 id="pt-context-chart-title"></h4>
+                  <div id="plot-context" class="plot small"></div>
+                </div>
+                <div id="pt-context-credits" class="ctx-credits muted"></div>
               </div>
             </div>
           </section>

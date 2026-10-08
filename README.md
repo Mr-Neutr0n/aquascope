@@ -50,9 +50,15 @@ See [validation scope](docs/validation_scope.md) for comparators and limitations
 **[Open AquaScope Explorer](https://rekin226-aquascope-explorer.static.hf.space/)**.
 Start with one task:
 
-- **Find river data:** search a gauge, inspect its actual available period and units, then download CSV.
+- **Find river data:** search a gauge, inspect its actual available period and units, then download CSV,
+  or the inputs for HEC-HMS, HEC-RAS, HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven (**Export for…**).
 - **Explore a worked analysis:** open a recorded study, read its limits and reproduce its plan at another gauge.
 - **Analyse my table:** use a sample CSV, check the inferred columns, then replace it with your own data.
+- **Follow a river:** click anywhere and the point snaps to its river (or says no stream is near). The River
+  tab shows 86 years of simulated daily flow for that reach, its return periods and flow-duration curve, and
+  traces it to the sea past the gauges on the way. Simulated, and labelled so.
+- **Read a place:** click anywhere and open **Context** for what flooded there before, how often the ground has
+  been water since 1984, modelled flood depth, dams, soil, evaporation and the nearest rain gauge, each with its source.
 
 Catalog coverage varies by agency and variable. A station on the map is not a guarantee
 of accessible observations or a sufficiently long record. Explorer fetches the full record
@@ -117,10 +123,13 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 ## ✨ What you can do
 
 - 🌊 **Pull water data** from USGS, NOAA NWPS, Colorado DWR/CDSS, US Water Quality Portal, England's Environment Agency, France Hub'Eau, Germany PEGELONLINE, Ireland OPW, Greece Hydroscope and OpenHi.net, Poland IMGW-PIB, EU WFD, Taiwan MOENV/WRA/CWA/Civil IoT/DataGov, Japan MLIT, Korea WAMIS, India WRIS, South Africa DWS, Australia BOM, Brazil ANA Hidroweb, CAMELS-CL and CAMELS-BR, GRDC, GEMStat, Copernicus ERA5, OpenMeteo, FAO AQUASTAT, FAO WaPOR and UN SDG 6 — **one unified Python API**.
+- 🏞️ **Treat rivers as objects**: snap any point to its GEOGLOWS v2 river reach (about 6.8 million worldwide), read that reach's simulated daily flow since 1940 with return periods, flow-duration curve and monthly regime (labelled modelled), and trace it downstream to the sea with the gauges it passes. `aquascope river snap|record|area|trace`, the MCP tools, the Explorer's River tab, and the Studio's ungauged studies all use the same functions.
 - 📈 **Run hydrological analyses** — flood frequency (GEV / LP3 / Gumbel / non-stationary GEV, with separate EMA routines), baseflow separation, rating curves, 22 hydrological signatures.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
 - 🧑‍🔬 **Hand a study to the crew** — `aquascope studio "PROBLEM" --lat --lon`: a Consultant, a Scout, a Methodologist, Analysts, an Interpreter, a Critic and an Author over one workspace, the plan shown before it runs, every step gated (a failed gate fails its step, not the study), every answer graded (established, indicative, screening, not established) with findings that point at the result they rest on, a request for the data that would unlock a question instead of a decline, and the bundle at the end: a technical report and a memo (Word and print-ready HTML) that lead with the answer and its grade, the Excel workbook, publication figures, the notebook, findings.json and study.yaml. Also in the Explorer and over MCP. The [advanced studies](docs/advanced_studies.md) go past the design flow: change points and a nonstationary flood fit, GR4J with a snow store validated on years it never saw, "what if" scenarios, and CMIP6 change factors through the calibrated model.
+- 🧭 **Read the context of any place**: `aquascope context LAT LON` (also over MCP and in the Explorer): flood events in the news (Groundsource) and Sentinel-1 radar floods 2014-2024, surface water since 1984 (JRC), modelled flood depth at the 10 to 500-year floods (JRC GloFAS), dams (Global Dam Watch), soil texture and available water (SoilGrids), actual ET (FAO WaPOR) and the nearest NOAA GHCN-Daily rain gauge. Keyless, each line with its licence; rasters are read pixel by pixel from Cloud-Optimized GeoTIFFs in pure Python.
+- 🛠️ **Hand a record to the engineering tools**: `aquascope export --to hec-ssp` (or `hec-hms`, `hec-ras`, `dss`, `swmm`, `modflow6`, `fews`, `raven`) writes ready inputs from any gauge or CSV, real `.dss` through HEC's own `hecdss`; the same files come from the Explorer, the MCP server and every Studio bundle. Our Bulletin 17C is checked against the published Bulletin 17C examples, honestly: it matches on a plain record and does not yet on one with low outliers ([engineering exports](docs/engineering_exports.md)).
 - 📊 **Visualise + report** — 17 plot types, Q-Q / P-P diagnostics, Markdown / HTML reports with embedded figures, threshold alerts (WHO / EPA / EU WFD).
 - 🗺️ **Spatial hydrology** — DEM processing, D8 flow direction, watershed delineation, Strahler ordering.
 
@@ -221,7 +230,7 @@ from aquascope.collectors import USGSCollector, AquastatCollector, WaPORCollecto
 gauges = find_stations(bbox=(-0.5, 51.3, 0.3, 51.7), variable="discharge")
 print(gauges[0].name, gauges[0].url)
 
-usgs = USGSCollector()   # pass api_key=... for reliable access
+usgs = USGSCollector()   # keyless; a free api_key=... raises the rate limit
 flow = usgs.collect(days=7, bbox="-77.6,38.7,-76.9,39.1")   # Potomac basin, last week
 
 aquastat = AquastatCollector()
@@ -332,7 +341,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 34-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `layers` and `playbooks` carry subcommands) for the most common workflows:
+AquaScope ships a 37-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -341,8 +350,13 @@ aquascope harvest stations --out archive          # the open gauge catalog (GeoP
 aquascope basins at 48.85 2.35                    # the catchment of any point: area, climate, land cover, soils, dams (BasinATLAS)
 aquascope basins similar 25.04 121.56             # gauged basins whose catchments look most like this point's (ungauged-site donors)
 aquascope basins regionalize 52.29 -3.51          # estimated flow regime of an ungauged point from those donors, with the leave-one-out skill
+aquascope river snap 46.948 7.452                 # the river reach at a point (GEOGLOWS v2), or "no stream within 1 km"
+aquascope river record --at 46.948 7.452          # that reach's simulated daily flow since 1940: return periods, FDC (modelled)
+aquascope river trace --at 46.948 7.452           # follow it to the sea: length, path, the gauges it passes
 aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
+aquascope context 51.86 5.95                      # flood history, surface water, flood depth, dams, rain gauge, ET and soil at a place
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive
+aquascope export --to hec-ssp --station usgs/01134500   # inputs for HEC-HMS/RAS/SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven
 aquascope gym run --basin uk_ea/013054a3-670e-49ee-afda-e0865a449197   # HydroGym: calibrate GR4J on a real basin as a gym episode
 aquascope layers frames precip --start 2024-05-01 --end 2024-05-20   # a time-lapse of a dated map layer: dates and tile URLs
 aquascope mcp                                     # serve the same tools to Claude / Cursor over MCP
@@ -510,6 +524,7 @@ Thanks to these wonderful people who make AquaScope possible ([emoji key](CONTRI
     <tr>
       <td align="center" valign="top" width="20%"><a href="https://github.com/Berserker-GM"><img src="https://avatars.githubusercontent.com/u/229895835?v=4?s=100" width="100px;" alt="Berserker-GM"/><br /><sub><b>Berserker-GM</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Berserker-GM" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=Berserker-GM" title="Tests">⚠️</a></td>
       <td align="center" valign="top" width="20%"><a href="https://galabavamsi.github.io/portfolio/"><img src="https://avatars.githubusercontent.com/u/51828882?v=4?s=100" width="100px;" alt="GALABA VAMSI"/><br /><sub><b>GALABA VAMSI</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=Galabavamsi" title="Code">💻</a></td>
+      <td align="center" valign="top" width="20%"><a href="https://github.com/didemkastan"><img src="https://avatars.githubusercontent.com/u/273810938?v=4?s=100" width="100px;" alt="Didem KAŞTAN"/><br /><sub><b>Didem KAŞTAN</b></sub></a><br /><a href="https://github.com/Rekin226/aquascope/commits?author=didemkastan" title="Code">💻</a> <a href="https://github.com/Rekin226/aquascope/commits?author=didemkastan" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>

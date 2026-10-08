@@ -42,11 +42,13 @@ __all__ = ["GRADES", "decision_text", "find_path", "grade_for_step", "grade_for_
 #: From the most to the least trusted; a model may move a grade down this list, never up.
 GRADES = ("established", "indicative", "screening", "not_established")
 
-#: Tools whose numbers come from regional transfer or reanalysis rather than a record at the place.
-_SCREENING_TOOLS = frozenset({"anywhere", "similar_basins", "regionalize_signatures", "describe_catchment"})
+#: Tools whose numbers come from regional transfer, reanalysis or a model rather than a record at the place
+#: (reach_record is the GEOGLOWS v2 simulation, #516).
+_SCREENING_TOOLS = frozenset({"anywhere", "similar_basins", "regionalize_signatures", "describe_catchment",
+                              "reach_record"})
 _SCREENING_METHODS = frozenset({"spei_reanalysis", "regionalize_signatures", "similar_basins", "glofas_cross_check"})
 #: Tools whose failure does not lower the answer's grade: they frame or cross-check, they do not carry it.
-_SIDE_TOOLS = frozenset({"anywhere", "describe_catchment", "similar_basins", "assess_site"})
+_SIDE_TOOLS = frozenset({"anywhere", "describe_catchment", "similar_basins", "assess_site", "reach_record"})
 
 _NUMBER = re.compile(r"-?\d[\d,]*\.?\d*(?:e-?\d+)?", re.I)
 _MAX_FINDINGS = 24

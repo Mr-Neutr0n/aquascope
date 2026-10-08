@@ -136,6 +136,13 @@ _ANNOTATIONS: dict[str, dict[str, Any]] = {
                    "reference": "{{ result.<the flood_frequency step>.ffa.fits.gev_lmoments.q_by_T }}",
                    "value": 0.5}],
     },
+    "reach_record": {
+        "kind": "site", "yields": ["series", "summary", "annual_maxima", "ffa", "fdc", "trend"],
+        "tables": ["summary", "annual_maxima", "return_levels", "fdc_percentiles"],
+        "figures": ["annual_maxima", "frequency_curve"],
+        "gates": [{"check": "not_empty", "path": "ffa"}, {"check": "min_years", "path": "years"},
+                  {"check": "unit_present", "path": "unit"}],
+    },
     "similar_basins": {
         "kind": "site", "yields": ["donors"], "methods": ["similar_basins"],
         "tables": ["donors"], "figures": ["donors_map"],

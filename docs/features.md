@@ -55,6 +55,9 @@ See [docs/data_sources.md](data_sources.md) for the full list with endpoints and
 
 - **Spatial hydrology** — DEM processing, D8 flow direction, watershed delineation, Strahler ordering
 - **Scientific I/O** — WaterML 2.0, HEC-DSS/RAS, EPA SWMM, NetCDF, HDF5, GeoJSON
+- **Place context** (`aquascope.context`, `aquascope context LAT LON`, MCP `place_context`): flood events in the news (Groundsource) and Sentinel-1 radar floods 2014-2024, JRC Global Surface Water since 1984, JRC GloFAS flood depth at return periods, Global Dam Watch dams, SoilGrids texture and available water, FAO WaPOR actual ET and the nearest NOAA GHCN-Daily rain gauge, at a point or over a box, each with its licence
+- **Cloud-Optimized GeoTIFF point reads** (`aquascope.utils.cog`): pure Python (TIFF and BigTIFF, Deflate, LZW, predictors, overviews) over HTTP range requests, so it runs in the browser too
+- **Engineering exports**: any record as inputs for HEC-HMS, HEC-RAS, HEC-SSP (with a Bulletin 17C check against the published examples), HEC-DSS, SWMM, MODFLOW 6, Delft-FEWS and Raven ([details](engineering_exports.md))
 
 ---
 
@@ -94,5 +97,6 @@ For when-to-use-which guidance, see the [methodology matrix](methodology_matrix.
 
 - **Regression tests and numerical benchmarks** — see the [observed/synthetic validation scope](validation_scope.md)
 - **Interactive dashboard** — 10-page Streamlit app
-- **34 CLI commands**: `collect`, `recommend`, `eda`, `quality`, `run`, `completion`, `list-methods`, `list-sources`, `stations`, `harvest`, `ask`, `ingest`, `basins`, `assess`, `gym`, `caravan`, `mcp`, `playbooks`, `solve`, `studio`, `desk`, `studio-showcase`, `eval`, `forecast`, `plot`, `dashboard`, `agri`, `alerts`, `groundwater`, `climate`, `hydro`, `area-study`, `layers`, `update`
+- **Rivers as objects**: `aquascope.rivers` snap any point to its GEOGLOWS v2 river reach (or say no stream is near), the reach's simulated daily flow since 1940 with return periods and the flow-duration curve (modelled, CC BY 4.0), its upstream area, and the trace to the sea with the gauges on the way. The Explorer's River tab, `aquascope river`, MCP and the Studio share it.
+- **37 CLI commands**: `collect`, `recommend`, `eda`, `quality`, `run`, `completion`, `list-methods`, `list-sources`, `stations`, `harvest`, `ask`, `ingest`, `basins`, `river`, `assess`, `context`, `gym`, `caravan`, `mcp`, `playbooks`, `solve`, `studio`, `desk`, `studio-showcase`, `eval`, `forecast`, `plot`, `dashboard`, `agri`, `alerts`, `groundwater`, `climate`, `hydro`, `area-study`, `layers`, `export`, `update`
 - **[Theory guide](theory.md)** — mathematical equations, DOI citations, decision trees

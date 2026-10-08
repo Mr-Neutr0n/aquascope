@@ -375,6 +375,19 @@ branches:
         expects:
           - check: not_empty
             path: glofas
+      - id: s5
+        tool: reach_record
+        optional: true
+        arguments:
+          lat: "{{ site.lat }}"
+          lon: "{{ site.lon }}"
+        rationale: >-
+          The GEOGLOWS v2 river reach the site snaps to, and its simulated daily flow since 1940 (MODELLED, not
+          measured): a continuous record at the point itself to set beside the transferred numbers, or a sentence
+          that no stream runs within 1 km.
+        expects:
+          - check: not_empty
+            path: ffa
 declines:
   - when:
       - path: derived.return_period_beyond_cap
@@ -428,6 +441,14 @@ caveats:
       - path: context.years_by_variable.discharge
         op: exists
         value: false
+  - say: >-
+      Historical flood events near the site (flood reports in the news from Google Groundsource) are listed
+      with the site's data. They say that and when the place flooded, not how big the flood was: a check on the
+      estimate, never an input to it.
+    when:
+      - path: context.flood_history.events
+        op: ">"
+        value: 0
 citations:
   - "England, J. F. et al. (2019). Guidelines for determining flood flow frequency, Bulletin 17C. USGS Techniques and Methods 4-B5."
   - "Hosking, J. R. M. (1990). L-moments: analysis and estimation of distributions using linear combinations of order statistics. J. R. Stat. Soc. B 52, 105-124."

@@ -80,6 +80,37 @@ json.dumps(_res)
   post("result", { id, result: JSON.parse(out) });
 }
 
+// Rivers as objects (#516): aquascope.rivers, the same functions as `aquascope river` and the MCP tools.
+// snap reads a few byte ranges of the GEOGLOWS stream tiles; record asks the GEOGLOWS API for the reach's
+// simulated daily flow since 1940; trace reads the processing unit's routing tables (a few MB, up to about
+// 30 MB for the largest basins) and the catalog the page sent with "catalog".
+async function river({ id, op, args }) {
+  // The arguments travel inside the code as a JSON string literal, not through a shared global: two river
+  // calls can be in flight (a record still running when the next click snaps), and a global set by one
+  // and cleared by the other is read as null.
+  const payload = JSON.stringify(JSON.stringify({ op: String(op || ""), args: args || {} }));
+  const code = `
+import json
+from aquascope import rivers as _rivers
+_a = json.loads(${payload})
+_op, _k = _a["op"], _a["args"]
+if _op == "snap":
+    _res = _rivers.snap_to_river(_k["lat"], _k["lon"], max_distance_m=_k.get("max_distance_m") or 1000.0)
+elif _op == "record":
+    _res = _rivers.reach_record(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"))
+elif _op == "trace":
+    _res = _rivers.trace_downstream(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"),
+                                    gauge_km=_k.get("gauge_km") or 2.0, max_points=3000)
+elif _op == "area":
+    _res = _rivers.upstream_area(_k["river_id"], lat=_k.get("lat"), lon=_k.get("lon"))
+else:
+    raise ValueError(f"unknown river operation {_op!r}")
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
 async function floodCi({ id }) {
   const code = `
 import json
@@ -94,6 +125,37 @@ async function csv({ id }) {
 analysis.to_csv(_STORE["result"], series=_STORE.get("series"))
 `);
   post("result", { id, result: out });
+}
+
+// "Export for...": aquascope.io.engineering over the stored record. op "menu" lists the tools that take
+// this variable; op "export" returns one tool's files as a base64 zip (text formats only: DSS goes as the
+// CSV hecdss reads, since its native library cannot load here).
+async function engineering({ id, op, tool, name, lat, lon }) {
+  self.__aqEng = JSON.stringify({
+    op: op === "menu" ? "menu" : "export", tool: String(tool || ""), name: name ? String(name) : null,
+    lat: Number.isFinite(Number(lat)) && lat !== null ? Number(lat) : null,
+    lon: Number.isFinite(Number(lon)) && lon !== null ? Number(lon) : null,
+  });
+  const code = `
+import json
+from js import __aqEng
+from aquascope.io import engineering as _eng
+_a = json.loads(__aqEng)
+_r = _STORE.get("result") or {}
+if _a["op"] == "menu":
+    _out = _eng.menu(_r.get("variable"))
+else:
+    _out = _eng.export_series(_STORE["series"], _a["tool"], variable=_r.get("variable"), unit=_r.get("unit"),
+                              location=_STORE.get("station_id"), name=_a.get("name"), source=_STORE.get("source"),
+                              lat=_a.get("lat"), lon=_a.get("lon"), with_text=False, as_zip=True, dss_binary=False)
+json.dumps(_out)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqEng = null;
+  }
 }
 
 // "What can be answered here": aquascope.explore.assess_site over the catalog
@@ -888,6 +950,39 @@ _out
   }
 }
 
+// ── Place context (#520): aquascope.context, one layer per message so the card
+// fills line by line as each answers. op "point" reads a layer at (lat, lon),
+// op "area" over bbox [west, south, east, north]. Every layer reads open data
+// hosts that answer CORS (COG range reads, the Archive's context/ mirror).
+async function placeContext({ id, op, name, lat, lon, bbox }) {
+  self.__aqContext = JSON.stringify({
+    op: op || "point", name: String(name || ""), lat: Number(lat), lon: Number(lon),
+    bbox: Array.isArray(bbox) ? bbox.map(Number) : null,
+  });
+  const code = `
+import json
+from js import __aqContext
+from aquascope import context as _ctx
+_a = json.loads(__aqContext)
+try:
+    if _a["op"] == "point":
+        _out = _ctx.layer(_a["name"], _a["lat"], _a["lon"])
+    elif _a["op"] == "area":
+        _out = _ctx.area_layer(_a["name"], *_a["bbox"])
+    else:
+        _out = {"error": "unknown op"}
+except ValueError as exc:
+    _out = {"error": str(exc)}
+json.dumps(_out, default=str)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqContext = null;
+  }
+}
+
 self.onmessage = async (e) => {
   const m = e.data;
   try {
@@ -895,10 +990,12 @@ self.onmessage = async (e) => {
     await ready;
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
+    if (m.type === "river") return await river(m);
     if (m.type === "assess") return await assess(m);
     if (m.type === "compare") return await compare(m);
     if (m.type === "flood_ci") return await floodCi(m);
     if (m.type === "csv") return await csv(m);
+    if (m.type === "engineering") return await engineering(m);
     if (m.type === "catalog") return await catalog(m);
     if (m.type === "ask") return await ask(m);
     if (m.type === "solve_plan") return await solvePlan(m);
@@ -911,6 +1008,7 @@ self.onmessage = async (e) => {
     if (m.type === "tool") return await runTool(m);
     if (m.type === "frame_from_station") return await frameFromStation(m);
     if (m.type === "area_study") return await areaStudy(m);
+    if (m.type === "context") return await placeContext(m);
   } catch (err) {
     // Pyodide raises PythonError with the full traceback in .message; keep the
     // exception line (last non-empty) and log the whole thing for debugging.
