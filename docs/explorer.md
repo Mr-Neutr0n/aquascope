@@ -232,8 +232,8 @@ geometry) within 1 km: of the reaches in reach, the main channel (the highest
 stream order, the nearer on a tie), since a click beside a big river is often
 nearer a small stream than the river's mapped centreline. The marker moves onto
 the river, and a line under the title says how far it moved, which reach it is,
-and when a smaller stream was nearer ("Snapped 380 m to the main channel (order
-9); a smaller stream is 60 m away."). With no stream within 1 km it says that
+and when a smaller stream was nearer (on the Jamuna: "Snapped 959 m to the main
+channel (order 8); a smaller stream is 925 m away."). With no stream within 1 km it says that
 instead and offers the nearest mapped reach, and when a river at least two
 orders bigger lies a little further off (a braided river's water can be
 kilometres from its centreline) it offers that too. A gauge takes the nearest

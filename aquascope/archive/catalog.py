@@ -46,8 +46,6 @@ def catalog_url(repo_id: str = DEFAULT_REPO_ID, filename: str = "stations.parque
     return f"https://huggingface.co/datasets/{repo_id}/resolve/main/{filename}"
 
 
-
-
 def _download(url: str, dest: Path, refresh: bool) -> Path:
     if dest.exists() and not refresh and time.time() - dest.stat().st_mtime < CACHE_TTL_SECONDS:
         return dest

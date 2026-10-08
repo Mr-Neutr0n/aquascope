@@ -162,9 +162,12 @@ async function loadForecast(t, my) {
     // A gauge's corrected forecast depends on the record loaded (its period), so only the rest are kept.
     const key = args.use_gauge ? null : JSON.stringify(args);
     if (key && answered.has(key)) { showForecast(t, answered.get(key), { done: true }); return; }
-    // Without a reach there is only GloFAS, and the quick answer is the whole answer.
+    // Without a reach there is only GloFAS, and the quick answer is the whole answer. A gauge's GloFAS cell is
+    // picked by its mean flow (aquascope.explore, which needs pandas), so that one goes to the main worker.
     if (!args.river_id) {
-      const fc = await callLight("now", { op: "forecast", args }, { priority: 1 });
+      const fc = args.match_mean_flow != null
+        ? await call("now", { op: "forecast", args })
+        : await callLight("now", { op: "forecast", args }, { priority: 1 });
       if (my !== r.run) return;
       if (key) remember(key, fc);
       showForecast(t, fc, { done: true });
