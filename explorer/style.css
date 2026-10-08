@@ -1173,3 +1173,11 @@ body.workbench-mode .drawer { right: auto; left: 50%; transform: translateX(-50%
 .river-snap .btn { margin-left: 6px; }
 .river-trace-out { margin-top: 10px; }
 .river-trace-out h4 { margin: 12px 0 6px; }
+
+/* Now and next (#517): one sentence, a coloured chip for the class, then the forecast. */
+.now-line { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 4px; font-size: .95rem; }
+.now-chip { flex: none; width: 11px; height: 11px; border-radius: 50%; transform: translateY(1px); }
+.now-sub { margin: 0; font-size: .75rem; }
+.now-peak { margin: 0 0 6px; }
+.now-skill { margin: 6px 0 0; font-size: .8rem; }
+.now-legend-note { flex-basis: 100%; margin: .2rem 0 0; font-size: .68rem; line-height: 1.35; }

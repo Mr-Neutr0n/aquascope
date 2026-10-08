@@ -20,6 +20,7 @@ import { buildRail, syncRail, updateCount } from "./src/rail.js?v=__BUILD__";
 import { setBasinsVisible } from "./src/basins.js?v=__BUILD__";
 import { setRiversVisible } from "./src/river-map.js?v=__BUILD__";
 import { clearRiver, initRiver } from "./src/river.js?v=__BUILD__";
+import { initNow } from "./src/now.js?v=__BUILD__";
 import { initSearch } from "./src/search.js?v=__BUILD__";
 import { initShell, initTabs, selectTab, setStatusEl, showSurface } from "./src/shell.js?v=__BUILD__";
 import { initStationPanel, reanalyze, selectStation, setPeriod } from "./src/panel-station.js?v=__BUILD__";
@@ -198,6 +199,7 @@ function goHome() {
   initStationPanel();
   initPointPanel();
   initRiver();
+  initNow();
   initWorkbench();
   initPlaces();  // My places + Compare
   initAsk();   // async: fills the provider list from providers.json

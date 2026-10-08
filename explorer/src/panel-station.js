@@ -9,6 +9,7 @@ import {
 import { addTableDownload, emphasisColor, plot, surfaceColor } from "./charts.js?v=__BUILD__";
 import { requestAssess } from "./assess.js?v=__BUILD__";
 import { startRiver } from "./river.js?v=__BUILD__";
+import { resetNow, startNow } from "./now.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment, stationArea } from "./basins.js?v=__BUILD__";
 import { flyToStation, highlightStation, clearPointMarker } from "./map.js?v=__BUILD__";
 import { GR4J_METHODS, addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
@@ -42,6 +43,9 @@ const cfsOn = (rawUnit) => unitPref === "cfs" && isCms(rawUnit);
 const dUnit = (rawUnit) => (cfsOn(rawUnit) ? "ft³/s" : rawUnit);
 const dVal = (x, rawUnit) => (cfsOn(rawUnit) && x !== null && x !== undefined ? x * CFS_PER_CMS : x);
 const dArr = (a, rawUnit) => (cfsOn(rawUnit) ? Array.from(a, (v) => (v === null || v === undefined ? v : v * CFS_PER_CMS)) : a);
+
+// The selected gauge's river snap (river.js), which the Now tab's forecast waits on for the reach.
+let stationSnap = null;
 
 export function selectStation(key, { fly = false, tab = null, push = true } = {}) {
   const r = state.byKey.get(key);
@@ -96,6 +100,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   for (const name of ["floods", "flows", "model", "river", "evidence", "catchment", "similar"]) {
     setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
   }
+  resetNow("st", "Loading the record…");
   setTab(root(), "overview", { enabled: true });
   setTab(root(), "methods", { enabled: true });
   // Record the selection before the tab is applied: the tab change only ever
@@ -108,7 +113,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   requestAnalysis(r, my);
   requestCatchment({ station: r, target: "st" });
   requestBasin(r.lat, r.lon, "st");
-  startRiver("st", r.lat, r.lon, { gauge: true });
+  stationSnap = startRiver("st", r.lat, r.lon, { gauge: true });
   requestAssess({ lat: r.lat, lon: r.lon, target: "st", key });
 }
 
@@ -149,6 +154,7 @@ export function reanalyze() {
   for (const name of ["floods", "flows", "model", "evidence"]) {
     setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
   }
+  resetNow("st", "Loading the record…");
   setCard($("st-kpis-card"), "loading", { message: fetchingMessage() });
   requestAnalysis(r, my);
 }
@@ -167,6 +173,7 @@ async function requestAnalysis(r, my) {
   setStatus("");
   $("st-period-pick").hidden = catalogOnly(r.source);
   if (catalogOnly(r.source)) {
+    resetNow("st", "No record here to compare with.");
     setCard($("st-kpis-card"), "empty", { message: "Catalog-only station: Explorer has no observation retrieval path for this source yet. Open the agency page, or import your own downloaded table." });
     return;
   }
@@ -177,8 +184,10 @@ async function requestAnalysis(r, my) {
     if (my !== analysisRun || !state.selected || stationKey(state.selected) !== key) return; // user moved on
     state.result = result;
     render(result, r);
+    startNow("st", { station: r, result, snap: stationSnap });
   } catch (err) {
     if (my !== analysisRun) return;
+    resetNow("st", "The record did not load.");
     const msg = String((err && err.message) || err);
     // A refused cross-origin call reaches here as a bare NetworkError from the
     // worker's XHR. Say what it means rather than echo it (#408).
