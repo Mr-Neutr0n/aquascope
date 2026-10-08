@@ -87,8 +87,12 @@ That is all. The Studio asks where (a gauge name like `Fish River Fort Kent`, a 
 or `lat, lon`) and what you want to know ("Is flooding here getting worse?"). Then it asks only what the study still
 needs, one pick-list question at a time with the reason (a trend question: which period; a design question: which
 return period), shows the plan, and runs only when you approve it (`e` edits a step, e.g. `s3.return_period=200`). The bundle lands in
-`./studio-<id>/`: `report.docx`, `workbook.xlsx`, `study.ipynb`, `figures/`, `findings.json` and `study.yaml`,
-which re-runs the whole study with `aquascope run study.yaml`. After the report, ask a follow-up (another gauge, a
+`./studio-<id>/`: a technical report and a short memo (`report.docx`, `memo.docx`, and `report.html`, which prints
+to PDF), `workbook.xlsx`, `study.ipynb`, `figures/` (300 dpi PNG and SVG), `findings.json` and `study.yaml`, which
+re-runs the whole study with `aquascope run study.yaml`. `--style style.yaml` puts your organisation, project and
+names on the cover. Then `aquascope studio ./studio-<id>/` opens it on the Study Desk to revise it: leave out a suspect flood, change the return
+period or the distribution, see how far the answer moves, add review comments and sign it off, with every change
+recorded as a revision. After the report, ask a follow-up (another gauge, a
 trend, the flow duration curve) and the bundle is updated.
 
 It needs no key: the playbooks plan and the templates write. If you have one, the Studio asks: paste it
@@ -111,7 +115,7 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 - 📈 **Run hydrological analyses** — flood frequency (GEV / LP3 / Gumbel / non-stationary GEV, with separate EMA routines), baseflow separation, rating curves, 22 hydrological signatures.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
-- 🧑‍🔬 **Hand a study to the crew** — `aquascope studio "PROBLEM" --lat --lon`: a Consultant, a Scout, a Methodologist, Analysts, an Interpreter, a Critic and an Author over one workspace, the plan shown before it runs, every step gated (a failed gate fails its step, not the study), every answer graded (established, indicative, screening, not established) with findings that point at the result they rest on, a request for the data that would unlock a question instead of a decline, and the bundle (Word, Excel, figures, notebook, findings.json, study.yaml) at the end. Also in the Explorer and over MCP. The [advanced studies](docs/advanced_studies.md) go past the design flow: change points and a nonstationary flood fit, GR4J with a snow store validated on years it never saw, "what if" scenarios, and CMIP6 change factors through the calibrated model.
+- 🧑‍🔬 **Hand a study to the crew** — `aquascope studio "PROBLEM" --lat --lon`: a Consultant, a Scout, a Methodologist, Analysts, an Interpreter, a Critic and an Author over one workspace, the plan shown before it runs, every step gated (a failed gate fails its step, not the study), every answer graded (established, indicative, screening, not established) with findings that point at the result they rest on, a request for the data that would unlock a question instead of a decline, and the bundle at the end: a technical report and a memo (Word and print-ready HTML) that lead with the answer and its grade, the Excel workbook, publication figures, the notebook, findings.json and study.yaml. Also in the Explorer and over MCP. The [advanced studies](docs/advanced_studies.md) go past the design flow: change points and a nonstationary flood fit, GR4J with a snow store validated on years it never saw, "what if" scenarios, and CMIP6 change factors through the calibrated model.
 - 📊 **Visualise + report** — 17 plot types, Q-Q / P-P diagnostics, Markdown / HTML reports with embedded figures, threshold alerts (WHO / EPA / EU WFD).
 - 🗺️ **Spatial hydrology** — DEM processing, D8 flow direction, watershed delineation, Strahler ordering.
 
@@ -323,7 +327,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 32-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym` and `playbooks` carry subcommands) for the most common workflows:
+AquaScope ships a 33-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym` and `playbooks` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -353,6 +357,7 @@ aquascope recommend --parameters DO,BOD5,COD --goal "pollution trend detection" 
 aquascope solve "Design flow for a road crossing, 100-year return period" --lat 51.415 --lon -0.308
 aquascope studio                                     # the crew: asks where and what, then brief, plan, run, bundle
 aquascope studio "Design flow for a road crossing, 100-year, and how sure can we be" --at "Thames Kingston" --out kingston/
+aquascope studio kingston/ --exclude-years 2014 --sign checked="A. Name"  # the Study Desk: revise, review, sign
 aquascope eval score kingston/                       # how the crew did: gates, Critic, report quality, time, cost
 aquascope eval stats studies/ --by model             # many studies at once: grades, gate failures, cost per study
 aquascope area-study --bbox=-0.9,51.2,0.3,51.8       # a flood study over every gauge in a box: Q100, flood trends, a regional curve
@@ -520,8 +525,8 @@ If you use AquaScope in your research, please cite:
   author  = {Ouédraogo, Abdoul Rachid},
   year    = {2026},
   url     = {https://github.com/Rekin226/aquascope},
-  version = {0.23.0},
-  doi     = {10.5281/zenodo.23200452},
+  version = {0.25.0},
+  doi     = {10.5281/zenodo.23219118},
   license = {MIT}
 }
 ```
@@ -529,7 +534,7 @@ If you use AquaScope in your research, please cite:
 Machine-readable metadata lives in [CITATION.cff](CITATION.cff); GitHub's "Cite this
 repository" button renders it in APA and BibTeX. Every tagged release is archived on
 Zenodo; `10.5281/zenodo.21903143` is the concept DOI that always resolves to the latest
-version (v0.23.0 is [10.5281/zenodo.23200452](https://doi.org/10.5281/zenodo.23200452)).
+version (v0.25.0 is [10.5281/zenodo.23219118](https://doi.org/10.5281/zenodo.23219118)).
 
 ## 📄 License
 

@@ -201,4 +201,4 @@ def test_plain_http_catalog_sources_are_declared_browser_unreachable(built):
 
 def test_browser_reachable_defaults_on():
     unreachable = sorted(k for k, m in SOURCES.items() if not m.browser_reachable)
-    assert unreachable == ["greece_hydroscope", "greece_openhi", "poland_imgw"], unreachable
+    assert unreachable == ["bom", "greece_hydroscope", "greece_openhi", "poland_imgw"], unreachable

@@ -141,6 +141,9 @@ table shows, not a whitelist. A number in none of them is not written. Say which
 period) each number comes from and which method produced it. Confidence intervals are 90 % bands unless a result
 says otherwise. What failed a gate or did not run is said, not hidden. State no cause for a trend. Under 200
 words per section.
+Style: result first, then the reason; 3 significant figures with units (464 m3/s); one idea per sentence. No
+em dashes, semicolon chains, hedge openers or filler words. Never name a step id or a gate code: say what the
+analysis did and what the check found.
 {RULES}"""
 
 AUTHOR_FIX = f"""You are the Author of AquaScope Studio. The Critic found issues in your draft. Apply each fix listed

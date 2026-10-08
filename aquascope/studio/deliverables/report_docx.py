@@ -13,12 +13,9 @@ leaves a note event on the workspace.
 from __future__ import annotations
 
 import io
-import json
 import re
 from typing import Any
 
-from aquascope.studio.deliverables import _common as c
-from aquascope.studio.deliverables.tables import frame_of
 from aquascope.studio.workspace import Workspace
 
 MAX_TABLE_ROWS = 40
@@ -225,102 +222,25 @@ def _monospace(doc: Any, text: str) -> None:
 
 
 def report_docx_bytes(ws: Workspace) -> bytes | None:
-    """``report.docx`` as bytes, or None (with a note event) when python-docx cannot be imported."""
+    """``report.docx``: the technical report (:func:`aquascope.studio.document.build_report`) as Word bytes, or
+    None (with a note event) when python-docx cannot be imported."""
+    return _document_docx(ws, "report")
+
+
+def memo_docx_bytes(ws: Workspace) -> bytes | None:
+    """``memo.docx``: the technical memorandum as Word bytes, or None without python-docx."""
+    return _document_docx(ws, "memo")
+
+
+def _document_docx(ws: Workspace, which: str) -> bytes | None:
     try:
-        from docx import Document
+        import docx  # noqa: F401
     except ImportError:
-        ws.event("author", "note", "python-docx is not installed; report.docx was skipped "
+        ws.event("author", "note", f"python-docx is not installed; {which}.docx was skipped "
                                    "(pip install python-docx, or aquascope[studio])")
         return None
+    from aquascope.studio.document import HouseStyle, build_memo, build_report, render_docx
 
-    from docx.oxml.ns import qn
-    from docx.shared import Pt, RGBColor
-
-    doc = Document()
-    for name in ("Title", "Subtitle", "Heading 1", "Heading 2", "Heading 3", "Heading 4"):
-        style = doc.styles[name]
-        style.font.color.rgb = RGBColor(0, 0, 0)
-        for border in list(style.element.iter(qn("w:pBdr"))):
-            border.getparent().remove(border)
-    doc.styles["Title"].font.size = Pt(24)
-    title = c.title_of(ws)
-    if c.site_text(ws):
-        title = re.sub(r"\s*\(-?\d+\.\d+,\s*-?\d+\.\d+\)\s*$", "", title)
-    doc.add_heading(title, level=0)
-    site = c.site_text(ws)
-    if site:
-        doc.add_paragraph(f"Site: {site}")
-    doc.add_paragraph(f"Date: {c.date_of(ws)}")
-    doc.add_paragraph("Prepared by AquaScope Studio")
-    doc.add_paragraph(c.model_line(ws))
-    doc.add_paragraph(f"AquaScope {c.version()}")
-    doc.add_page_break()
-
-    answer = c.answer_of(ws)
-    if answer:
-        doc.add_heading("Answer", level=1)
-        _runs(doc.add_paragraph(), answer)
-    keys = c.key_numbers(ws)
-    if keys:
-        _add_table(doc, ["Quantity", "Value", "Unit", "Step"],
-                   [[k.get("label"), k.get("value"), k.get("unit") or "", k.get("step") or ""] for k in keys],
-                   "Key numbers")
-
-    for block in c.blocks(ws):
-        if block["kind"] == "list":
-            doc.add_heading(block["title"], level=1)
-            if block["key"] == "references":
-                markdown_to_docx(doc, "\n".join(f"{i}. {r}" for i, r in enumerate(block["items"], 1)))
-            else:
-                markdown_to_docx(doc, "\n".join(f"- {i}" for i in block["items"]))
-            continue
-        doc.add_heading(block["title"] or block["id"], level=1)
-        markdown_to_docx(doc, block["text"])
-        if block["id"] == "appendix" and "```yaml" not in block["text"]:
-            yaml_text = c.study_yaml(ws)
-            if yaml_text:
-                _monospace(doc, yaml_text)
-        for fid in block["figures"]:
-            fig = c.png_figure(ws, fid)
-            if fig is not None and fig.data:
-                _add_figure(doc, fig.data, fig.caption)
-        for tid in block["tables"]:
-            tab, pointer = c.prose_table(ws, tid)
-            if pointer:
-                doc.add_paragraph(pointer)
-            if tab is None:
-                continue
-            try:
-                columns, values = c.frame_cells(frame_of(tab))
-            except Exception:  # noqa: BLE001
-                doc.add_paragraph(f"Table {tab.id} could not be rendered.")
-                continue
-            _add_table(doc, columns, values, tab.caption or tab.id)
-
-    if "appendix" not in c.section_ids(ws):
-        doc.add_heading("Appendix: reproducibility", level=1)
-        doc.add_paragraph("The study file below replays with no language model: aquascope run study.yaml. "
-                          "The notebook study.ipynb in the bundle does the same and redraws the figures.")
-        yaml_text = c.study_yaml(ws)
-        if yaml_text:
-            _monospace(doc, yaml_text)
-    if ws.ledger:
-        _add_table(doc, ["Role", "Calls", "Prompt tokens", "Completion tokens"],
-                   [[role, v.get("calls", 0), v.get("prompt_tokens", 0), v.get("completion_tokens", 0)]
-                    for role, v in ws.ledger.items()], "Model calls per role")
-    doc.add_paragraph(f"How to cite: {c.citation()}")
-    footer = c.footer_of(ws)
-    if footer:
-        details = (ws.report or {}).get("footer")
-        if isinstance(details, dict):
-            doc.add_heading("Production details", level=1)
-            _add_table(doc, ["Field", "Value"], [[str(k).replace("_", " "),
-                       json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v]
-                       for k, v in details.items()], None)
-        else:
-            p = doc.add_paragraph()
-            p.add_run(footer).italic = True
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
+    hs = HouseStyle.from_dict(ws.house_style)
+    doc = build_report(ws, hs) if which == "report" else build_memo(ws, hs)
+    return render_docx(doc, hs)

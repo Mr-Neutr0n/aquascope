@@ -588,6 +588,18 @@ def _studio_dispatch(a, on_event, on_artifact, store):
         if steer is None:
             return {"error": "adjusting a step is not available in this engine"}
         return _studio_reply(s, steer(str(a.get("step_id") or ""), dict(a.get("changes") or {})))
+    if op == "desk":   # the Study Desk: levers, sensitivity, revisions, review, sign-off (aquascope.studio.desk)
+        try:
+            from aquascope.studio.desk import studio_op as _desk_op
+        except ImportError:
+            return {"error": "the Study Desk is not available in this engine"}
+        out = _desk_op(s, a)
+        if "reply" in out:
+            res = _studio_reply(s, out.pop("reply"))
+            res["desk"] = out.get("desk")
+            return res
+        out["workspace"] = s.to_dict(with_artifacts=False)
+        return out
     if op == "narrate":
         narrate = getattr(s, "narrate", None)
         if narrate is None:

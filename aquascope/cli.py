@@ -35,6 +35,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
 )
+# numexpr announces its thread count at INFO the moment pandas imports it, on every command; nobody asked.
+logging.getLogger("numexpr").setLevel(logging.WARNING)
 logger = logging.getLogger("aquascope")
 
 
@@ -1945,9 +1947,47 @@ def _parse_edits(text: str) -> dict:
     return out
 
 
+def _finished_study(target: str | None) -> Path | None:
+    """The workspace.json of a finished study ``target`` names (its bundle folder or the file), else None."""
+    if not target:
+        return None
+    path = Path(target).expanduser()
+    if path.is_dir():
+        path = path / "workspace.json"
+    if path.suffix != ".json" or not path.is_file():
+        return None
+    try:
+        status = json.loads(path.read_text(encoding="utf-8")).get("status")
+    except (OSError, ValueError):
+        return None
+    return path if status == "done" else None
+
+
+#: The Desk's options, so `aquascope studio <bundle>` and `aquascope desk <bundle>` take the same ones.
+_DESK_OPTIONS = ("set", "years", "exclude_years", "estimator", "sign", "comment", "section", "resolve", "by",
+                 "note")
+
+
 def cmd_studio(args: argparse.Namespace) -> None:
-    """`aquascope studio`: the crew, from the brief you agree and the plan you approve to the bundle."""
+    """`aquascope studio`: the crew, from the brief you agree and the plan you approve to the bundle. Given a
+    finished study (its bundle folder or workspace.json) it opens the Study Desk instead."""
     from aquascope.studio import Studio
+
+    finished = _finished_study(args.query)
+    if finished is not None:
+        args.workspace = str(finished)
+        cmd_desk(args)
+        return
+    if args.query and Path(args.query).expanduser().exists():
+        logger.error("%s is not a finished study; pick an unfinished one up with --resume WORKSPACE.JSON",
+                     args.query)
+        sys.exit(1)
+    if any(getattr(args, k, None) for k in _DESK_OPTIONS if k != "by"):
+        logger.error("those options revise a finished study: give its bundle folder, e.g. "
+                     "aquascope studio ./studio-<id>/ --exclude-years 2008")
+        sys.exit(1)
+    if getattr(args, "return_period", None) is not None:
+        args.intake = [*list(args.intake or []), f"return_period={args.return_period:g}"]
 
     workspace = None
     if args.resume:
@@ -1997,9 +2037,25 @@ def cmd_studio(args: argparse.Namespace) -> None:
 
         load_saved_keys()      # a key the person asked the Studio to remember; the shell's own wins
 
+    from aquascope.studio.progress import Narrator
+
+    narrator = Narrator()
+    verbose = bool(getattr(args, "verbose", False))
+    if not verbose:
+        # The short log speaks for the crew: library notes (fit parameters, a missing optional API key) stay out
+        # of it unless something is wrong.
+        logging.getLogger("aquascope").setLevel(logging.WARNING)
+        for name in ("aquascope.collectors", "aquascope.archive", "numexpr"):
+            logging.getLogger(name).setLevel(logging.ERROR)
+
     def on_event(event: dict) -> None:
-        if not args.quiet:
+        if args.quiet:
+            return
+        if verbose:
             print(f"  · {_format_event(event)}", file=sys.stderr)
+            return
+        for line in narrator.feed(event):
+            print(f"  {line}", file=sys.stderr)
 
     try:
         studio = Studio(
@@ -2019,6 +2075,14 @@ def cmd_studio(args: argparse.Namespace) -> None:
         logger.error("%s", exc)
         sys.exit(1)
     ws = studio.workspace
+    if getattr(args, "style", None):
+        from aquascope.studio.document import load_style
+
+        try:
+            ws.house_style = load_style(args.style).to_dict()
+        except (OSError, ValueError) as exc:
+            logger.error("cannot read the house style %s: %s", args.style, exc)
+            sys.exit(1)
     out_dir = Path(args.out or f"./studio-{ws.id}")
     interactive = sys.stdin.isatty() and not args.yes
 
@@ -2089,7 +2153,9 @@ def cmd_studio(args: argparse.Namespace) -> None:
         checkpoint()
         sys.exit(1 if reply is not None else 0)
     if reply.kind == "plan":
-        print(reply.text)
+        # Asked to approve, the whole plan is shown; run with --yes, its first line says what will run (the
+        # progress log shows each analysis as it happens) unless --verbose asks for everything.
+        print(reply.text if interactive or getattr(args, "verbose", False) else reply.text.splitlines()[0])
         edits = None
         if interactive:
             run, change, later = "Run it", "Change a step first", "Not now (save it for later)"
@@ -2131,32 +2197,36 @@ def cmd_studio(args: argparse.Namespace) -> None:
             except ValueError as exc:
                 print(f"  {exc}", file=sys.stderr)
     if reply.kind == "report":
-        print()
-        print(reply.text)
-        decision = reply.payload.get("decision") or {}
-        findings = reply.payload.get("findings") or []
-        if (decision or findings) and not args.quiet:
+        for line in narrator.flush():
+            if not args.quiet and not verbose:
+                print(f"  {line}", file=sys.stderr)
+        paths = studio.export(out_dir)
+        if verbose:
+            print()
+            print(reply.text)
+            decision = reply.payload.get("decision") or {}
             if decision.get("grade"):
                 print(f"\n  Grade: {str(decision['grade']).replace('_', ' ')}", file=sys.stderr)
             for line in decision.get("conditions") or []:
                 print(f"   · holds if: {line}", file=sys.stderr)
             for line in decision.get("what_would_change_it") or []:
                 print(f"   · would change it: {line}", file=sys.stderr)
-            if findings:
-                print("\n  Findings:", file=sys.stderr)
-                for f in findings[:12]:
-                    print(f"   · [{str(f.get('grade') or '').replace('_', ' ')}] {f.get('claim')}", file=sys.stderr)
-            for r in reply.payload.get("data_requests") or []:
-                print(
-                    f"   · data the crew would ask for: {r.get('what')} ({r.get('effect_on_grade')})", file=sys.stderr
-                )
-        missing = reply.payload.get("not_established") or []
-        if missing and not args.quiet:
-            print("\n  What this study does not establish:", file=sys.stderr)
-            for line in missing:
-                print(f"   · {line}", file=sys.stderr)
-        paths = studio.export(out_dir)
-        print(f"\n  Bundle written to {out_dir}: {', '.join(sorted(paths))}")
+            for f in (reply.payload.get("findings") or [])[:12]:
+                print(f"   · [{str(f.get('grade') or '').replace('_', ' ')}] {f.get('claim')}", file=sys.stderr)
+            for line in reply.payload.get("not_established") or []:
+                print(f"   · not established: {line}", file=sys.stderr)
+            print(f"\n  Bundle written to {out_dir}: {', '.join(sorted(paths))}")
+        else:
+            print()
+            try:
+                from aquascope.studio.document import terminal_summary
+
+                lines = terminal_summary(ws, str(out_dir))
+            except Exception as exc:  # noqa: BLE001 - the summary is a nicety; the answer must still print
+                logger.debug("terminal summary unavailable: %s", exc)
+                lines = [reply.text, "", f"Bundle written to {out_dir}"]
+            for line in lines:
+                print(line)
         if _studio_missing_extras():
             print(
                 "  This install writes the Markdown and HTML report and the tables only. For the Word report, "
@@ -2176,6 +2246,127 @@ def cmd_studio(args: argparse.Namespace) -> None:
     elif reply.kind != "plan":
         print(reply.text)
     checkpoint()
+
+
+def cmd_desk(args: argparse.Namespace) -> None:
+    """`aquascope desk WORKSPACE.json`: revise, review and sign a finished study (aquascope.studio.desk)."""
+    from aquascope.studio import desk
+    from aquascope.studio.coordinator import Studio
+    from aquascope.studio.workspace import Workspace
+
+    path = Path(args.workspace)
+    if path.is_dir():
+        path = path / "workspace.json"
+    try:
+        ws = Workspace.from_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.error("cannot read %s: %s", path, exc)
+        sys.exit(1)
+    if not getattr(args, "verbose", False):
+        logging.getLogger("aquascope").setLevel(logging.WARNING)
+        for name in ("aquascope.collectors", "aquascope.archive", "numexpr", "httpx"):
+            logging.getLogger(name).setLevel(logging.ERROR)
+    out_dir = Path(args.out) if args.out else path.parent
+    from aquascope.studio.progress import Narrator
+
+    narrator = Narrator()
+
+    def on_event(event: dict) -> None:
+        lines = [f"· {_format_event(event)}"] if getattr(args, "verbose", False) else narrator.feed(event)
+        for line in lines:
+            print(f"  {line}", file=sys.stderr)
+
+    studio = Studio(workspace=ws, on_event=on_event)
+
+    changes: dict[str, Any] = {}
+    for item in args.set or []:
+        key, _, value = item.partition("=")
+        changes[key.strip()] = value.strip()
+    if args.return_period is not None:
+        changes["return_period"] = args.return_period
+    if args.years is not None:
+        changes["years"] = args.years if args.years > 0 else None
+    if args.exclude_years is not None:
+        changes["exclude_years"] = args.exclude_years
+    if args.estimator:
+        changes["estimator"] = args.estimator
+    did = False
+    if changes:
+        print("  Revising: " + ", ".join(f"{k} = {v}" for k, v in changes.items()), file=sys.stderr)
+        reply = studio.revise(changes, by=args.by, note=args.note)
+        if reply.payload.get("errors"):
+            logger.error("%s", reply.text)
+            sys.exit(1)
+        rev = reply.payload.get("revision") or {}
+        print(f"  Revision {rev.get('rev')}: {rev.get('description')}")
+        did = True
+    for item in args.comment or []:
+        c = desk.comment(ws, item, section=args.section or "", author=args.by or "")
+        print(f"  Comment {c['id']} recorded.")
+        did = True
+    for item in args.resolve or []:
+        cid, _, response = item.partition("=")
+        try:
+            desk.resolve(ws, cid.strip(), response.strip(), by=args.by or "")
+        except ValueError as exc:
+            logger.error("%s", exc)
+            sys.exit(1)
+        print(f"  Comment {cid.strip()} resolved.")
+        did = True
+    for item in args.sign or []:
+        role, _, name = item.partition("=")
+        role = role.strip().lower()
+        role = role if role.endswith("_by") else f"{role}_by"
+        reply = studio.sign(role, name.strip())
+        if reply.payload.get("errors"):
+            logger.error("%s", reply.text)
+            sys.exit(1)
+        print(f"  {desk.ROLE_WORDS.get(role, role)} by {name.strip()}; status "
+              f"{(ws.house_style or {}).get('status')}.")
+        did = True
+    if (args.comment or args.resolve) and not (changes or args.sign):
+        studio._build_deliverables()
+
+    if did:
+        studio.export(out_dir)
+        (out_dir / "workspace.json").write_text(ws.to_json(), encoding="utf-8")
+        print(f"  Documents rewritten in {out_dir}")
+
+    print()
+    from aquascope.studio.document.text import num, value
+
+    levers = desk.levers(ws)
+    if levers:
+        print("Levers (change with --set ID=VALUE, or the shortcuts in --help):")
+        for lv in levers:
+            current = lv["value"]
+            if lv["id"] == "estimator":
+                current = (lv.get("labels") or {}).get(current, current)
+            if isinstance(current, list):
+                current = ", ".join(str(x) for x in current) or "none"
+            print(f"  {lv['id']:<15} {lv['label']}: {current if current not in (None, '') else 'default'}")
+        cand = next((lv.get("candidates") for lv in levers if lv["id"] == "exclude_years"), None)
+        if cand:
+            print("  largest floods: " + ", ".join(f"{c['year']} ({num(c['value'])})" for c in cand[:6]))
+    rows = desk.sensitivity(ws)
+    if len(rows) > 1:
+        unit = next(((r.get("result") or {}).get("unit") for r in (ws.run or {}).get("results") or []
+                     if isinstance(r.get("result"), dict) and (r["result"]).get("ffa")), None)
+        print("\nSensitivity of the design value:")
+        for r in rows:
+            ch = "" if r is rows[0] or r.get("change_pct") is None else f"{r['change_pct']:+.0f} %"
+            print(f"  {r['case']:<52} {value(r['value'], unit):>12} {ch:>6}")
+    revs = (ws.desk or {}).get("revisions") or []
+    if revs:
+        print("\nRevisions:")
+        for r in revs:
+            print(f"  {r['rev']:<3} {str(r.get('at'))[:10]}  {r.get('description')}" +
+                  (f" ({r['by']})" if r.get("by") else ""))
+    open_comments = [c for c in (ws.desk or {}).get("comments") or [] if c.get("status") != "resolved"]
+    if open_comments:
+        print("\nOpen review comments:")
+        for c in open_comments:
+            print(f"  {c['id']}: {c['text']}")
 
 
 def cmd_studio_showcase(args: argparse.Namespace) -> None:
@@ -2920,6 +3111,30 @@ def cmd_agri_productivity(args: argparse.Namespace) -> None:
         print(f"\n  ✓ Productivity results saved → {out_path}")
 
 
+def _add_desk_args(p: argparse.ArgumentParser, *, studio: bool = False) -> None:
+    """The Study Desk's options (aquascope.studio.desk), on `aquascope studio` and its `aquascope desk` alias."""
+    p.add_argument("--set", action="append", default=[], metavar="LEVER=VALUE",
+                   help="Revise a finished study: change a lever (return_period, years, exclude_years, estimator)")
+    p.add_argument("--return-period", type=float, default=None,
+                   help="The design return period: for a new study its intake, for a finished one a revision")
+    p.add_argument("--years", type=int, default=None, help="Revise: use only the last N years (0: the full record)")
+    p.add_argument("--exclude-years", default=None, metavar="YEARS",
+                   help="Revise: leave these years' floods out of the fit, e.g. 2008,1936 (empty string clears)")
+    p.add_argument("--estimator", default=None, choices=["gev_lmoments", "lp3", "gev_bootstrap"],
+                   help="Revise: the distribution the answer quotes (every fit stays in the tables)")
+    p.add_argument("--sign", action="append", default=[], metavar="ROLE=NAME",
+                   help="Sign as prepared, checked or approved, e.g. --sign checked=\"A. Hydrologist\"")
+    p.add_argument("--comment", action="append", default=[], metavar="TEXT", help="Add a review comment")
+    p.add_argument("--section", default=None, help="The section a --comment is about")
+    p.add_argument("--resolve", action="append", default=[], metavar="ID=RESPONSE",
+                   help="Close a review comment with the response, e.g. --resolve c1=\"Done in rev C\"")
+    p.add_argument("--by", default=None, help="Who is making the change, comment or signature (for the record)")
+    p.add_argument("--note", default=None, help="A revision's description, instead of the generated one")
+    if not studio:
+        p.add_argument("--out", "-o", default=None, help="Where the documents go (default: beside the workspace)")
+        p.add_argument("--verbose", "-v", action="store_true", help="Show every event of a rerun")
+
+
 def main() -> None:
     from aquascope import __version__
     from aquascope.registry import source_keys
@@ -3502,7 +3717,8 @@ def main() -> None:
     )
     p_studio.add_argument(
         "query", nargs="?", default=None,
-        help="The problem in plain language (run `aquascope studio` alone in a terminal and it asks)",
+        help="The problem in plain language (run `aquascope studio` alone in a terminal and it asks), or a "
+             "finished study's bundle folder to revise, review and sign it on the Study Desk",
     )
     p_studio.add_argument(
         "--at", default=None, metavar="PLACE",
@@ -3550,6 +3766,20 @@ def main() -> None:
     )
     p_studio.add_argument("--resume", default=None, metavar="WORKSPACE.JSON", help="Resume a saved workspace")
     p_studio.add_argument("--quiet", "-q", action="store_true", help="Do not print the timeline as it happens")
+    p_studio.add_argument("--verbose", "-v", action="store_true",
+                          help="Print every event the crew emits (every gate, figure and file), not the short log")
+    p_studio.add_argument("--style", default=None, metavar="STYLE.yaml",
+                          help="A house style for the documents: organisation, project, client, prepared_by, "
+                               "checked_by, logo, accent (YAML or JSON)")
+    _add_desk_args(p_studio, studio=True)
+
+    # ── desk ────────────────────────────────────────────────────────────
+    p_desk = sub.add_parser(
+        "desk",
+        help="Revise, review and sign a finished study (the same as `aquascope studio <bundle folder>`)",
+    )
+    p_desk.add_argument("workspace", help="The study's bundle folder or its workspace.json")
+    _add_desk_args(p_desk)
 
     # ── studio-showcase ───────────────────────────────────────────────
     p_show = sub.add_parser(
@@ -3801,6 +4031,7 @@ def main() -> None:
         "solve": cmd_solve,
         "studio": cmd_studio,
         "studio-showcase": cmd_studio_showcase,
+        "desk": cmd_desk,
         "update": cmd_update,
         "eval": cmd_eval,
         "playbooks": cmd_playbooks,

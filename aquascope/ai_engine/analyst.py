@@ -214,6 +214,8 @@ def _tool_specs() -> list[ToolSpec]:
 
     num = {"type": "number"}
     years_cap = "Optional cap on the record: the last N years. Leave it out for the full record (the default)."
+    exclude_years = {"type": "array", "items": {"type": "integer"},
+                     "description": "years whose annual maximum is left out of the flood fit"}
     return [
         ToolSpec(
             "list_sources", "Every data source with agency, country, variables and licence.",
@@ -253,6 +255,7 @@ def _tool_specs() -> list[ToolSpec]:
                                               "bootstrap_ci": {"type": "boolean"},
                                               "return_periods": {"type": "array", "items": num, "description":
                                                                  "the T in years to report (default 2 to 100)"},
+                                              "exclude_years": exclude_years,
                                               "variable": {"type": "string"}},
              "required": ["source", "station_id"]},
             t.analyze_station,
@@ -264,7 +267,8 @@ def _tool_specs() -> list[ToolSpec]:
                                               "years": {"type": "integer", "description": years_cap},
                                               "bootstrap_ci": {"type": "boolean"},
                                               "return_periods": {"type": "array", "items": num, "description":
-                                                                 "the T in years to report (default 2 to 100)"}},
+                                                                 "the T in years to report (default 2 to 100)"},
+                                              "exclude_years": exclude_years,},
              "required": ["source", "station_id"]},
             t.flood_frequency,
         ),

@@ -63,6 +63,8 @@ def _browser_unreachable_message(source: str, station_id: str) -> str:
             "The AquaScope archive has no mirrored file for this station yet; "
             "the weekly harvest fills the mirror in over time."
         )
+    elif meta.redistributable:
+        archive = f"The AquaScope archive does not mirror {meta.label} observations yet."
     else:
         archive = (
             f"Its observations are not mirrored in the AquaScope archive because {meta.label} "
@@ -180,7 +182,8 @@ METHODS: dict[str, dict[str, str]] = {
         "name": "Mann-Kendall trend on annual means",
         "text": "Non-parametric Mann-Kendall test with Sen's slope on the annual mean series.",
         "citation": "Mann, H. B. (1945). Nonparametric tests against trend. Econometrica, 13, 245-259; "
-        "Sen, P. K. (1968). J. Am. Stat. Assoc., 63, 1379-1389.",
+        "Sen, P. K. (1968). Estimates of the regression coefficient based on Kendall's tau. "
+        "J. Am. Stat. Assoc., 63(324), 1379-1389.",
     },
     "who_screen": {
         "name": "WHO drinking-water guideline screen",
@@ -285,6 +288,11 @@ def _records_to_series(records: list, prefer: str | None = None) -> tuple[pd.Ser
 
 # Which agency parameter serves which archive variable.
 _USGS_CODES = {"discharge": "00060", "water_level": "00065"}
+_BOM_PARAMETERS = {
+    "discharge": "Water Course Discharge",
+    "water_level": "Water Course Level",
+    "groundwater_level": "Ground Water Level",
+}
 
 
 def _parse_date(value: Any) -> date | None:
@@ -426,6 +434,25 @@ def _agency_record_if_longer(
         + ("requested window" if window.get("years") else "full record") + " came from the agency."
     )
     return agency
+
+
+#: The sources :func:`fetch_series` can fetch a record from directly (its dispatch below); others need the
+#: Archive's mirror or a record the user attaches.
+DIRECT_FETCH_SOURCES = frozenset({"usgs", "uk_ea", "hubeau_hydrometrie", "pegelonline", "ireland_opw",
+                                  "greece_hydroscope", "greece_openhi", "poland_imgw", "taiwan_cwa",
+                                  "bom", "brazil_ana"})
+
+
+def can_fetch(source: str) -> bool:
+    """Whether AquaScope can fetch a station record from ``source`` (directly, or from the Archive's mirror)."""
+    if source in DIRECT_FETCH_SOURCES:
+        return True
+    try:
+        from aquascope.archive.observations import harvestable_variables
+
+        return bool(harvestable_variables(source))
+    except Exception:  # noqa: BLE001 - no archive module, no mirror
+        return False
 
 
 def fetch_series(
@@ -592,6 +619,48 @@ def fetch_series(
             "IMGW-PIB daily archive, hydrological-year files (November to October, published once the "
             f"year has ended, so the record stops at the last October; today's reading is in the live API); {asked}."
         )
+    elif source == "bom":
+        # KiWIS serves the quality-checked daily mean for any window in one request; a gauge often carries
+        # level only (A4261794 has no discharge series), so level is the fallback, not an error.
+        c = build_collector("bom")
+        s, var, unit = None, "", ""
+        for want in (variable,) if variable else ("discharge", "water_level"):
+            parameter_type = _BOM_PARAMETERS.get(want or "")
+            if parameter_type is None:
+                continue
+            recs = c.collect(station_id=station_id, parameter_type=parameter_type,
+                             start_date=start.isoformat(), end_date=end.isoformat())
+            s, var, unit = _records_to_series(recs)
+            if s is not None:
+                # One value per local day, stamped 00:30 local time; index it by the day.
+                s = s.groupby(s.index.normalize()).last()
+                if want == "groundwater_level":
+                    var = "groundwater_level"  # WaterLevelReading, but the series is a bore
+                break
+        note = (
+            "BOM Water Data Online, quality-checked daily mean (DMQaQc.Merged.DailyMean.24HR; it trails real "
+            f"time by weeks while the data are checked); {asked}."
+        )
+    elif source == "brazil_ana":
+        # The conventional network (HidroSerieHistorica) is the long, no-credential daily record, and one
+        # request returns the whole window. The telemetric network needs an ANA account and serves sub-daily
+        # readings, so it is not used here. A per-row station-name lookup would page the whole SNIRH catalog.
+        c = build_collector("brazil_ana")
+        c.enrich_from_catalog = False
+        s, var, unit = None, "", ""
+        for want in (variable,) if variable else ("discharge", "water_level"):
+            if want not in ("discharge", "water_level", "precipitation"):
+                continue
+            recs = c.collect(station_ids=[station_id], mode="historical", variables=(want,),
+                             start_date=start.isoformat(), end_date=end.isoformat())
+            s, var, unit = _records_to_series(recs)
+            if s is not None:
+                break
+        note = (
+            "ANA Hidroweb conventional network (HidroSerieHistorica): daily values, reviewed (Consistido) "
+            "preferred over provisional (Bruto), published in batches months behind real time; stations on the "
+            f"telemetric or water-quality networks only have no record here; {asked}."
+        )
     elif source == "taiwan_cwa":
         # CODIS answers one calendar year per request and each takes several
         # seconds at the source, so the full record is never asked for here:
@@ -694,11 +763,15 @@ def _annual_max(s: pd.Series) -> pd.Series:
 
 
 def analyze_series(s: pd.Series, variable: str, unit: str, *,
-                   return_periods: list[float] | None = None) -> dict[str, Any]:
+                   return_periods: list[float] | None = None,
+                   exclude_years: list[int] | None = None) -> dict[str, Any]:
     """Compute Phase-0 analytics for a series. Pure function, JSON-safe output.
 
     ``return_periods`` picks the T the fits report (default 2, 5, 10, 25, 50 and 100 years); a study that
-    asks for a 200-year flow passes the list with 200 in it.
+    asks for a 200-year flow passes the list with 200 in it. ``exclude_years`` drops those years' annual maxima
+    from the flood fit, its trend and step-change tests (a year a hydrologist judges unreliable: a dam break, a
+    rating that was later revised); the dropped maxima are kept under ``annual_max_excluded`` so a figure can
+    show them.
     """
     rps = _return_periods(return_periods)
     from aquascope.hydrology.flood_frequency import fit_gev_lmoments, fit_lp3
@@ -740,6 +813,14 @@ def analyze_series(s: pd.Series, variable: str, unit: str, *,
     out["series"] = {"t": [d.strftime("%Y-%m-%d") for d in daily.index], "v": [_clean(float(v)) for v in daily.values]}
 
     am = _annual_max(s)
+    drop = sorted({int(y) for y in exclude_years or [] if str(y).strip().lstrip("-").isdigit()})
+    if drop:
+        dropped = am[am.index.year.isin(drop)]
+        am = am[~am.index.year.isin(drop)]
+        out["annual_max_excluded"] = {"year": [int(y) for y in dropped.index.year],
+                                      "v": [_clean(float(v)) for v in dropped.values]}
+        out["notes"].append(f"Excluded from the flood fit at the analyst's request: "
+                            f"{', '.join(str(y) for y in drop)}.")
     out["annual_max"] = {"year": [int(y) for y in am.index.year], "v": [_clean(float(v)) for v in am.values]}
     out["eligibility"] = {
         "flood_frequency": variable == "discharge" and len(am) >= MIN_YEARS_FOR_FFA,
@@ -903,12 +984,15 @@ def _return_periods(return_periods: Any) -> list[Any]:
     return [int(v) if float(v).is_integer() else v for v in out]
 
 
-def flood_ci(s: pd.Series, *, return_periods: list[float] | None = None) -> dict[str, Any]:
-    """The slow part: bootstrap GEV confidence bands (called on demand)."""
+def flood_ci(s: pd.Series, *, return_periods: list[float] | None = None,
+             exclude_years: list[int] | None = None) -> dict[str, Any]:
+    """The slow part: bootstrap GEV confidence bands (called on demand), on the same maxima as the fits."""
     from aquascope.hydrology.flood_frequency import fit_gev
 
     rps = _return_periods(return_periods)
     am = _annual_max(s.dropna())
+    if exclude_years:
+        am = am[~am.index.year.isin([int(y) for y in exclude_years])]
     r = fit_gev(am, return_periods=rps, ci_level=0.90)
     return {
         "estimator": "gev_mle_with_lmoments_fallback", "ci_level": 0.90,
@@ -932,6 +1016,7 @@ def analyze_station(
     variable: str | None = None,
     period_start: Any = None,
     return_periods: list[float] | None = None,
+    exclude_years: list[int] | None = None,
 ) -> dict[str, Any]:
     """Fetch + analyse one station. The entry point the browser worker calls.
 
@@ -972,7 +1057,8 @@ def analyze_station(
     if s is None or s.empty:
         result.update({"n": 0, "error": "The source returned no observations for this station."})
         return result
-    result.update(analyze_series(s, fetched["variable"], fetched["unit"], return_periods=return_periods))
+    result.update(analyze_series(s, fetched["variable"], fetched["unit"], return_periods=return_periods,
+                                 exclude_years=exclude_years))
     return result
 
 
@@ -1419,6 +1505,29 @@ def _station_entry(row: dict[str, Any], lat: float, lon: float, today: date) -> 
     }
 
 
+def _probe_span(st: dict[str, Any], variable: str) -> dict[str, Any] | None:
+    """The record span of a catalog station found by fetching its record: ``{"period_start", "period_end",
+    "years", "span_source": "probed"}``, or None when nothing (or less than a year) came back."""
+    if not can_fetch(str(st["source"])):
+        return {"unfetchable": True}
+    try:
+        got = fetch_series(str(st["source"]), str(st["station_id"]), variable=variable)
+    except Exception:  # noqa: BLE001 - a probe that fails leaves the station unspanned
+        return None
+    s = got.get("series") if isinstance(got, dict) else None
+    if s is None or not len(s):
+        return None
+    s = s.dropna()
+    if not len(s):
+        return None
+    start, end = s.index.min(), s.index.max()
+    years = round((end - start).days / 365.25, 1)
+    if years < 1:
+        return None
+    return {"period_start": start.strftime("%Y-%m-%d"), "period_end": end.strftime("%Y-%m-%d"), "years": years,
+            "span_source": "probed"}
+
+
 def _label(st: dict[str, Any]) -> str:
     name = st.get("name") or st.get("station_id")
     return f"{name} ({st['source']}/{st['station_id']})"
@@ -1467,6 +1576,7 @@ def assess_site(
     area_km2: float | None = None,
     donors: int | None = None,
     change_points: list[int] | None = None,
+    probe_km: float = 0.0,
 ) -> dict[str, Any]:
     """What can be answered at a place: the gauges in reach, the catchment, and what the record supports.
 
@@ -1481,6 +1591,11 @@ def assess_site(
     assume stationarity to marginal (#376); a regulated or snowy catchment
     (BasinATLAS) does the same for the methods sensitive to it. Everything
     returned is plain JSON.
+
+    ``probe_km`` (off by default) lets the reconnaissance fetch the record of a station within that distance
+    whose span the catalog does not know (the two nearest at most), instead of dropping a gauge that may sit at
+    the site: the Studio's Scout sets it, because a BOM or ANA gauge at 0 km with a long record is common and
+    was being ignored.
 
     Returns ``{"point", "stations", "catchment", "context", "sufficiency", "notes"}``.
     """
@@ -1521,11 +1636,40 @@ def assess_site(
             station_by[var] = st
     # Only the variables a method in the table consumes deserve a "nearest gauge is too far" note.
     wanted = {m.variable for m in METHODS.values() if m.variable and (problem is None or problem in m.problems)}
+    if probe_km > 0:
+        probed = 0
+        for var in [v for v in RECORD_VARIABLES if v in unspanned and v in wanted]:
+            st = unspanned[var]
+            if st["distance_km"] > probe_km or probed >= 2:
+                continue
+            probed += 1
+            span = _probe_span(st, var)
+            st["probed"] = True
+            if span is not None and span.get("unfetchable"):
+                st["fetchable"] = False
+                notes.append(f"{_label(st)} measures {var.replace('_', ' ')} {st['distance_km']:g} km from the site, "
+                             f"but AquaScope cannot fetch {st['source']} records yet and the catalog has no record "
+                             f"span; the agency may hold a usable record, which can be attached as a table.")
+                continue
+            if span is None:
+                notes.append(f"{_label(st)} measures {var.replace('_', ' ')}; the catalog has no record span and "
+                             "fetching its record returned nothing usable.")
+                continue
+            st.update(span)
+            del unspanned[var]
+            years_by[var] = st["years"]
+            resolution_by[var] = "daily"
+            station_by[var] = st
+            notes.append(f"{_label(st)}: the catalog has no record span for it, so its record was fetched: "
+                         f"{st['years']:g} years of {var.replace('_', ' ')}, {st['period_start']} to "
+                         f"{st['period_end']}.")
     for var in RECORD_VARIABLES:
         if var in station_by or var not in wanted:
             continue
         if var in unspanned:
             st = unspanned[var]
+            if st.get("probed"):
+                continue          # the probe already said what it found
             notes.append(f"{_label(st)} measures {var.replace('_', ' ')} but the catalog has no record span for it; "
                          "not counted.")
             continue

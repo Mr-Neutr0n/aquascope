@@ -244,6 +244,12 @@ aquascope collect --source bom --station 410001 --days 30
 aquascope collect --source bom --station 409001 --parameter-type "Water Course Level" --days 30
 ```
 
+`aquascope.explore.fetch_series("bom", ...)` reads the quality-checked daily
+mean (`DMQaQc.Merged.DailyMean.24HR`) for the requested window, discharge first
+and `Water Course Level` when the gauge has no discharge series (A4261794 carries
+level only). That series trails real time by weeks. KiWIS answers a cross-origin
+request with 403, so the Explorer cannot call BOM from the browser and says so.
+
 **Known data-availability quirks (verified against the live API):**
 
 - **Not every station has a populated discharge series.** BOM publishes a
@@ -351,7 +357,17 @@ stations = collector.stations()
 
 # Telemetric time series (credentials required)
 readings = collector.collect(station_ids=["15400000"], days=30)
+
+# Conventional-network daily record, decades long (no credentials needed)
+readings = collector.collect(station_ids=["58880001"], mode="historical", variables=("discharge",))
 ```
+
+`aquascope.explore.fetch_series("brazil_ana", ...)`, which the Explorer and the
+Studio read records through, uses the conventional network: daily discharge,
+then stage, for the requested window, with the reviewed (Consistido) month
+preferred over the provisional (Bruto) one. It is published in batches months
+behind real time, and a station on the telemetric or water-quality networks only
+(80360600 CUBATÃO is a CETESB water-quality station) has no record there.
 
 From the CLI:
 ```bash

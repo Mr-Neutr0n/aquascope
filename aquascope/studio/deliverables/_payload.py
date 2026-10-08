@@ -106,9 +106,10 @@ def record_name(payload: dict[str, Any], site: dict[str, Any] | None = None) -> 
         # The Analysts add the catalog name of the station the step ran on, so a caption says
         # "Kingston (uk_ea 3400TH)" rather than an id alone.
         name = payload.get("station_name")
+        label = station_label(str(src), str(sid))
         if isinstance(name, str) and name.strip() and name.strip() != str(sid):
-            return f"{name.strip()} ({src} {sid})"
-        return f"{src} {sid}"
+            return f"{name.strip()} ({label})"
+        return label
     if payload.get("station") and isinstance(payload["station"], dict):
         st = payload["station"]
         if st.get("source") and st.get("station_id"):
@@ -121,6 +122,15 @@ def record_name(payload: dict[str, Any], site: dict[str, Any] | None = None) -> 
     if payload.get("name"):
         return str(payload["name"])
     return "the record"
+
+
+def station_label(source: str, station_id: str) -> str:
+    """A station as a caption names it: ``USGS 01013500`` for ``("usgs", "USGS-01013500")`` (the agency prefix
+    once, upper case), ``UK_EA 3400TH`` otherwise."""
+    src, sid = str(source or ""), str(station_id or "")
+    if sid.upper().startswith(src.upper() + "-"):
+        sid = sid[len(src) + 1:]
+    return f"{src.upper().replace('_', ' ')} {sid}".strip()
 
 
 def period_of(payload: dict[str, Any], dates: list[str] | None = None) -> str:

@@ -50,7 +50,8 @@ _BULK_KEYS = ("series", "observations")
 
 
 def analyze_station_full(source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False,
-                         variable: str | None = None, return_periods: list[float] | None = None) -> dict[str, Any]:
+                         variable: str | None = None, return_periods: list[float] | None = None,
+                         exclude_years: list[int] | None = None) -> dict[str, Any]:
     """``aquascope.explore.analyze_station`` with the daily series and the full flow-duration curve kept in the
     payload (the runner's own ``analyze_station`` drops them, so the hydrograph, trend and FDC figures never
     drew); the bootstrap band as the runner adds it. The Analysts strip the series before the payload is stored."""
@@ -65,7 +66,9 @@ def analyze_station_full(source: str, station_id: str, years: int | None = None,
     if variable and variables is not None and variable not in variables:
         return {"error": f"unknown variable {variable!r}; allowed: {list(variables)}"}
     store: dict[str, Any] = {}
-    extra = {"return_periods": return_periods} if return_periods else {}
+    extra: dict[str, Any] = {"return_periods": return_periods} if return_periods else {}
+    if exclude_years:
+        extra["exclude_years"] = [int(y) for y in exclude_years]
     res = _analyze(source, station_id, years=int(years) if years else None, store=store, variable=variable, **extra)
     if store.get("series") is not None:
         observed = store["series"].dropna()
@@ -87,12 +90,13 @@ def analyze_station_full(source: str, station_id: str, years: int | None = None,
 
 
 def flood_frequency_full(source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False,
-                         return_periods: list[float] | None = None) -> dict[str, Any]:
+                         return_periods: list[float] | None = None,
+                         exclude_years: list[int] | None = None) -> dict[str, Any]:
     """Keep the exact observations used by this flood fit, even if an earlier station step differs."""
     from aquascope.mcp_server import _flood_result
 
     full = analyze_station_full(source, station_id, years=years, bootstrap_ci=bootstrap_ci,
-                                return_periods=return_periods)
+                                return_periods=return_periods, exclude_years=exclude_years)
     result = _flood_result(full)
     if "observations" in full:
         result["observations"] = full["observations"]
