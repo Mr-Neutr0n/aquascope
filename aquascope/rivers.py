@@ -854,8 +854,9 @@ def _network_for(rid: int, lat: float | None = None, lon: float | None = None) -
 
 AREA_METHOD = ("The unit-catchment areas of every reach upstream, added up: the area_sqm column of GEOGLOWS's "
                "ERA5 weight table for the processing unit, walked up its rapid_connect topology.")
-AREA_NOTE = ("Checked on 2026-10-08 against the published areas of three gauges (the Mississippi at St. Louis, the "
-             "Thames at Kingston, the Aare at Bern): within about 7 % either way, so read it as an approximate area.")
+AREA_NOTE = ("Checked on 2026-10-08 against the catchment areas four agencies publish for their gauges (USGS 07010000 "
+             "Mississippi at St. Louis, NRFA 39001 Thames at Kingston, FOEN 2135 Aare at Bern, FOEN 2289 Rhine at "
+             "Basel): from 3.7 % under to 6.6 % over, so read it as an approximate area.")
 
 
 def upstream_area(river_id: int | str, *, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:

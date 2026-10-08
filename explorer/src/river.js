@@ -17,6 +17,8 @@ const TARGETS = {
   st: { panel: "panel-station", methods: "methods" },
 };
 const runs = { pt: { run: 0 }, st: { run: 0 } };
+// A gauge opened from the trace's own list keeps the trace on the map: it is one of the stops on that path.
+let keepTrace = false;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const panel = (t) => $(TARGETS[t].panel);
@@ -60,7 +62,8 @@ export function startRiver(t, lat, lon, { gauge = false } = {}) {
   const r = runs[t];
   const my = ++r.run;
   Object.assign(r, { lat, lon, gauge, snap: null, reach: null, record: null, recordFor: null });
-  clearRiverTrace();
+  if (!keepTrace) clearRiverTrace();
+  keepTrace = false;
   skeleton(t);
   const head = t === "pt" ? $("pt-snap") : null;
   if (head) { head.hidden = true; head.textContent = ""; }
@@ -255,7 +258,10 @@ function renderTrace(t, res) {
     `Dams on the path come later.</p>`;
   out.querySelectorAll(".river-gauges button").forEach((b) => {
     const g = shown[Number(b.dataset.i)];
-    b.addEventListener("click", () => actions.selectStation(stationKey(g), { fly: true }));
+    b.addEventListener("click", () => {
+      keepTrace = true;
+      try { actions.selectStation(stationKey(g), { fly: true }); } finally { keepTrace = false; }
+    });
   });
 }
 

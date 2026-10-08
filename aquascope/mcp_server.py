@@ -367,12 +367,13 @@ def reach_record(river_id: int | None = None, lat: float | None = None, lon: flo
     return rivers.reach_summary(river_id, lat=lat, lon=lon, years=years, return_periods=return_periods)
 
 
-def upstream_area(river_id: int) -> dict[str, Any]:
+def upstream_area(river_id: int, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
     """The area draining to a GEOGLOWS v2 river reach (km2) and how many reaches lie upstream, summed from the
-    model's unit catchments (within about 7 % of published gauge areas in our checks)."""
+    model's unit catchments (within about 7 % of four agency-published gauge areas in our checks). lat/lon,
+    where the reach roughly is (snap_to_river gives them), only pick which processing unit is read first."""
     from aquascope import rivers
 
-    return rivers.upstream_area(river_id)
+    return rivers.upstream_area(river_id, lat=lat, lon=lon)
 
 
 def trace_downstream(river_id: int | None = None, lat: float | None = None, lon: float | None = None,

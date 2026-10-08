@@ -95,6 +95,20 @@ def test_river_area(monkeypatch, capsys):
     assert "3,019.4 km2 drain to it, 950 reaches upstream" in capsys.readouterr().out
 
 
+def test_river_area_at_a_point_passes_where_the_reach_is(monkeypatch, capsys):
+    """With --at, the snapped position goes along, so the right processing unit is read first."""
+    seen = {}
+
+    def fake(rid, lat=None, lon=None):
+        seen.update(rid=rid, lat=lat, lon=lon)
+        return {"upstream_area_km2": 3019.4, "n_reaches_upstream": 950, "vpu": 209, "note": "Approximate."}
+
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: SNAP)
+    monkeypatch.setattr(rivers, "upstream_area", fake)
+    _run(monkeypatch, "area", "--at", "46.948", "7.452")
+    assert seen == {"rid": 230260670, "lat": 46.9498, "lon": 7.4521}
+
+
 def test_river_needs_a_reach_or_a_point(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         _run(monkeypatch, "record")

@@ -1162,7 +1162,9 @@ def cmd_river(args: argparse.Namespace) -> None:
         if res["snapped"]:
             print(f"  river_id {res['river_id']} at {res['snap_lat']:.5f}, {res['snap_lon']:.5f}")
         return
-    rid, _snap = _river_target(args)
+    rid, snap = _river_target(args)
+    # Where the snapped reach is: it lets the area and the trace read the right processing unit first.
+    near = {"lat": snap["snap_lat"], "lon": snap["snap_lon"]} if snap else {}
     if args.river_cmd == "record":
         store: dict = {}
         res = rivers.reach_record(rid, years=args.years, store=store)
@@ -1195,7 +1197,7 @@ def cmd_river(args: argparse.Namespace) -> None:
         print(f"  {res['attribution']}")
         return
     if args.river_cmd == "area":
-        res = rivers.upstream_area(rid)
+        res = rivers.upstream_area(rid, **near)
         if args.json:
             print(json.dumps(res, indent=2, ensure_ascii=False))
             return
@@ -1204,7 +1206,7 @@ def cmd_river(args: argparse.Namespace) -> None:
         print(f"  {res['note']}")
         return
     if args.river_cmd == "trace":
-        res = rivers.trace_downstream(rid, gauge_km=args.gauge_km)
+        res = rivers.trace_downstream(rid, gauge_km=args.gauge_km, **near)
         if args.geojson:
             feature = {"type": "Feature", "geometry": res.get("geometry"),
                        "properties": {"river_id": rid, "length_km": res.get("length_km"),
