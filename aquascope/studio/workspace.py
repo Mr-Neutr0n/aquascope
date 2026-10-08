@@ -124,7 +124,7 @@ class Dataset:
     """One row of the data inventory: a gauge, a well, a rain gauge, the ERA5 cell, the catchment, a user's table."""
 
     id: str
-    #: station | upload | reanalysis | catchment | donors | samples
+    #: station | upload | reanalysis | modelled | catchment | donors | samples
     kind: str
     variable: str | None = None
     source: str | None = None

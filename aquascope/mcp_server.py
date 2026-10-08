@@ -42,7 +42,8 @@ INSTRUCTIONS = (
     "methods the record there supports; do not run one it marks not_defensible. place_context(lat, lon) gives "
     "the flood history, surface water, flood hazard, dams, soil, evapotranspiration and nearest rain gauge of a "
     "place. Flood frequency needs at least "
-    "10 complete years of daily flow. Always show the licence/attribution returned with the data."
+    "10 complete years of daily flow. For a river with no gauge, snap_to_river then reach_record gives 86 years "
+    "of simulated flow, labelled modelled. Always show the licence/attribution returned with the data."
 )
 
 MAX_STATIONS = 200
@@ -344,6 +345,52 @@ def study_area(
                                 max_live=max(0, min(int(max_live), _area.MAX_LIVE_FETCHES)))
     except ValueError as exc:
         return {"error": str(exc)}
+
+
+def snap_to_river(lat: float, lon: float, max_distance_m: float = 1000.0) -> dict[str, Any]:
+    """Snap a point to the nearest GEOGLOWS v2 river reach (about 6.8 million worldwide): its river_id, Strahler
+    order and how far it is. Beyond max_distance_m it says there is no stream within that distance and names the
+    nearest reach found, so a hillside is not taken for a river. Call it before reach_record or trace_downstream
+    when you only have a place."""
+    from aquascope import rivers
+
+    return rivers.snap_to_river(lat, lon, max_distance_m=max_distance_m)
+
+
+def reach_record(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
+                 years: int | None = None, return_periods: list[float] | None = None) -> dict[str, Any]:
+    """The simulated daily discharge of a river reach since 1940 (GEOGLOWS v2, MODELLED, not measured), analysed
+    the way a gauge is: annual maxima, return periods (GEV L-moments and Log-Pearson III with 90 % CI),
+    flow-duration percentiles, the monthly regime and a Mann-Kendall trend. Give the river_id from snap_to_river,
+    or lat/lon to snap here (a point with no stream within 1 km gets an error, not a record). A gauge on the
+    same river outranks it; say it is modelled whenever you quote it. The daily arrays are left out here."""
+    from aquascope import rivers
+
+    return rivers.reach_summary(river_id, lat=lat, lon=lon, years=years, return_periods=return_periods)
+
+
+def upstream_area(river_id: int, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
+    """The area draining to a GEOGLOWS v2 river reach (km2) and how many reaches lie upstream, summed from the
+    model's unit catchments (within about 7 % of four agency-published gauge areas in our checks). lat/lon,
+    where the reach roughly is (snap_to_river gives them), only pick which processing unit is read first."""
+    from aquascope import rivers
+
+    return rivers.upstream_area(river_id, lat=lat, lon=lon)
+
+
+def trace_downstream(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
+                     gauge_km: float = 2.0) -> dict[str, Any]:
+    """Follow a river reach (or the reach a point snaps to) down to its outlet: how many reaches, how many km,
+    where it ends, the catalog gauges within gauge_km of the path in the order the water reaches them, and the
+    upstream area. The path geometry is thinned to 400 points (TDX-Hydro, CC BY-SA 4.0: for display)."""
+    from aquascope import rivers
+
+    res = rivers.trace_downstream(river_id, lat=lat, lon=lon, gauge_km=gauge_km, max_points=400)
+    reaches = res.get("reaches") or []
+    if len(reaches) > 40:
+        res["reaches"] = reaches[:20] + reaches[-20:]
+        res["reaches_note"] = f"{len(reaches)} reaches; the first and last 20 are listed."
+    return res
 
 
 def describe_methods() -> dict[str, Any]:
@@ -1022,6 +1069,10 @@ def build_server():
     server.tool()(assess_site)
     server.tool()(study_area)
     server.tool()(describe_catchment)
+    server.tool()(snap_to_river)
+    server.tool()(reach_record)
+    server.tool()(upstream_area)
+    server.tool()(trace_downstream)
     server.tool()(place_context)
     server.tool()(area_context)
     server.tool()(similar_basins)

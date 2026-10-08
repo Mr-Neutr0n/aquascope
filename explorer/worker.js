@@ -80,6 +80,37 @@ json.dumps(_res)
   post("result", { id, result: JSON.parse(out) });
 }
 
+// Rivers as objects (#516): aquascope.rivers, the same functions as `aquascope river` and the MCP tools.
+// snap reads a few byte ranges of the GEOGLOWS stream tiles; record asks the GEOGLOWS API for the reach's
+// simulated daily flow since 1940; trace reads the processing unit's routing tables (a few MB, up to about
+// 30 MB for the largest basins) and the catalog the page sent with "catalog".
+async function river({ id, op, args }) {
+  // The arguments travel inside the code as a JSON string literal, not through a shared global: two river
+  // calls can be in flight (a record still running when the next click snaps), and a global set by one
+  // and cleared by the other is read as null.
+  const payload = JSON.stringify(JSON.stringify({ op: String(op || ""), args: args || {} }));
+  const code = `
+import json
+from aquascope import rivers as _rivers
+_a = json.loads(${payload})
+_op, _k = _a["op"], _a["args"]
+if _op == "snap":
+    _res = _rivers.snap_to_river(_k["lat"], _k["lon"], max_distance_m=_k.get("max_distance_m") or 1000.0)
+elif _op == "record":
+    _res = _rivers.reach_record(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"))
+elif _op == "trace":
+    _res = _rivers.trace_downstream(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"),
+                                    gauge_km=_k.get("gauge_km") or 2.0, max_points=3000)
+elif _op == "area":
+    _res = _rivers.upstream_area(_k["river_id"], lat=_k.get("lat"), lon=_k.get("lon"))
+else:
+    raise ValueError(f"unknown river operation {_op!r}")
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
 async function floodCi({ id }) {
   const code = `
 import json
@@ -959,6 +990,7 @@ self.onmessage = async (e) => {
     await ready;
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
+    if (m.type === "river") return await river(m);
     if (m.type === "assess") return await assess(m);
     if (m.type === "compare") return await compare(m);
     if (m.type === "flood_ci") return await floodCi(m);

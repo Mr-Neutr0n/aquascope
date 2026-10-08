@@ -67,6 +67,39 @@ def test_uploads_go_through_the_ingest_qa():
     assert ws.to_dict()["inventory"]["datasets"][-1]["id"] == "upload:samples.csv"
 
 
+def test_the_reach_the_site_snaps_to_is_listed_as_modelled(monkeypatch):
+    from aquascope import rivers
+
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: {
+        "snapped": True, "river_id": 230399750, "distance_m": 18.0, "snap_lat": 51.4151, "snap_lon": -0.3085,
+        "message": "Snapped 18 m to river reach 230399750, Strahler order 6."})
+    ws = _ws()
+    with patched(UNGAUGED):
+        inv = scout.scout(ws)
+    reach = inv.dataset("geoglows_reach")
+    assert reach.kind == "modelled" and reach.variable == "discharge" and reach.station_id == "230399750"
+    assert reach.start == "1940-01-01" and reach.years > 80 and reach.distance_km == 0.018
+    assert reach.note.startswith("MODELLED, not measured") and reach.quality["licence"] == "CC BY 4.0"
+    assert [d.kind for d in inv.datasets] == ["catchment", "donors", "reanalysis", "modelled"]
+
+
+def test_no_stream_near_the_site_is_a_note_and_no_network_is_silent(monkeypatch):
+    from aquascope import rivers
+
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: {
+        "snapped": False, "message": "No stream within 1,000 m of this point."})
+    ws = _ws()
+    with patched(UNGAUGED):
+        inv = scout.scout(ws)
+    assert "geoglows_reach" not in [d.id for d in inv.datasets]
+    assert "GEOGLOWS river network: No stream within 1,000 m of this point." in inv.notes
+
+
+def test_an_unreadable_network_leaves_the_reach_out_quietly():
+    # tests/conftest.py takes GEOGLOWS off the network, as an outage would
+    assert scout.reach_dataset(51.4, -0.3) == (None, None)
+
+
 def test_the_place_context_layers_are_listed_with_their_licences():
     ws = _ws()
     with patched(RICH):

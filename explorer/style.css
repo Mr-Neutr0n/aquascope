@@ -1082,3 +1082,11 @@ body.workbench-mode .drawer { right: auto; left: 50%; transform: translateX(-50%
 #btn-place[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); }
 .cmp-swatch { display: inline-block; width: .7rem; height: .7rem; border-radius: 2px; margin-right: .35rem; vertical-align: middle; }
 #panel-places .card-body p.muted { font-size: .78rem; margin: 0 0 .4rem; }
+
+/* Rivers as objects (#516): the snap line, the River tab, the trace */
+.pt-snap { color: var(--ink-2, inherit); }
+.river-snap { margin: 2px 0 12px; }
+.river-snap:empty { display: none; }
+.river-snap .btn { margin-left: 6px; }
+.river-trace-out { margin-top: 10px; }
+.river-trace-out h4 { margin: 12px 0 6px; }

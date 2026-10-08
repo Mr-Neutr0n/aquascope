@@ -375,6 +375,19 @@ branches:
         expects:
           - check: not_empty
             path: glofas
+      - id: s5
+        tool: reach_record
+        optional: true
+        arguments:
+          lat: "{{ site.lat }}"
+          lon: "{{ site.lon }}"
+        rationale: >-
+          The GEOGLOWS v2 river reach the site snaps to, and its simulated daily flow since 1940 (MODELLED, not
+          measured): a continuous record at the point itself to set beside the transferred numbers, or a sentence
+          that no stream runs within 1 km.
+        expects:
+          - check: not_empty
+            path: ffa
 declines:
   - when:
       - path: derived.return_period_beyond_cap

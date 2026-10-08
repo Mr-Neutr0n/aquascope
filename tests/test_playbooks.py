@@ -80,10 +80,10 @@ def test_the_files_stay_within_the_yaml_subset_the_browser_reads():
     ("flood_risk", SHORT, {"return_period": 100}, "short_record",
      ["describe_catchment", "analyze_station", "similar_basins", "regionalize_signatures", "anywhere"]),
     ("flood_risk", UNGAUGED, {"return_period": 100}, "regional",
-     ["describe_catchment", "similar_basins", "regionalize_signatures", "anywhere"]),
+     ["describe_catchment", "similar_basins", "regionalize_signatures", "anywhere", "reach_record"]),
     ("ungauged_flow", LONG, {}, "at_gauge", ["describe_catchment", "analyze_station", "regionalize_signatures"]),
     ("ungauged_flow", UNGAUGED, {}, "regional",
-     ["describe_catchment", "similar_basins", "regionalize_signatures", "anywhere"]),
+     ["describe_catchment", "similar_basins", "regionalize_signatures", "anywhere", "reach_record"]),
     ("groundwater_decline", WELL, {}, "well",
      ["analyze_station", "get_timeseries", "sgi_drought", "get_timeseries", "recharge"]),
     ("groundwater_decline", UNGAUGED, {}, "regional", ["anywhere"]),
@@ -206,7 +206,10 @@ def test_the_273_scenario_is_refused_at_plan_time_and_by_the_gate():
 
 def test_an_optional_step_is_dropped_with_a_note_not_refused():
     study = pbk.plan("flood_risk", recon(None, [], donors=5, available=[]))
-    assert [s.tool for s in study.steps] == ["describe_catchment", "similar_basins", "regionalize_signatures"]
+    # GloFAS (a registry method the site does not support) is dropped; the GEOGLOWS reach record names no
+    # method and stays, as an optional modelled step (#516).
+    assert [s.tool for s in study.steps] == ["describe_catchment", "similar_basins", "regionalize_signatures",
+                                             "reach_record"]
     assert study.plan["notes"] and "glofas" in study.plan["notes"][0]
 
 

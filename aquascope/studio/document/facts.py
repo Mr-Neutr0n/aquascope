@@ -52,6 +52,7 @@ TOOL_WORDS = {
     "analyze_station": "record analysis",
     "flood_frequency": "flood frequency analysis",
     "anywhere": "reanalysis climate and modelled discharge (ERA5, GloFAS)",
+    "reach_record": "simulated discharge for the river reach (GEOGLOWS v2, modelled)",
     "similar_basins": "donor catchment search",
     "regionalize_signatures": "transfer of flow signatures from donor catchments",
     "supply_reliability": "supply reliability analysis",

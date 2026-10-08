@@ -745,6 +745,26 @@ def _sentences_for(tool: str, payload: dict[str, Any], study: Study) -> list[str
             if gev.get("q") and idx is not None:
                 s += f", {params.get('return_period') or 100}-year GEV {_fmt(gev['q'][idx])} m3/s"
             out.append(s + ".")
+    elif tool == "reach_record":
+        if payload.get("error"):
+            out.append("GEOGLOWS reach record not used: " + str(payload["error"]).rstrip(".") + ".")
+        else:
+            snap = payload.get("snap") or {}
+            where = (f", {_fmt(snap.get('distance_m'))} m from the site" if snap.get("distance_m") is not None
+                     else "")
+            st = payload.get("stats") or {}
+            s = (f"GEOGLOWS v2 simulated discharge for river reach {payload.get('river_id')}{where} (MODELLED, "
+                 f"not measured; {payload.get('start')} to {payload.get('end')}, {_fmt(payload.get('years'))} "
+                 f"years): mean {_fmt(st.get('mean'))} m3/s")
+            fdc = payload.get("fdc") or {}
+            if fdc.get("q95") is not None:
+                s += f", Q95 {_fmt(fdc['q95'])} m3/s, Q10 {_fmt(fdc.get('q10'))} m3/s"
+            fits = (payload.get("ffa") or {}).get("fits") or {}
+            gev = fits.get("gev_lmoments") or {}
+            idx = _rp_index(payload, params.get("return_period") or 100)
+            if gev.get("q") and idx is not None:
+                s += f", {params.get('return_period') or 100}-year GEV {_fmt(gev['q'][idx])} m3/s"
+            out.append(s + ".")
     elif tool == "sgi_drought":
         out.append(f"Standardised Groundwater Index: current {_fmt(payload.get('current'), 2)}, worst "
                    f"{_fmt(payload.get('worst'), 2)}, {len(payload.get('events') or [])} drought events below "

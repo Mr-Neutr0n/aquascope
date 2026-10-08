@@ -4,7 +4,8 @@ Deterministic, no model: the reconnaissance (``assess_site`` through the
 Solve team's ``_scout``, which survives a failed lookup), one
 :class:`~aquascope.studio.workspace.Dataset` per station and variable within
 reach, the catchment, the donor pool, the ERA5 cell (reachable for any point
-on land), and one dataset per upload, run through the ingest mapping and QA
+on land), the GEOGLOWS v2 river reach the site snaps to (86 years of simulated
+daily flow, listed as modelled), and one dataset per upload, run through the ingest mapping and QA
 so the report can say what the table holds and how complete it is.
 
 It also lists the place-context layers (#520) that cover any site: flood
@@ -17,12 +18,15 @@ set the historical events beside the estimate.
 from __future__ import annotations
 
 import io
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from aquascope.studio.workspace import Dataset, Inventory, Workspace
 
-__all__ = ["FLOOD_PLAYBOOKS", "choose_column", "context_layers", "scout", "upload_dataset"]
+__all__ = ["FLOOD_PLAYBOOKS", "choose_column", "context_layers", "reach_dataset", "scout", "upload_dataset"]
+
+logger = logging.getLogger(__name__)
 
 ERA5_START = "1940-01-01"
 #: The playbooks whose questions are about floods: the Scout reads the flood history for them.
@@ -126,6 +130,36 @@ def upload_dataset(dataset_id: str, csv: str, *, value_column: str | None = None
     )
 
 
+def reach_dataset(lat: float, lon: float) -> tuple[Dataset | None, str | None]:
+    """The GEOGLOWS v2 river reach the site snaps to, as a modelled dataset, and a note for the inventory.
+
+    Only the snap is read here (a few small range reads of the stream tiles); the record itself is fetched by
+    the plan's ``reach_record`` step. No stream within the tolerance gives ``None`` and the sentence that says
+    so; a network that cannot be read gives ``None`` and no note (the study goes on without the reach)."""
+    from aquascope import rivers
+
+    try:
+        snap = rivers.snap_to_river(lat, lon)
+    except Exception as exc:  # noqa: BLE001 - the inventory stands without the reach
+        logger.info("GEOGLOWS river reach unavailable at %s, %s: %s", lat, lon, exc)
+        return None, None
+    if not snap.get("snapped"):
+        return None, f"GEOGLOWS river network: {snap.get('message') or 'no stream near the site'}"
+    today = datetime.now(timezone.utc).date()
+    years = round((today - datetime(1940, 1, 1).date()).days / 365.25, 1)
+    ds = Dataset(
+        id="geoglows_reach", kind="modelled", variable="discharge", source="GEOGLOWS v2",
+        station_id=str(snap["river_id"]), name=f"GEOGLOWS river reach {snap['river_id']}",
+        lat=snap.get("snap_lat"), lon=snap.get("snap_lon"),
+        distance_km=round(float(snap["distance_m"]) / 1000.0, 3), start=rivers.RETRO_START, years=years,
+        resolution="daily",
+        quality={"verdict": "modelled", "licence": rivers.LICENCE["discharge"], "attribution": rivers.ATTRIBUTION},
+        note="MODELLED, not measured: simulated daily discharge (m3/s) for the river reach the site snaps to, "
+             f"{float(snap['distance_m']):,.0f} m away; a gauge on the same river outranks it",
+    )
+    return ds, None
+
+
 def context_layers() -> list[dict[str, Any]]:
     """The place-context layers as inventory rows: what each says and whose data it is (no network)."""
     from aquascope.context import LAYER_SOURCES
@@ -207,6 +241,11 @@ def scout(ws: Workspace) -> Inventory:
         note="precipitation, temperature and FAO-56 ET0 for a 9 km cell, any point on land; GloFAS modelled "
              "discharge for the same point, indicative",
     ))
+    reach, reach_note = reach_dataset(inv.site["lat"], inv.site["lon"])
+    if reach is not None:
+        inv.datasets.append(reach)
+    if reach_note:
+        inv.notes.append(reach_note)
     inv.context = context_layers()
     if ws.brief.playbook in FLOOD_PLAYBOOKS:
         _flood_history_note(ws, inv)
