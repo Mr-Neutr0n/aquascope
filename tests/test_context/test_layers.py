@@ -313,6 +313,14 @@ def test_dams_area_and_the_unpublished_mirror(web):
     assert res["available"] is False and "not available yet" in res["summary"]
 
 
+def test_a_dam_parked_at_0_0_has_no_position():
+    from aquascope.context.events import _dam
+
+    # the first GDW mirror read LAT_DAM/LONG_DAM, which are 0 for most barriers; no dam stands at 0, 0
+    assert _dam({"name": "Hoover", "lat": "0", "lon": "0"})["lat"] is None
+    assert _dam({"name": "Hoover", "lat": "36.0", "lon": "-114.7"})["lat"] == 36.0
+
+
 # ── rain gauge ───────────────────────────────────────────────────────────────
 
 

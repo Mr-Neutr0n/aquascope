@@ -242,13 +242,20 @@ river outranks it. The record comes from the GEOGLOWS REST API, under CC BY 4.0.
 **Trace to the sea** follows the reach downstream to its outlet with the
 model's own routing tables, draws the path on the map, and lists the gauges
 within 2 km of it in the order the water reaches them, with the length and the
-area that drains to the starting reach. The **Rivers (GEOGLOWS)** layer in the
+area that drains to the starting reach. Dams within 2 km of the path show as
+squares on the line and in a list with their storage, main use and the km where
+the water meets them (Global Dam Watch v1.0, CC BY 4.0, from the Archive's
+mirror). One line names the countries the river crosses (Natural Earth 1:50m,
+public domain) and another says whether dams upstream regulate the starting
+reach. Until the dam mirror is published the card says so and the rest of the
+trace stands. The **Rivers (GEOGLOWS)** layer in the
 rail draws the whole network by stream order, read in place from the 2.4 GB
 `streams.pmtiles` in the GEOGLOWS bucket. The network geometry is CC BY-SA 4.0:
-shown here, never republished. Dams on the path are not there yet.
+shown here, never republished.
 
-The same functions are `aquascope river snap|record|area|trace` and the MCP
-tools `snap_to_river`, `reach_record`, `upstream_area` and `trace_downstream`.
+The same functions are `aquascope river snap|record|area|trace|dams` and the MCP
+tools `snap_to_river`, `reach_record`, `upstream_area`, `trace_downstream` and
+`upstream_dams`.
 
 ## Evidence: the models against the gauge
 

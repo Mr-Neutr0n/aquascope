@@ -2,7 +2,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cumulativeKm, lineBounds, lineUpTo, riverWidth, snapLine, STREAMS_PMTILES } from "../src/river-core.js";
+import {
+  cumulativeKm, damFacts, damName, damsGeoJSON, lineBounds, lineUpTo, notableDams, riverWidth, snapLine, STREAMS_PMTILES,
+} from "../src/river-core.js";
 
 test("snapLine says where the click landed, or that no stream is near", () => {
   assert.equal(snapLine({ snapped: true, river_id: 230260670, distance_m: 199.8, strahler_order: 5 }),
@@ -40,4 +42,35 @@ test("the stream layer is styled by Strahler order and points at the GEOGLOWS bu
   assert.equal(w[0], "interpolate");
   assert.ok(JSON.stringify(w).includes("strahlerOrder"));
   assert.match(STREAMS_PMTILES, /^https:\/\/geoglows-v2\.s3\.us-west-2\.amazonaws\.com\/.+streams\.pmtiles$/);
+});
+
+test("a dam is named by GDW, else by its reservoir, else plainly", () => {
+  assert.equal(damName({ name: "Muehleberg" }), "Muehleberg");
+  assert.equal(damName({ name: "unnamed", reservoir: "Luzern" }), "Luzern dam");
+  assert.equal(damName({ name: null, reservoir: null }), "Unnamed dam");
+  assert.equal(damName(null), "");
+});
+
+test("damFacts says the storage and the main use in a few words", () => {
+  assert.equal(damFacts({ capacity_mcm: 2550, purpose: "Hydroelectricity" }), "2,550 million m³, hydroelectricity");
+  assert.equal(damFacts({ capacity_mcm: 9.62 }), "9.6 million m³");
+  assert.equal(damFacts({ capacity_mcm: null, purpose: null }), "");
+  assert.equal(damFacts({ capacity_mcm: 0, purpose: "Irrigation" }), "irrigation");
+});
+
+test("damsGeoJSON keeps each dam's place in the list and skips the unplaced", () => {
+  const fc = damsGeoJSON([{ name: "A", lat: 46.9, lon: 7.4 }, { name: "B", lat: null, lon: 7 }, { name: "C", lat: 47, lon: 8 }]);
+  assert.equal(fc.type, "FeatureCollection");
+  assert.deepEqual(fc.features.map((f) => f.properties.i), [0, 2]);
+  assert.deepEqual(fc.features[1].geometry.coordinates, [8, 47]);
+  assert.equal(damsGeoJSON(undefined).features.length, 0);
+});
+
+test("notableDams lists the named or storing dams and counts the unnamed weirs", () => {
+  const dams = [{ name: "unnamed" }, { name: "Muehleberg", capacity_mcm: 25 }, { name: "unnamed", capacity_mcm: 9.6 },
+    { name: "unnamed", reservoir: "Luzern" }, { name: "unnamed", capacity_mcm: null }];
+  const { notable, others } = notableDams(dams);
+  assert.equal(notable.length, 3);
+  assert.equal(others, 2);
+  assert.deepEqual(notableDams(undefined), { notable: [], others: 0 });
 });

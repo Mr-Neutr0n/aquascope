@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aquascope.explore
 from aquascope.studio.roles import scout
-from aquascope.studio.workspace import Workspace
+from aquascope.studio.workspace import Dataset, Workspace
 from tests.test_studio.conftest import RICH, SAMPLES_CSV, SERIES_CSV, UNGAUGED, patched
 
 
@@ -168,6 +168,80 @@ def test_the_flood_playbook_caveat_follows_the_events_the_scout_found(monkeypatc
     assert not any(flagged in c for c in without)
 
 
+UPSTREAM = {"available": True, "regulated": True, "n_dams": 7, "total_capacity_mcm": 142.0,
+            "degree_of_regulation_pct": 3.8, "dams": [{"name": "Spitallamm"}, {"name": "Raterichsboden"}],
+            "summary": "Regulated upstream: 7 dams in Global Dam Watch drain to this reach, holding about 142 "
+                       "million m3, about 3.8 % of a year's mean flow here (GEOGLOWS, modelled)."}
+
+
+def _with_reach(monkeypatch, river_id="230260670"):
+    reach = Dataset(id="geoglows_reach", kind="modelled", variable="discharge", source="GEOGLOWS v2",
+                    station_id=river_id, name=f"GEOGLOWS river reach {river_id}")
+    monkeypatch.setattr(scout, "reach_dataset", lambda lat, lon: (reach, None))
+
+
+def test_a_supply_question_reads_the_dams_upstream_as_context(monkeypatch):
+    seen = []
+
+    def fake(lat, lon, river_id=None):
+        seen.append((lat, lon, river_id))
+        return dict(UPSTREAM)
+
+    monkeypatch.setattr(scout, "_read_upstream_dams", fake)
+    _with_reach(monkeypatch)
+    ws = _ws()
+    ws.brief.problem, ws.brief.playbook = "supply", "supply_reliability"
+    with patched(RICH):
+        inv = scout.scout(ws)
+    assert seen == [(51.415, -0.308, "230260670")]  # the reach the site snapped to
+    dams = next(c for c in inv.context if c["layer"] == "dams")
+    assert dams["regulated_upstream"] is True and dams["upstream"].startswith("Regulated upstream: 7 dams")
+    assert inv.recon["context"]["upstream_dams"]["degree_of_regulation_pct"] == 3.8
+    assert inv.recon["context"]["upstream_dams"]["largest"] == ["Spitallamm", "Raterichsboden"]
+    assert any(n.startswith("Dams upstream: Regulated upstream") for n in inv.notes)
+    # the reconnaissance the caller passed in (what HydroGym scores against) is left alone
+    assert "upstream_dams" not in (RICH.get("context") or {})
+
+
+def test_the_dams_upstream_are_read_for_a_flood_question_but_not_a_drought_one(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scout, "_read_upstream_dams", lambda lat, lon, river_id=None: calls.append(1) or {
+        "available": False, "regulated": None, "summary": "Dams upstream are not available yet."})
+    _with_reach(monkeypatch)
+    ws = _ws()
+    ws.brief.playbook = "flood_change"
+    with patched(RICH):
+        inv = scout.scout(ws)
+    assert calls == [1] and "upstream_dams" not in (inv.recon.get("context") or {})
+    assert "Dams upstream: Dams upstream are not available yet." in inv.notes
+    with patched(RICH):
+        scout.scout(_ws())  # drought_status
+    assert calls == [1]
+
+
+def test_a_failed_dams_upstream_read_never_stops_the_scout(monkeypatch):
+    def boom(lat, lon, river_id=None):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(scout, "_read_upstream_dams", boom)
+    _with_reach(monkeypatch)
+    ws = _ws()
+    ws.brief.playbook = "supply_reliability"
+    with patched(RICH):
+        inv = scout.scout(ws)
+    assert "upstream" not in next(c for c in inv.context if c["layer"] == "dams")
+    assert any("dams upstream unreadable" in e["detail"] for e in ws.events)
+
+
+def test_no_reach_means_no_dams_upstream_to_read(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scout, "_read_upstream_dams", lambda lat, lon, river_id=None: calls.append(1) or dict(UPSTREAM))
+    monkeypatch.setattr(scout, "reach_dataset", lambda lat, lon: (None, "GEOGLOWS river network: no stream near"))
+    ws = _ws()
+    ws.brief.playbook = "flood_risk"
+    with patched(RICH):
+        inv = scout.scout(ws)
+    assert calls == [] and not any(n.startswith("Dams upstream") for n in inv.notes)
 # ── which global model to lean on near the site (#518) ──────────────────────
 
 LEAN = {"model": "grrr", "label": "Google GRRR", "median_kge": 0.61, "n_gauges": 3,
