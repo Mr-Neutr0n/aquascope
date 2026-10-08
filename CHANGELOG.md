@@ -9,6 +9,7 @@ All notable changes to AquaScope are documented here.
 
 ### Fixed
 - **A source's health record keeps the error under a wrapped failure** (#498). BOM raises one `RuntimeError` once every parameter type has failed, and the harvest recorded only that message, so the 2026-10-05 outage (503s and timeouts) was filed as unclassified and sent to the repair bot as a possible code fault. The catalog error now carries the exceptions it was raised from, so the health issue names the 503.
+- **The weekly harvest now reaches the files the 40-year cap truncated** (#501). The 0.21.0 change (#270) sorted them first among stations due a refresh, but behind every station never harvested; USGS has about 25,000 of those, enough to fill each weekly budget of 150, so its 133 truncated files would have waited about three years. They now go ahead of new stations, and the stations the Explorer's daily live check reads (Fish River, Thames at Kingston, Seine at Paris) go first of all while new, stale or truncated.
 - Record the verified v0.25.0 Zenodo DOI (`10.5281/zenodo.23219118`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.
 
 ## [0.25.0] - 2026-10-08
