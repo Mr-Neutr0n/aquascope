@@ -7,6 +7,8 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-09
+
 ### Added
 - **A monthly state-of-the-rivers bulletin** (#523, part of #526), in the style of WMO HydroSOS ([docs/bulletin.md](docs/bulletin.md)).
   - `aquascope.bulletin.status_bulletin(month, sources)`: every Archive gauge with a mirrored discharge record covering the month, its monthly mean (25 days or more) placed against the same month in its other years (10 or more, else left out and counted) as a mid-rank percentile and one of the five classes from much below normal to much above normal. Rolled up per country and per BasinATLAS river basin, with the new monthly highs and lows, the gauges furthest from their usual flow, the coverage and a summary paragraph written by rules, not a model. The published bulletin is read first; otherwise it is built from the discharge bundles, and `top_up` asks the agencies for the days the weekly mirror does not have yet.
