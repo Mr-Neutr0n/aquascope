@@ -268,12 +268,13 @@ class USGSCollector(BaseCollector):
             Hard cap on total records fetched (across all pages). Keeps response
             times predictable. ``None`` means no cap.
 
-        Other keyword filters: ``station_id`` (or ``sites`` /
-        ``monitoring_location_id``), ``parameter``, ``statCd`` (the statistic,
-        e.g. ``"00003"`` for the daily mean), ``stateCd``, ``countyCd``,
-        ``huc``. ``skip_geometry=True`` drops the point geometry from every
-        feature and ``properties=[...]`` narrows the fields returned; both make
-        a long record a smaller download.
+        **kwargs
+            Filters: ``station_id`` (or ``sites`` / ``monitoring_location_id``),
+            ``parameter``, ``statCd`` (the statistic, for example ``"00003"``
+            for the daily mean), ``stateCd``, ``countyCd``, ``huc``.
+            ``skip_geometry=True`` drops the point geometry from every feature
+            and ``properties=[...]`` narrows the fields returned; both make a
+            long record a smaller download.
         """
         collection = COLLECTION_ALIASES.get(collection, collection)
         if datetime_range is None:
