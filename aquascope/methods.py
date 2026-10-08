@@ -105,6 +105,17 @@ _SENSITIVE_WORDS = {
     "snow": "snow shapes the regime here: a method without a snow store misreads the timing of the flow",
 }
 
+#: The same sensitivities worded for what they do to a particular method, where the generic line is about
+#: something else (a flood fit has no snow store; what snow does to it is mix two kinds of flood).
+_SENSITIVE_WORDS_BY_METHOD = {
+    ("at_site_flood_frequency", "snow"): "snowmelt shapes the flood regime here: the annual maxima can mix "
+    "snowmelt and rainfall floods, which one fitted distribution represents less well",
+    ("pot_flood", "snow"): "snowmelt shapes the flood regime here: the peaks can mix snowmelt and rainfall floods, "
+    "which one fitted distribution represents less well",
+    ("baseflow_separation", "snow"): "snowmelt shapes the regime here: a recession filter can read slow melt as "
+    "baseflow",
+}
+
 
 METHODS: dict[str, MethodPrecondition] = {
     m.id: m
@@ -538,7 +549,8 @@ def assess_method(method: MethodPrecondition | str, ctx: SiteContext) -> dict[st
     for cond in pre.sensitive_to:
         if cond in ctx.available:
             status = MARGINAL
-            reasons.append(_SENSITIVE_WORDS.get(cond, f"sensitive to {cond}, which is present here"))
+            reasons.append(_SENSITIVE_WORDS_BY_METHOD.get((pre.id, cond)) or
+                           _SENSITIVE_WORDS.get(cond, f"sensitive to {cond}, which is present here"))
 
     return {"method": pre.id, "status": status, "reason": "; ".join(reasons) if reasons else "the record supports it"}
 

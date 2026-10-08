@@ -452,8 +452,13 @@ def key_numbers(study: Study, results: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def software_citation() -> str:
-    from aquascope.studio.deliverables._common import citation
-
+    """The software's own reference. The Author must not depend on the deliverables package (a core install, or
+    a face that blocks it), so without it the citation names the concept DOI alone."""
+    try:
+        from aquascope.studio.deliverables._common import citation
+    except ImportError:
+        return (f"Rekin226 and contributors. AquaScope Hydrology {__version__} [Software]. All versions: "
+                f"https://doi.org/{SOFTWARE_DOI}.")
     return citation()
 
 

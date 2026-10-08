@@ -422,6 +422,7 @@ SOURCES: dict[str, SourceMeta] = {
         license="CC-BY-3.0-AU", redistributable=True,
         attribution="Bureau of Meteorology, © Commonwealth of Australia",
         supports_station_lookup=True,
+        browser_reachable=False,  # KiWIS answers any cross-origin request (an Origin header) with 403
     ),
     # ── Global ──────────────────────────────────────────────────────────
     "grdc": _s(

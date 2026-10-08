@@ -710,6 +710,39 @@ body.drawer-open .panel { visibility: hidden; }
 .modal-body h3 { font-size: .89rem; margin: 1rem 0 .3rem; }
 .modal-body pre { background: var(--bg-sunken); padding: .65rem .7rem; border-radius: var(--radius-xs); overflow: auto; font-size: .77rem; }
 .modal-body .cite-methods { padding-left: 1.1rem; font-size: .79rem; color: var(--muted); }
+/* the study reader: the composed report at full height, the frame carries its own page styles */
+.study-reader { place-items: stretch center; }
+.study-reader-box { max-width: 980px; max-height: none; height: calc(100vh - 2rem); display: flex; flex-direction: column; overflow: hidden; }
+.study-reader-box .row-actions { margin: 0; }
+.study-reader-box { max-width: 1320px; }
+.study-reader-body { flex: 1; display: flex; min-height: 0; }
+.study-reader-box iframe { flex: 1; width: 100%; min-width: 0; border: 0; background: #e9ecef; }
+.desk-panel { width: 340px; flex: none; overflow-y: auto; border-left: 1px solid var(--line); padding: .7rem .85rem 1.2rem; font-size: .82rem; line-height: 1.45; background: var(--surface-solid); }
+.desk-panel[hidden] { display: none; }
+.desk-panel.busy { opacity: .6; pointer-events: none; }
+.desk-panel h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1rem 0 .4rem; }
+.desk-panel h3:first-child { margin-top: .1rem; }
+.desk-field { display: flex; flex-direction: column; gap: .25rem; margin: 0 0 .6rem; border: 0; padding: 0; }
+.desk-field legend { padding: 0; margin-bottom: .2rem; }
+.desk-field input, .desk-field select, .desk-inline input, .desk-inline select { font: inherit; padding: .3rem .4rem; border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--surface-solid); color: inherit; }
+.desk-radio { display: flex; align-items: center; gap: .35rem; }
+.desk-chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+.desk-chips .chip.off { text-decoration: line-through; opacity: .65; }
+.desk-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.desk-table td { padding: .2rem .25rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.desk-table td.r { text-align: right; white-space: nowrap; }
+.desk-table tr.em td { font-weight: 600; }
+.desk-sign, .desk-comments, .desk-revs { list-style: none; padding: 0; margin: 0 0 .5rem; }
+.desk-sign li { display: flex; justify-content: space-between; gap: .5rem; padding: .15rem 0; }
+.desk-comments li { padding: .3rem 0; border-bottom: 1px solid var(--line); }
+.desk-comments li.done { opacity: .75; }
+.desk-revs li { padding: .15rem 0; }
+.desk-inline { display: flex; gap: .3rem; margin: .3rem 0; }
+.desk-inline input { flex: 1; min-width: 0; }
+.desk-badge { font-size: .68rem; letter-spacing: .1em; border: 1px solid currentColor; border-radius: 3px; padding: 0 .3rem; margin-left: .3rem; }
+@media (max-width: 900px) { .study-reader-body { flex-direction: column; } .desk-panel { width: auto; border-left: 0; border-top: 1px solid var(--line); max-height: 45vh; } }
+.study-docs-card { border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius-xs); padding: .7rem .8rem; margin: .6rem 0 .8rem; font-size: .85rem; line-height: 1.5; }
+.study-docs-card .row-actions { margin-top: .5rem; }
 
 /* ── the workbench (your own data) ───────────────────────────────────────── */
 

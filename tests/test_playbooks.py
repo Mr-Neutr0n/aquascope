@@ -537,7 +537,7 @@ def test_the_scout_asks_the_registry_by_the_playbooks_problem_not_its_id():
     """drought_status is the playbook, drought the problem the sufficiency table knows; the live run had crashed."""
     seen = {}
 
-    def fake_assess(lat, lon, *, problem=None, return_period=None):
+    def fake_assess(lat, lon, *, problem=None, return_period=None, probe_km=0.0):
         seen["problem"] = problem
         return RICH
 

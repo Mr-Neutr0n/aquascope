@@ -10,6 +10,7 @@ import io
 import json
 import math
 import random
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -369,7 +370,7 @@ def test_figures_for_follows_the_catalogue(station) -> None:
     kinds = [a.meta["kind"] for a in arts if a.media_type == "image/png"]
     assert kinds == catalogue.get("analyze_station").figures
     series = next(a for a in arts if a.id == "fig-s2-series")
-    assert "uk_ea 3400TH" in series.caption and "annual maxima" in series.caption
+    assert "UK EA 3400TH" in series.caption and "annual maxima" in series.caption
     curve = next(a for a in arts if a.id == "fig-s2-frequency_curve")
     assert "bootstrap" in curve.caption and "Log-Pearson" in curve.caption
     trend = next(a for a in arts if a.id == "fig-s2-trend")
@@ -503,30 +504,34 @@ def test_sheet_title_is_safe_and_unique() -> None:
 # ── reports ───────────────────────────────────────────────────────────────
 
 
-def test_report_markdown_has_sections_numbers_and_figures(ws) -> None:
+def test_report_markdown_is_a_technical_report(ws) -> None:
     md = report_md.report_markdown(ws)
-    for s in ws.report["sections"]:
-        assert f"## {s['title']}" in md
-    assert "| Q100 | 62 | m3/s | s2 |" in md and "Record length" in md
-    assert "The 100-year flow is about 62 m3/s" in md
-    assert "## What this study does not establish" in md and "climate change" in md
-    assert "## Caveats" in md and "## References" in md and "Hosking" in md
-    assert "Produced by AquaScope Studio" in md
-    assert "](figures/s2_frequency_curve.png)" in md and "](figures/s3_drought_strip.png)" in md
-    assert "| T | estimator | unit | estimate | lower | upper | interval_method | confidence_level |" in md
-    assert "nan" not in md
-    order = [md.index(h) for h in ("## Limitations", "## What this study does not establish", "## Caveats",
-                                   "## Recommendations", "## References", "## Appendix")]
+    heads = [line for line in md.splitlines() if line.startswith("## ")]
+    for h in ("## Summary", "## 1 Introduction", "## 3 Data", "## 4 Method", "## 5 Results",
+              "## 6 Checks and confidence", "## 8 Recommendations", "## References"):
+        assert h in heads, (h, heads)
+    order = [heads.index(h) for h in ("## Summary", "## 1 Introduction", "## 5 Results", "## References")]
     assert order == sorted(order)
+    # the answer leads, with its unit written as a reader writes it
+    assert "> **Answer**: 100-year flood: 62 m³/s" in md
+    assert "m3/s" not in md and "nan" not in md
+    # results are organised by question, not by step
+    assert "Results: step" not in md and "### 5.1 Design flood" in md
+    assert "| **100** | **1** | **62** |" in md                 # the design return period in bold
+    assert "climate change" in md and "Hosking" in md
+    assert "](figures/s2_frequency_curve.png)" in md and "](figures/s3_drought_strip.png)" in md
+    # every figure once, numbered in order
+    nums = [int(n) for n in re.findall(r"!\[Figure (\d+)\]", md)]
+    assert nums == list(range(1, len(nums) + 1))
 
 
 def test_report_html_is_self_contained(ws) -> None:
     html = report_md.report_html(ws)
-    assert html.count("data:image/png;base64,") == 3
+    md = report_md.report_markdown(ws)
+    assert html.count("data:image/png;base64,") == md.count("](figures/") > 0
     assert 'src="figures/' not in html and "Figure not found" not in html
-    for s in ws.report["sections"]:
-        assert s["title"] in html
-    assert "<table>" in html and "Q100" in html and "Hosking" in html
+    assert "<h1><span class=\"num\">5</span>Results</h1>" in html
+    assert 'class="callout' in html and "@page" in html and "Hosking" in html
 
 
 def test_docx_reloads_with_headings_figures_and_tables(ws) -> None:
@@ -536,17 +541,25 @@ def test_docx_reloads_with_headings_figures_and_tables(ws) -> None:
     assert data is not None and data[:2] == b"PK"
     doc = docx.Document(io.BytesIO(data))
     headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
-    for s in ws.report["sections"]:
-        assert s["title"] in headings
-    assert "What this study does not establish" in headings
-    assert sum(h.startswith("Appendix") for h in headings) == 1
-    assert len(doc.inline_shapes) == 3
-    assert len(doc.tables) >= 4  # key numbers, two site tables, return levels, index divergence, ledger
-    assert doc.tables[0].rows[0].cells[0].text == "Quantity"
+    for h in ("Summary", "1  Introduction", "5  Results", "6  Checks and confidence", "References"):
+        assert h in headings, (h, headings)
+    assert sum(h.startswith("Appendix") for h in headings) >= 1
+    assert len(doc.inline_shapes) == report_md.report_markdown(ws).count("](figures/")
     text = "\n".join(p.text for p in doc.paragraphs)
-    assert "version: 3" in text and "tool: \"analyze_station\"" in text  # the study.yaml appendix
-    assert "Prepared by AquaScope Studio" in text and "No language model was used" in text
-    assert "1,550 tokens" in text
+    assert "Table 1." in text and "Figure 1." in text
+    assert "No language model was used" in text and "m3/s" not in text
+    tables_text = " ".join(c.text for t in doc.tables for row in t.rows for c in row.cells)
+    assert "Checked by" in tables_text and "Not yet checked" in tables_text
+    assert doc.sections[0].different_first_page_header_footer
+
+
+def test_memo_is_short_and_leads_with_the_answer(ws) -> None:
+    from aquascope.studio.document import build_memo
+
+    memo = build_memo(ws)
+    assert memo.kind == "Technical memorandum"
+    assert [h for h in memo.outline()][:2] == ["1 Question", "2 Answer"]
+    assert len(memo.figures) <= 1 and len(memo.tables) <= 1
 
 
 def test_docx_markdown_converter() -> None:
@@ -605,11 +618,11 @@ def test_notebook_is_valid_nbformat(ws) -> None:
 def test_build_adds_the_documents_and_the_zip_lists_them(ws) -> None:
     before = len(ws.artifacts)
     added = bundle.build(ws)
-    assert [a.id for a in added] == ["report-md", "report-html", "report-docx", "workbook", "notebook", "study",
-                                     "workspace", "bundle"]
-    assert [a.name for a in added] == ["report.md", "report.html", "report.docx", "workbook.xlsx", "study.ipynb",
-                                       "study.yaml", "workspace.json", "bundle.zip"]
-    assert len(ws.artifacts) == before + 8
+    assert [a.id for a in added] == ["report-md", "report-html", "report-docx", "memo-docx", "memo-html",
+                                     "workbook", "notebook", "study", "workspace", "bundle"]
+    assert [a.name for a in added] == ["report.md", "report.html", "report.docx", "memo.docx", "memo.html",
+                                       "workbook.xlsx", "study.ipynb", "study.yaml", "workspace.json", "bundle.zip"]
+    assert len(ws.artifacts) == before + 10
     assert ws.artifact("study").data.startswith(b"# An AquaScope study (version 3)")
     ws_json = json.loads(ws.artifact("workspace").data)
     assert ws_json["id"] == ws.id and "data" not in ws_json["artifacts"][0]
@@ -624,7 +637,7 @@ def test_build_adds_the_documents_and_the_zip_lists_them(ws) -> None:
     assert any(e["event"] == "artifact" and "bundle.zip" in e["detail"] for e in ws.events)
     # building again replaces by id rather than duplicating
     bundle.build(ws, formats=["md", "zip"])
-    assert len(ws.artifacts) == before + 8
+    assert len(ws.artifacts) == before + 10
 
 
 def test_build_formats_subset(ws) -> None:
@@ -648,4 +661,4 @@ def test_workspace_roundtrip_keeps_artifact_bytes(ws) -> None:
     again = Workspace.from_json(ws.to_json())
     fig = again.artifact("fig-s2-series")
     assert fig is not None and fig.data == ws.artifact("fig-s2-series").data
-    assert report_md.report_html(again).count("data:image/png;base64,") == 3
+    assert report_md.report_html(again) == report_md.report_html(ws)

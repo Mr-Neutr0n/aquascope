@@ -17,8 +17,10 @@ aquascope in your browser (Pyodide) to compute:
 - and a "Methods and citations" panel naming exactly what was computed and the
   references, so the numbers are defensible in a report.
 
-Every result has a permalink (`#s=<source>/<station_id>`), a CSV download, and
-a link to the agency page. Data licence and attribution are shown per source.
+The full record is fetched by default; the **Period** control on the record card
+cuts it to the last 40 or 20 years. Every result has a permalink
+(`#s=<source>/<station_id>`, plus `&yr=40` or `&yr=20` for a shorter period), a
+CSV download, and a link to the agency page. Data licence and attribution are shown per source.
 
 Click anywhere that is not a gauge and you get the **hydrology of that point**
 (`#p=<lat>,<lon>`): ERA5 rainfall and temperature, FAO-56 reference

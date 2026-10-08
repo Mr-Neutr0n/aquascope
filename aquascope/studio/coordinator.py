@@ -524,7 +524,8 @@ class Studio:
             except Exception as exc:  # noqa: BLE001
                 ws.event("author", "error", f"{type(exc).__name__}: {exc}")
         self._apply_verdict()
-        self._build_deliverables()
+        if not getattr(self, "_defer_deliverables", False):
+            self._build_deliverables()
         ws.set_status("done")
         report = ws.report or {}
         ws.say("author", str(report.get("answer") or ""), kind="report",
@@ -625,6 +626,82 @@ class Studio:
         ws.set_study(out["study"])
         ws.event("coordinator", "steer", f"{out['text']}; rerunning {', '.join(out['dirty'])}")
         return self._run_to_report(prior=prior, reuse=keep)
+
+    # ── the Study Desk (aquascope.studio.desk) ──
+
+    def revise(self, changes: dict[str, Any], *, by: str | None = None, note: str | None = None) -> Reply:
+        """Revise a finished study from the Desk: ``changes`` maps levers (:data:`aquascope.studio.desk.LEVERS`)
+        to values. Rerun levers (return period, record window, excluded years) go to every flood step through
+        the steering, which reruns those steps and their dependants with their gates; document levers (the
+        distribution quoted) change what the answer quotes. The documents are written again and a revision is
+        recorded with the answer before and after. A refused lever says why and changes nothing."""
+        from aquascope.studio import desk
+        from aquascope.studio.roles.analysts import prior_run
+        from aquascope.studio.steering import apply_change
+
+        ws = self.ws
+        if ws.status != "done" or not ws.study:
+            return Reply("answer", f"A study can be revised once its report is out (status {ws.status}).",
+                         {"kind": "desk", "status": ws.status})
+        step_changes, doc, errors = desk.split_changes(ws, dict(changes or {}))
+        if errors or not (step_changes or doc):
+            text = "The revision was not made: " + ("; ".join(errors) if errors else "nothing would change")
+            return Reply("answer", text, {"kind": "desk", "errors": errors})
+        desk.baseline(ws)
+        before = desk._headline(ws)
+        words: list[str] = []
+        reply: Reply | None = None
+        if step_changes:
+            study = ws.study_obj()
+            dirty: set[str] = set()
+            for sid, change in step_changes.items():
+                try:
+                    out = apply_change(study, sid, change)
+                except ValueError as exc:
+                    return Reply("answer", f"The revision was not made: {exc}", {"kind": "desk",
+                                                                                 "errors": str(exc).split("; ")})
+                study = out["study"]
+                dirty |= set(out["dirty"])
+                words.append(out["text"])
+            prior = prior_run(ws)
+            keep = [str(r.get("id")) for r in (prior.results if prior else []) if str(r.get("id")) not in dirty]
+            ws.set_study(study)
+            ws.event("coordinator", "revise", f"{'; '.join(words)}; rerunning {', '.join(sorted(dirty))}")
+            self._defer_deliverables = True
+            saved_tools = self._tools
+            # A revision changes assumptions, not data: the flood steps refit the record the study holds.
+            # A caller's own tools (the browser's, a test's) keep precedence.
+            self._tools = {**desk.stored_record_tools(ws), **saved_tools}
+            try:
+                reply = self._run_to_report(prior=prior, reuse=keep)
+            finally:
+                self._defer_deliverables = False
+                self._tools = saved_tools
+        if doc.get("estimator"):
+            desk.desk_state(ws)["estimator"] = doc["estimator"]
+            words.append(f"the answer quotes {desk.ESTIMATORS[doc['estimator']]}")
+        desk.apply_estimator(ws)
+        lever_words = desk.describe({k: v for c in step_changes.values() for k, v in c.items()} | doc, before)
+        parts = lever_words or [w[:1].upper() + w[1:] for w in words]
+        description = note or "; ".join([parts[0], *[p[:1].lower() + p[1:] for p in parts[1:]]])
+        rev = desk.record_revision(ws, description, before=before, by=by)
+        self._build_deliverables()
+        reply = self._report_reply()
+        reply.payload.update({"kind": "desk", "revision": rev, "levers": desk.levers(ws)})
+        return reply
+
+    def sign(self, role: str, name: str, *, date: str | None = None) -> Reply:
+        """Sign the study (prepared_by, checked_by, approved_by); the status and the documents follow."""
+        from aquascope.studio import desk
+
+        try:
+            rev = desk.sign(self.ws, role, name, date=date)
+        except ValueError as exc:
+            return Reply("answer", f"Not signed: {exc}", {"kind": "desk", "errors": [str(exc)]})
+        self._build_deliverables()
+        reply = self._report_reply()
+        reply.payload.update({"kind": "desk", "revision": rev})
+        return reply
 
     def narrate(self, sections: dict[str, str] | list[dict[str, Any]], *, source: str = "device") -> Reply:
         """Prose a model of the caller's own wrote for the report, after the crew's checks (only after the

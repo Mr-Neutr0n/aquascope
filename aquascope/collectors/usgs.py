@@ -396,7 +396,8 @@ class USGSCollector(BaseCollector):
                                 "value": val,
                                 "time": dt,
                                 "unit_of_measure": unit,
-                                "catchment_area_km2": catchment_area_km2
+                                "catchment_area_km2": catchment_area_km2,
+                                "qualifier": value.get("qualifiers")
                             }
                         })
 

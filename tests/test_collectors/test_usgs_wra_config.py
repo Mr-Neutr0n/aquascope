@@ -15,6 +15,7 @@ from aquascope.collectors.usgs import USGSCollector
 from aquascope.schemas.water_data import (
     DataSource,
     GeoLocation,
+    Quality,
     StreamflowReading,
     WaterLevelReading,
     WaterQualitySample,
@@ -216,6 +217,68 @@ class TestUSGSCollectorKeyless:
         assert samples[0].location.latitude == 38.9
         assert samples[0].location.longitude == -77.1
         assert samples[1].discharge_cms == 68.8
+
+    def test_keyless_daily_quality_flags_are_preserved(self, monkeypatch):
+        monkeypatch.delenv("USGS_API_KEY", raising=False)
+        collector = USGSCollector()
+
+        mock_response = {
+        "value": {
+            "timeSeries": [
+                {
+                    "sourceInfo": {
+                        "siteCode": [{"value": "01646500"}],
+                        "geoLocation": {
+                            "geogLocation": {
+                                "latitude": 38.9,
+                                "longitude": -77.1,
+                            }
+                        },
+                    },
+                    "variable": {
+                        "variableCode": [{"value": "00060"}],
+                        "unit": {"unitCode": "ft3/s"},
+                        "noDataValue": -999999.0,
+                    },
+                    "values": [
+                        {
+                            "value": [
+                                {
+                                    "value": "10.0",
+                                    "dateTime": "2026-07-20T00:00:00.000",
+                                    "qualifiers": ["A"],
+                                },
+                                {
+                                    "value": "20.0",
+                                    "dateTime": "2026-07-21T00:00:00.000",
+                                    "qualifiers": ["P"],
+                                },
+                                {
+                                    "value": "30.0",
+                                    "dateTime": "2026-07-22T00:00:00.000",
+                                    "qualifiers": ["e"],
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+        collector.client.get_json = Mock(return_value=mock_response)
+
+        raw = collector.fetch_raw(
+            collection="daily",
+            station_id="01646500",
+            days=5,
+        )
+
+        samples = collector.normalise(raw)
+
+        assert samples[0].quality == Quality.APPROVED
+        assert samples[1].quality == Quality.PROVISIONAL
+        assert samples[2].quality == Quality.ESTIMATED
 
     def test_keyless_sta_fetch_and_normalise(self, monkeypatch):
         monkeypatch.delenv("USGS_API_KEY", raising=False)

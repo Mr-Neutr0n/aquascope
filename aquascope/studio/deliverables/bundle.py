@@ -17,21 +17,23 @@ from typing import Any
 
 from aquascope.studio.deliverables import _common as c
 from aquascope.studio.deliverables.notebook import notebook_json
-from aquascope.studio.deliverables.report_docx import report_docx_bytes
-from aquascope.studio.deliverables.report_md import report_html, report_markdown
+from aquascope.studio.deliverables.report_docx import memo_docx_bytes, report_docx_bytes
+from aquascope.studio.deliverables.report_md import memo_html, report_html, report_markdown
 from aquascope.studio.deliverables.workbook import workbook_bytes
 from aquascope.studio.workspace import MEDIA_TYPES, Artifact, Workspace
 
 logger = logging.getLogger(__name__)
 
 #: The formats :func:`build` knows, in the order they are made. ``zip`` is the bundle of all the others.
-FORMATS = ("md", "html", "docx", "xlsx", "ipynb", "yaml", "findings", "json", "zip")
+FORMATS = ("md", "html", "docx", "memo", "memo-html", "xlsx", "ipynb", "yaml", "findings", "json", "zip")
 
 _SPEC: dict[str, tuple[str, str, str, str]] = {
     # format: (artifact id, kind, file name, media type key)
     "md": ("report-md", "document", "report.md", "md"),
     "html": ("report-html", "document", "report.html", "html"),
     "docx": ("report-docx", "document", "report.docx", "docx"),
+    "memo": ("memo-docx", "document", "memo.docx", "docx"),
+    "memo-html": ("memo-html", "document", "memo.html", "html"),
     "xlsx": ("workbook", "workbook", "workbook.xlsx", "xlsx"),
     "ipynb": ("notebook", "notebook", "study.ipynb", "ipynb"),
     "yaml": ("study", "study", "study.yaml", "yaml"),
@@ -42,8 +44,11 @@ _SPEC: dict[str, tuple[str, str, str, str]] = {
 
 _CAPTIONS = {
     "md": "The report in Markdown (figures as relative paths).",
-    "html": "The report as one self-contained HTML page.",
-    "docx": "The report as a Word document.",
+    "html": "The technical report as one self-contained HTML page that prints to A4 (print it for a PDF).",
+    "docx": "The technical report as a Word document: cover and document control, summary, data, method, "
+            "results, checks, limitations, recommendations, references.",
+    "memo": "The technical memorandum as a Word document: the answer, its basis and its conditions, in a few pages.",
+    "memo-html": "The technical memorandum as one self-contained HTML page (print it for a PDF).",
     "xlsx": "The workbook: README, inventory, plan, gates, every table, the figure index, the ledger.",
     "ipynb": "The notebook that re-runs the study and redraws the figures.",
     "yaml": "The study file: aquascope run study.yaml replays it with no model.",
@@ -120,6 +125,10 @@ def build(ws: Workspace, *, formats: list[str] | tuple[str, ...] | None = None) 
         add("html", report_html(ws))
     if "docx" in wanted:
         add("docx", report_docx_bytes(ws))
+    if "memo" in wanted:
+        add("memo", memo_docx_bytes(ws))
+    if "memo-html" in wanted:
+        add("memo-html", memo_html(ws))
     if "xlsx" in wanted:
         add("xlsx", workbook_bytes(ws))
     if "ipynb" in wanted:

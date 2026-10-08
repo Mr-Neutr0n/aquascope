@@ -80,7 +80,7 @@ export function methodsOnPage(listId) {
 // ── how to cite AquaScope ───────────────────────────────────────────────────
 
 export const AQUASCOPE_DOI = "10.5281/zenodo.21903143";     // concept DOI, all versions
-export const RELEASE_DOI = "10.5281/zenodo.23132668";       // v0.22.0, from CITATION.cff
+export const RELEASE_DOI = "10.5281/zenodo.23219118";       // v0.25.0, from CITATION.cff
 export const ARCHIVE_URL = "https://huggingface.co/datasets/Rekin226/aquascope-gauges";
 
 export const BIBTEX = `@software{aquascope,

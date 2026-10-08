@@ -106,7 +106,13 @@ With a model, the model reads your replies into the same values; it cannot skip 
    listed, never hidden.
 8. **Bundle.** Markdown, `study.yaml`, `report.json`, `findings.json`, `workspace.json` and,
    when the deliverables package is installed, the figures, the Excel
-   workbook, the Word report, the notebook and one zip. The raw record and
+   workbook, the Word report and memo, the notebook and one zip. The report
+   and the memo (`aquascope.studio.document`) lead with the answer and its
+   grade, organise the results by question, number every figure and table,
+   and leave the checked-by and approved-by lines blank for a person; a
+   study that established nothing becomes a one-page study note instead.
+   `report.html` and `memo.html` print to A4 (the PDF path), and
+   `--style style.yaml` sets the organisation, project, names and logo. The raw record and
    the raw samples live in the workbook and the notebook; the documents say
    which sheet, and print the evidence tables only.
 9. **Follow-up.** A question is answered from the workspace; a change (another
@@ -255,6 +261,46 @@ source="device")`, `studio_context(workspace, role, text=None)` (role
 `studio_export(workspace, out_dir)`. The tools are stateless: each returns
 the reply, a summary and the workspace dict to pass to the next.
 
+## The Study Desk
+
+A report is never right the first time. The Desk is where a finished study is revised, checked and signed,
+with every change on record (`aquascope.studio.desk`).
+
+- **Levers in plain words.** The design return period, the record window (only the last N years), the years
+  whose flood is left out of the fit (a dam break, a rating revised afterwards), and the distribution the
+  answer quotes. The first three rerun the flood steps, with their checks, through the steering. Every other
+  result is reused, and `study.yaml` reproduces the revision (`exclude_years` is a real argument of the flood
+  fit). The distribution only changes which fit leads the answer; every fit stays in the tables.
+- **A revision history.** Each change is a lettered revision (A is the study as the crew delivered it), with
+  who made it and the answer before and after. The table sits under the document control in the report.
+- **Sensitivity of the answer.** The design value under the reasonable alternatives:
+  - the other fitted distributions,
+  - the largest flood left out,
+  - only the most recent 50 or 30 years,
+  - the excluded years put back.
+
+  It is computed from the stored annual maxima with the reported distribution, without a new fetch, and goes
+  in the report under the design flood.
+- **Review and sign-off.** Review comments are kept with their responses in an appendix. Signing as prepared,
+  checked or approved fills the document control and moves the status from DRAFT to CHECKED to ISSUED.
+
+From the command line, point `aquascope studio` at a finished study's bundle folder (`aquascope desk` is the
+same thing under a shorter name):
+
+```bash
+aquascope studio studio-abc123/                    # the levers, the sensitivity, the revisions
+aquascope studio studio-abc123/ --exclude-years 2008 --by "A. Reviewer"
+aquascope studio studio-abc123/ --estimator lp3 --comment "Why GEV here?" --section "Design flood"
+aquascope studio studio-abc123/ --resolve c1="LP3 now leads, per agency practice" --sign checked="B. Checker"
+```
+
+Each call rewrites the documents and `workspace.json` in the bundle directory. A revision refits the record
+the study already holds (its record table) instead of fetching it again, so a change of assumption never
+arrives with a change of data. In the Explorer, **Read the
+report** opens the document with the Desk beside it. A change there reruns in the browser and reloads the
+document in place. From Python, `Studio.revise({...})`, `Studio.sign(role, name)` and
+`aquascope.studio.desk.comment` / `resolve` / `sensitivity` do the same.
+
 ## In the Explorer
 
 **Study** is the second mode of the Explorer's drawer, next to Ask. Open it
@@ -287,8 +333,9 @@ board above the input shows one thing at a time:
    that copy. The table open in My data is handed to the new worker again.
 4. **Done**: the answer, the key numbers, the figures, what the study does
    not establish when the Critic listed anything, **Download bundle** (the
-   zip) and links for the Word, Excel, Markdown, notebook and `study.yaml`
-   files. The input stays open: a question is answered from the workspace, a
+   zip), **Read the report** and **Read the memo** (the documents in a
+   reader with Print or save as PDF), and links for the Word, Excel,
+   Markdown, notebook and `study.yaml` files. The input stays open: a question is answered from the workspace, a
    change ("redo it with a 200-year return period") is planned, run and
    re-authored, and the board refreshes. **New study** clears the board for
    another study at the same place.

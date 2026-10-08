@@ -109,8 +109,11 @@ const ROLE_NAME = {
   coordinator: "coordinator", scout: "scout", analyst: "analysts", critic: "critic",
 };
 
-const DOCS = [["report-docx", "Word"], ["workbook", "Excel"], ["report-md", "Markdown"], ["notebook", "notebook"],
-  ["study", "study.yaml"]];
+const DOCS = [["report-docx", "Report (Word)"], ["memo-docx", "Memo (Word)"], ["workbook", "Excel"],
+  ["report-md", "Markdown"], ["notebook", "notebook"], ["study", "study.yaml"]];
+
+// The documents the board can open in its reader: the composed report and memo, as the worker built them.
+const READABLE = [["report-html", "Read the report"], ["memo-html", "Read the memo"]];
 
 const S = {
   ws: null,             // the workspace dict, without the artifact bytes
@@ -491,7 +494,14 @@ function doneHtml() {
   if (S.recorded) return recordedDoneHtml(report, numbers, not);
   const figs = artifacts.filter((a) => a.kind === "figure" && a.media_type === "image/png");
   const docs = DOCS.filter(([id]) => artifacts.some((a) => a.id === id));
+  const readable = READABLE.filter(([id]) => artifacts.some((a) => a.id === id));
   return gradeBadgeHtml(report.grade) +
+    (readable.length
+      ? `<div class="study-docs-card"><strong>The documents are ready.</strong> A technical report and a short ` +
+        `memorandum, written from the results, with numbered figures and tables.<div class="row-actions">` +
+        readable.map(([id, label], i) => `<button type="button" class="btn${i ? "" : " primary"}" data-read="${id}">${label}</button>`).join("") +
+        `</div></div>`
+      : "") +
     decisionHtml(report) +
     findingsHtml(report) +
     `<article class="study-answer ask-result" tabindex="-1" aria-label="The answer">${mdToHtml(report.answer || "No answer was produced.")}</article>` +
@@ -1335,6 +1345,241 @@ async function downloadArtifact(id) {
   }
 }
 
+// ── the reader ──────────────────────────────────────────────────────────────
+// The composed report (or memo) in a full-height panel: the worker's HTML in a sandboxed frame (it carries no
+// script), with Print / Save as PDF and the Word file beside it. The document is the product; the board above
+// is its summary.
+
+async function openReader(id) {
+  if (!S.ws) return;
+  note("Opening the document…");
+  try {
+    const res = await call("studio", { op: "file", workspace: S.ws, artifact_id: id });
+    if (!res || res.error) throw new Error((res && res.error) || "no document");
+    const bin = atob(res.data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    showReader(new TextDecoder("utf-8").decode(bytes), id);
+    note("");
+  } catch (err) {
+    note(`Could not open the document: ${err.message}`, "error");
+  }
+}
+
+function showReader(html, id) {
+  let box = document.querySelector(".study-reader");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "study-reader";
+    box.className = "modal study-reader";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-modal", "true");
+    box.setAttribute("aria-label", "Study document");
+    document.body.appendChild(box);
+    box.addEventListener("click", onReaderClick);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !box.hidden) box.hidden = true; });
+  }
+  const word = id === "memo-html" ? "memo-docx" : "report-docx";
+  const hasWord = (S.ws.artifacts || []).some((a) => a.id === word);
+  box.dataset.doc = id;
+  box.innerHTML =
+    `<div class="modal-box study-reader-box"><div class="modal-head"><h2>${id === "memo-html" ? "Technical memorandum" : "Technical report"}</h2>` +
+    `<div class="row-actions"><button type="button" class="btn" data-reader="desk" aria-pressed="${S.deskOpen !== false}" title="Change assumptions, see the sensitivity, review and sign">Desk</button>` +
+    `<button type="button" class="btn" data-reader="print">Print or save as PDF</button>` +
+    (hasWord ? `<button type="button" class="btn" data-reader="word" data-word="${word}">Word</button>` : "") +
+    `<button type="button" class="btn" data-reader="close" aria-label="Close">Close</button></div></div>` +
+    `<div class="study-reader-body"><iframe title="Study document" sandbox="allow-same-origin allow-modals"></iframe>` +
+    `<aside class="desk-panel" aria-label="Study Desk"${S.deskOpen === false ? " hidden" : ""}><p class="muted">Opening the Desk…</p></aside></div></div>`;
+  box.querySelector("iframe").srcdoc = html;
+  box.hidden = false;
+  box.querySelector('[data-reader="close"]').focus();
+  if (S.deskOpen !== false) loadDesk();
+}
+
+// ── the Study Desk ──────────────────────────────────────────────────────────
+// Beside the document: the levers (return period, record window, years left out, the distribution quoted),
+// the sensitivity of the answer, the sign-off and the review. Every action is aquascope.studio.desk in the
+// worker; the page draws its view and reloads the document it rewrote.
+
+function deskBox() { return document.querySelector(".study-reader .desk-panel"); }
+
+async function deskCall(action, extra = {}) {
+  const panel = deskBox();
+  if (!panel || !S.ws) return null;
+  const status = panel.querySelector(".desk-status");
+  if (status) status.textContent = action === "revise" ? "Re-running the analyses and rewriting the documents…" :
+    action === "view" ? "" : "Rewriting the documents…";
+  panel.classList.add("busy");
+  try {
+    if (action === "revise") await ensureCatalogInWorker();
+    const res = await call("studio", { op: "desk", action, workspace: S.ws, ...extra });
+    if (!res) throw new Error("no reply");
+    if (res.workspace) S.ws = res.workspace;
+    if (res.plain) rememberPlain(res.plain);
+    S.desk = res.desk || S.desk;
+    renderDesk(res.error || "");
+    if (res.reply) {
+      renderBoard();
+      persist();
+      await refreshReaderDoc();
+    }
+    return res;
+  } catch (err) {
+    renderDesk(`Could not do that: ${err.message}`);
+    return null;
+  } finally {
+    panel.classList.remove("busy");
+  }
+}
+
+async function loadDesk() { await deskCall("view"); }
+
+async function refreshReaderDoc() {
+  const box = document.querySelector(".study-reader");
+  if (!box || box.hidden) return;
+  const res = await call("studio", { op: "file", workspace: S.ws, artifact_id: box.dataset.doc || "report-html" });
+  if (!res || res.error) return;
+  const bin = atob(res.data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const frame = box.querySelector("iframe");
+  const y = frame.contentWindow ? frame.contentWindow.scrollY : 0;
+  frame.onload = () => { try { frame.contentWindow.scrollTo(0, y); } catch (_) { /* a fresh frame */ } };
+  frame.srcdoc = new TextDecoder("utf-8").decode(bytes);
+}
+
+const deskNum = (x) => (x == null ? "" : Math.abs(x) >= 100 ? Math.round(x).toLocaleString("en") : Number(x).toPrecision(3));
+
+function renderDesk(message = "") {
+  const panel = deskBox();
+  if (!panel) return;
+  const d = S.desk || {};
+  const levers = d.levers || [];
+  if (!levers.length && !(d.revisions || []).length) {
+    panel.innerHTML = `<p class="muted">This study has no adjustable flood fit; the Desk can still record review comments and sign-offs.</p>` + deskReviewHtml(d) + deskSignHtml(d);
+    return;
+  }
+  const lv = Object.fromEntries(levers.map((l) => [l.id, l]));
+  let html = `<h3>Assumptions</h3>`;
+  if (lv.return_period) {
+    html += `<label class="desk-field">${escapeHtml(lv.return_period.label)}<select data-lever="return_period">` +
+      lv.return_period.choices.map((c) => `<option value="${c}"${Number(c) === Number(lv.return_period.value) ? " selected" : ""}>${c}</option>`).join("") +
+      `</select></label>`;
+  }
+  if (lv.years) {
+    html += `<label class="desk-field">${escapeHtml(lv.years.label)}<input type="number" min="10" max="200" step="1" data-lever="years" placeholder="full record" value="${lv.years.value ?? ""}"></label>`;
+  }
+  if (lv.exclude_years) {
+    const out = new Set((lv.exclude_years.value || []).map(Number));
+    html += `<div class="desk-field"><span>${escapeHtml(lv.exclude_years.label)}</span><div class="desk-chips" data-lever="exclude_years">` +
+      (lv.exclude_years.candidates || []).map((c) => `<button type="button" class="chip${out.has(c.year) ? " off" : ""}" data-year="${c.year}" aria-pressed="${out.has(c.year)}" title="${out.has(c.year) ? "left out of the fit: click to put it back" : "click to leave this flood out of the fit"}">${c.year} · ${deskNum(c.value)}</button>`).join("") +
+      `</div><small class="muted">The largest floods on record. ${escapeHtml(lv.exclude_years.help || "")}</small></div>`;
+  }
+  if (lv.estimator) {
+    html += `<fieldset class="desk-field"><legend>${escapeHtml(lv.estimator.label)}</legend>` +
+      lv.estimator.choices.map((c) => `<label class="desk-radio"><input type="radio" name="desk-estimator" value="${c}"${c === lv.estimator.value ? " checked" : ""}> ${escapeHtml((lv.estimator.labels || {})[c] || c)}</label>`).join("") +
+      `</fieldset>`;
+  }
+  html += `<label class="desk-field">Your name (for the record)<input type="text" data-desk="by" value="${escapeHtml(S.deskBy || "")}" placeholder="e.g. A. Hydrologist"></label>`;
+  html += `<div class="row-actions"><button type="button" class="btn primary" data-desk="apply">Apply and rewrite</button></div>`;
+  html += `<p class="desk-status muted" role="status">${escapeHtml(message)}</p>`;
+  const sens = d.sensitivity || [];
+  if (sens.length > 1) {
+    html += `<h3>Sensitivity of the answer</h3><table class="desk-table"><tbody>` +
+      sens.map((r, i) => `<tr${i ? "" : ' class="em"'}><td>${escapeHtml(r.case)}</td><td class="r">${deskNum(r.value)}</td><td class="r">${i && r.change_pct != null ? `${r.change_pct > 0 ? "+" : ""}${Math.round(r.change_pct)} %` : ""}</td></tr>`).join("") +
+      `</tbody></table><small class="muted">In ${escapeHtml(d.unit || "the record's unit")}; computed from the stored annual maxima, no new data fetched.</small>`;
+  }
+  html += deskSignHtml(d) + deskReviewHtml(d);
+  const revs = d.revisions || [];
+  if (revs.length) {
+    html += `<h3>Revisions</h3><ol class="desk-revs">` + revs.slice().reverse().map((r) =>
+      `<li><b>${escapeHtml(r.rev)}</b> ${escapeHtml(r.description || "")}${r.by ? ` <span class="muted">(${escapeHtml(r.by)})</span>` : ""}</li>`).join("") + `</ol>`;
+  }
+  panel.innerHTML = html;
+}
+
+function deskSignHtml(d) {
+  const so = d.signoff || {};
+  const row = (role, label) => `<li><span>${label}</span><b>${so[role] ? escapeHtml(so[role]) : '<span class="muted">not yet</span>'}</b></li>`;
+  return `<h3>Sign-off <span class="desk-badge">${escapeHtml(d.status || "DRAFT")}</span></h3><ul class="desk-sign">` +
+    row("prepared_by", "Prepared") + row("checked_by", "Checked") + row("approved_by", "Approved") + `</ul>` +
+    `<div class="desk-inline"><select data-desk="role"><option value="prepared_by">Prepared</option><option value="checked_by">Checked</option><option value="approved_by">Approved</option></select>` +
+    `<input type="text" data-desk="signer" placeholder="Name"><button type="button" class="btn" data-desk="sign">Sign</button></div>`;
+}
+
+function deskReviewHtml(d) {
+  const cs = d.comments || [];
+  return `<h3>Review</h3>` + (cs.length ? `<ul class="desk-comments">` + cs.map((c) =>
+    `<li class="${c.status === "resolved" ? "done" : ""}"><b>${escapeHtml(c.id)}</b> ${escapeHtml(c.text)}` +
+    (c.section ? ` <span class="muted">(${escapeHtml(c.section)})</span>` : "") +
+    (c.status === "resolved" ? `<div class="muted">Response: ${escapeHtml(c.response || "resolved")}</div>` :
+      `<div class="desk-inline"><input type="text" data-response="${escapeHtml(c.id)}" placeholder="Response"><button type="button" class="btn tiny" data-resolve="${escapeHtml(c.id)}">Resolve</button></div>`) +
+    `</li>`).join("") + `</ul>` : `<p class="muted">No comments yet.</p>`) +
+    `<div class="desk-inline"><input type="text" data-desk="comment" placeholder="Add a review comment"><button type="button" class="btn" data-desk="add-comment">Add</button></div>`;
+}
+
+function onReaderClick(e) {
+  const box = e.currentTarget;
+  const act = e.target.closest("[data-reader]");
+  if (e.target === box || (act && act.dataset.reader === "close")) { box.hidden = true; return; }
+  if (act) {
+    if (act.dataset.reader === "print") {
+      const frame = box.querySelector("iframe");
+      if (frame && frame.contentWindow) frame.contentWindow.print();
+    } else if (act.dataset.reader === "word") {
+      downloadArtifact(act.dataset.word);
+    } else if (act.dataset.reader === "desk") {
+      S.deskOpen = S.deskOpen === false;
+      act.setAttribute("aria-pressed", String(S.deskOpen));
+      const panel = deskBox();
+      if (panel) { panel.hidden = !S.deskOpen; if (S.deskOpen && !S.desk) loadDesk(); }
+    }
+    return;
+  }
+  const chip = e.target.closest(".desk-chips [data-year]");
+  if (chip) {
+    const off = chip.getAttribute("aria-pressed") !== "true";
+    chip.setAttribute("aria-pressed", String(off));
+    chip.classList.toggle("off", off);
+    return;
+  }
+  const panel = deskBox();
+  const by = () => { const v = panel.querySelector('[data-desk="by"]'); S.deskBy = v ? v.value.trim() : (S.deskBy || ""); return S.deskBy; };
+  const resolveBtn = e.target.closest("[data-resolve]");
+  if (resolveBtn) {
+    const id = resolveBtn.dataset.resolve;
+    const input = panel.querySelector(`[data-response="${CSS.escape(id)}"]`);
+    deskCall("resolve", { id, response: input ? input.value : "", by: by() });
+    return;
+  }
+  const d = e.target.closest("[data-desk]");
+  if (!d || d.tagName === "INPUT" || d.tagName === "SELECT") return;
+  if (d.dataset.desk === "apply") {
+    const changes = {};
+    const lv = Object.fromEntries(((S.desk || {}).levers || []).map((l) => [l.id, l]));
+    const rp = panel.querySelector('[data-lever="return_period"]');
+    if (rp && lv.return_period && Number(rp.value) !== Number(lv.return_period.value)) changes.return_period = Number(rp.value);
+    const yr = panel.querySelector('[data-lever="years"]');
+    if (yr && lv.years && String(yr.value || "") !== String(lv.years.value ?? "")) changes.years = yr.value ? Number(yr.value) : "";
+    if (lv.exclude_years) {
+      const picked = [...panel.querySelectorAll('.desk-chips [aria-pressed="true"]')].map((b) => Number(b.dataset.year)).sort();
+      const now = (lv.exclude_years.value || []).map(Number).sort();
+      if (picked.join(",") !== now.join(",")) changes.exclude_years = picked.length ? picked : "";
+    }
+    const est = panel.querySelector('input[name="desk-estimator"]:checked');
+    if (est && lv.estimator && est.value !== lv.estimator.value) changes.estimator = est.value;
+    if (!Object.keys(changes).length) { renderDesk("Nothing changed yet: pick a different value first."); return; }
+    deskCall("revise", { changes, by: by() });
+  } else if (d.dataset.desk === "sign") {
+    const role = panel.querySelector('[data-desk="role"]').value;
+    const name = panel.querySelector('[data-desk="signer"]').value;
+    deskCall("sign", { role, name });
+  } else if (d.dataset.desk === "add-comment") {
+    const input = panel.querySelector('[data-desk="comment"]');
+    if (input && input.value.trim()) deskCall("comment", { text: input.value, author: by() });
+  }
+}
+
 // ── the live run ────────────────────────────────────────────────────────────
 
 function appendEvent(e) {
@@ -1478,6 +1723,8 @@ function onBoardClick(e) {
   if (tryChip) { $("study-text").value = tryChip.dataset.try; send(tryChip.dataset.try); return; }
   const file = e.target.closest("[data-file]");
   if (file) { e.preventDefault(); downloadArtifact(file.dataset.file); return; }
+  const read = e.target.closest("[data-read]");
+  if (read) { openReader(read.dataset.read); return; }
   const remove = e.target.closest("[data-remove]");
   if (remove) { S.files.splice(Number(remove.dataset.remove), 1); renderBoard(); }
 }

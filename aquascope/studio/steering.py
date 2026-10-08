@@ -54,7 +54,7 @@ class Control:
 
     param: str
     label: str
-    #: choice | number | integer | boolean
+    #: choice | number | integer | boolean | years (a list of calendar years)
     type: str
     choices: tuple[Any, ...] = ()
     min: float | None = None
@@ -91,6 +91,13 @@ def _years(label: str = "Use only the last N years", *, default: int | None = No
                    help="leave empty for the full record" if optional else "")
 
 
+def _exclude_years() -> Control:
+    return Control("exclude_years", "Leave out these years' floods", "years", optional=True,
+                   argument="exclude_years",
+                   help="years whose annual maximum is not to be trusted (a dam break, a revised rating); "
+                        "leave empty to use every complete year")
+
+
 def _declarations() -> dict[str, tuple[Control, ...]]:
     """The steerable parameters per catalogue tool. The closed sets come from the constants the tools check
     against, so a control never offers a value the tool would refuse."""
@@ -101,9 +108,10 @@ def _declarations() -> dict[str, tuple[Control, ...]]:
         "flood_frequency": (
             _return_period(),
             _years(),
+            _exclude_years(),
             Control("bootstrap_ci", "Bootstrap confidence band", "boolean", default=False, argument="bootstrap_ci"),
         ),
-        "analyze_station": (_return_period(flood), _years()),
+        "analyze_station": (_return_period(flood), _years(), _exclude_years()),
         "return_periods": (
             Control("distribution", "Distribution", "choice", choices=tuple(workbench.DISTRIBUTIONS), default="gev",
                     argument="distribution", help="GEV, Log-Pearson III or Gumbel fitted to the annual maxima"),
@@ -241,6 +249,25 @@ def _coerce(control: Control, value: Any) -> Any:
         if isinstance(value, str) and value.strip().lower() in ("true", "false", "yes", "no", "on", "off"):
             return value.strip().lower() in ("true", "yes", "on")
         raise ValueError(f"{label} is yes or no, not {value!r}")
+    if control.type == "years":
+        items = value if isinstance(value, (list, tuple)) else str(value).replace(";", ",").split(",")
+        years: list[int] = []
+        for item in items:
+            text = str(item).strip()
+            if not text:
+                continue
+            try:
+                year = int(float(text))
+            except ValueError:
+                raise ValueError(f"{label}: {text!r} is not a year") from None
+            if not 1800 <= year <= 2100:
+                raise ValueError(f"{label}: {year} is not a plausible year")
+            years.append(year)
+        if not years:
+            if control.optional:
+                return None
+            raise ValueError(f"{label} needs at least one year")
+        return sorted(set(years))
     if control.type == "choice":
         for choice in control.choices:
             if isinstance(choice, str) and isinstance(value, str) and value.strip().lower() == choice.lower():

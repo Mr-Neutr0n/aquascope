@@ -223,11 +223,12 @@ def water_quality_samples(
 
 def analyze_station(
     source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False, variable: str | None = None,
-    return_periods: list[float] | None = None,
+    return_periods: list[float] | None = None, exclude_years: list[int] | None = None,
 ) -> dict[str, Any]:
     """Fetch and analyse one station: record summary, annual maxima, flood frequency (GEV L-moments and
     Log-Pearson III with 90 % CI; optional bootstrap GEV band), flow-duration percentiles, Mann-Kendall
     trend, and the method citations. Raw daily arrays are omitted; use get_timeseries for those.
+    exclude_years drops those years' annual maxima from the flood fit and its tests.
     variable picks one of the station's variables (discharge by default; water_level, precipitation,
     groundwater_level where the station has them). By default the full record is requested, from the
     catalog's first date for the station; years caps it to the last N years. fetch_note in the result says
@@ -242,13 +243,13 @@ def analyze_station(
         return {"error": f"unknown variable {variable!r}; allowed: {list(VARIABLES)}"}
     store: dict[str, Any] = {}
     res = _analyze(source, station_id, years=int(years) if years else None, store=store, variable=variable,
-                   return_periods=return_periods)
+                   return_periods=return_periods, exclude_years=exclude_years)
     res.pop("series", None)
     if "fdc" in res:
         res["fdc"] = {k: res["fdc"][k] for k in ("q95", "q50", "q10")}
     if bootstrap_ci and res.get("ffa") and store.get("series") is not None:
         try:
-            ci = flood_ci(store["series"], return_periods=return_periods)
+            ci = flood_ci(store["series"], return_periods=return_periods, exclude_years=exclude_years)
             res["ffa"]["fits"]["gev_bootstrap"] = {
                 k: ci[k] for k in ("q", "ci", "params", "n_bootstrap", "n_bootstrap_discarded",
                                      "estimator", "interval_method", "ci_level") if k in ci
@@ -261,13 +262,14 @@ def analyze_station(
 
 def flood_frequency(
     source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False,
-    return_periods: list[float] | None = None,
+    return_periods: list[float] | None = None, exclude_years: list[int] | None = None,
 ) -> dict[str, Any]:
     """Return levels for T = 2, 5, 10, 25, 50, 100 years at a station (subset of analyze_station); pass
     return_periods to add others (a 200-year design). years caps the record to the last N years; by default the
-    full record is requested.
+    full record is requested. exclude_years drops those years' annual maxima from the fit.
     """
-    res = analyze_station(source, station_id, years=years, bootstrap_ci=bootstrap_ci, return_periods=return_periods)
+    res = analyze_station(source, station_id, years=years, bootstrap_ci=bootstrap_ci, return_periods=return_periods,
+                          exclude_years=exclude_years)
     return _flood_result(res)
 
 
@@ -278,7 +280,13 @@ def _flood_result(res: dict[str, Any]) -> dict[str, Any]:
     keep = {k: res.get(k) for k in ("source", "station_id", "agency", "license", "attribution", "unit",
                                     "start", "end", "years", "n", "stats", "ffa", "notes", "methods",
                                     "fetch_note", "requested", "variable", "data_snapshot", "archive_revision",
-                                    "software_revision", "eligibility")}
+                                    "software_revision", "eligibility", "annual_max",
+                                    "annual_max_excluded")}
+    # The annual maxima are the fitted sample (complete years only): the frequency curve plots them at their
+    # plotting positions, without which the fit cannot be checked by eye.
+    for key in ("annual_max", "annual_max_excluded"):
+        if keep.get(key) is None:
+            keep.pop(key, None)
     if not keep.get("ffa"):
         keep["error"] = "flood frequency not available (see notes)"
     return keep
