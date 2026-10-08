@@ -294,7 +294,9 @@ async function runDigest() {
     if (my !== run) return;
     $("watch-summary").textContent = sum.summary || "";
   } catch { $("watch-summary").textContent = ""; }
-  writeWatch(applyDigest(readWatch(), [], { complete: true, today: day }));
+  // Today becomes the last visit only when every place answered, so a place that could not be checked keeps
+  // its window for the next try.
+  writeWatch(applyDigest(readWatch(), [], { complete: lastResults.filter((r) => !r.error).length === req.items.length, today: day }));
 }
 
 export function openWatch({ greet = false } = {}) {

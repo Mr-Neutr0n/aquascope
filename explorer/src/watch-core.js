@@ -89,7 +89,7 @@ export function makeItem(kind, fields, today = new Date().toISOString().slice(0,
   } else if (kind === "reach") {
     Object.assign(item, { river_id: Number(fields.river_id), name: fields.name || `River reach ${fields.river_id}` });
   } else if (kind === "area") {
-    item.bbox = (fields.bbox || []).map(round4);
+    item.bbox = areaBox(fields.bbox || []);
     item.name = fields.name || areaName(item.bbox);
   }
   if (kind !== "area") {
@@ -97,6 +97,14 @@ export function makeItem(kind, fields, today = new Date().toISOString().slice(0,
   }
   item.id = watchId(item);
   return item;
+}
+
+// A drawn box on a wrapped map can reach past ±180°; the package takes longitudes in -180..180.
+const wrapLon = (x) => { const v = ((Number(x) + 180) % 360 + 360) % 360 - 180; return v === -180 && Number(x) > 0 ? 180 : v; };
+export function areaBox(bbox) {
+  const [w, s, e, n] = bbox.map(Number);
+  if (!(e - w < 360)) return [-180, s, 180, n].map(round4);
+  return [wrapLon(w), s, wrapLon(e), n].map(round4);
 }
 
 export function areaName(bbox) {

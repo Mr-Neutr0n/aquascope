@@ -314,3 +314,24 @@ def assert_valid_atom(text: str) -> None:
         assert stamp.match(e.findtext(f"{ATOM}updated"))
         ids.append(e.findtext(f"{ATOM}id"))
     assert len(ids) == len(set(ids))
+
+
+def test_a_gauge_given_by_id_takes_its_name_and_position_from_the_catalog(offline):
+    offline.setattr("aquascope.archive.catalog.load_stations", lambda *a, **k: [
+        {"source": "usgs", "station_id": "1", "name": "Little River", "latitude": 40.0, "longitude": -75.0}])
+    seen = {}
+
+    def floods(lat, lon, **kw):
+        seen.update(lat=lat, lon=lon)
+        return {"news": {"available": True, "recent": [], "latest": None}}
+
+    offline.setattr("aquascope.context.events.flood_history", floods)
+    offline.setattr(watch, "load_snapshot", lambda repo_id=None: [])
+    d = watch.watch_digest([{"id": "usgs/1", "series": _series()}], "2026-10-01", today=TODAY, issued=[],
+                           forecast="off")
+    assert d["items"][0]["name"] == "Little River" and seen == {"lat": 40.0, "lon": -75.0}
+
+
+def test_an_area_id_in_a_dict_is_an_area():
+    item = watch.parse_item({"id": "area:-77.5,38.1,-76.8,39", "threshold": None})
+    assert item["kind"] == "area" and item["bbox"] == [-77.5, 38.1, -76.8, 39.0]

@@ -203,6 +203,8 @@ def parse_item(spec: Any) -> dict[str, Any]:
             kind = "gauge"
         elif item.get("river_id") is not None or str(item.get("id") or "").startswith(("river:", "reach:")):
             kind = "reach"
+        elif str(item.get("id") or "").startswith("area:"):
+            kind = "area"
     if kind == "gauge":
         if not item.get("source") and "/" in str(item.get("id") or ""):
             item["source"], item["station_id"] = str(item["id"]).split("/", 1)
@@ -311,6 +313,29 @@ def load_issued(repo_id: str | None = None) -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         logger.info("forecast issue unreadable: %s", exc)
         return []
+
+
+def _fill_gauges(items: list[dict[str, Any]]) -> None:
+    """A gauge given by its id alone (the CLI, MCP) takes its name and position from the catalog, so its
+    floods nearby and its live forecast can be checked."""
+    want = [i for i in items if i["kind"] == "gauge" and (not i.get("name") or i.get("lat") is None
+                                                          or i.get("lon") is None)]
+    if not want:
+        return
+    try:
+        from aquascope.archive.catalog import load_stations
+
+        rows = {(str(r.get("source")), str(r.get("station_id"))): r for r in load_stations()}
+    except Exception as exc:  # noqa: BLE001 - the digest still answers without names and positions
+        logger.info("catalog unreadable: %s", exc)
+        return
+    for item in want:
+        row = rows.get((item["source"], item["station_id"]))
+        if not row:
+            continue
+        item["name"] = item.get("name") or row.get("name")
+        if item.get("lat") is None or item.get("lon") is None:
+            item["lat"], item["lon"] = _num(row.get("latitude"), 6), _num(row.get("longitude"), 6)
 
 
 def _positions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -735,7 +760,7 @@ def watch_digest(items: list[Any], last_seen: Any = None, *, today: Any = None,
     """What changed at each watched item since it was last seen.
 
     ``items``: gauges, reaches and areas as :func:`parse_item` takes them (``"usgs/USGS-01646500"``,
-    ``"river:760021611"``, ``"area:-77.5,38.1,-76.8,39.0"`` or dicts, which may carry ``threshold``).
+    ``"river:230260670"``, ``"area:-77.5,38.1,-76.8,39.0"`` or dicts, which may carry ``threshold``).
     ``last_seen``: one date for every item (``"2026-10-01"``), or a dict from item id to a date or to the
     ``seen`` state an earlier digest returned (``{"date", "class", "value_date", "high"}``). With nothing, the
     digest looks back :data:`DEFAULT_SINCE_DAYS` days.
@@ -771,6 +796,8 @@ def watch_digest(items: list[Any], last_seen: Any = None, *, today: Any = None,
         except ValueError as exc:
             errors.append({"item": spec if isinstance(spec, str) else str(spec)[:80], "error": str(exc)})
     kinds = {p["kind"] for p in parsed}
+    if archive and not IS_EMSCRIPTEN:
+        _fill_gauges(parsed)
     if snapshot is None and archive and not IS_EMSCRIPTEN and kinds & {"gauge", "area"}:
         snapshot = load_snapshot()
     if issued is None and archive and not IS_EMSCRIPTEN and "gauge" in kinds and forecast in ("auto", "archive"):

@@ -38,6 +38,9 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 FOLDER = "feeds"
+#: What the feeds publish uploads: the Atom files (the Archive's default allow-list has no ``*.xml``), the
+#: index and the state.
+PUBLISH_PATTERNS = ("*.xml", "*.json", "*.parquet")
 #: Entries kept per feed.
 MAX_ENTRIES = 20
 #: A forecast alert is not repeated within this many days unless a rarer flow is passed.
@@ -284,7 +287,8 @@ def publish(out: str | Path, *, repo_id: str | None = None, token: str | None = 
         stage = Path(tmp) / FOLDER
         shutil.copytree(src, stage)
         day = json.loads((src / "index.json").read_text())["date"]
-        return publish_folder(Path(tmp), repo_id or DEFAULT_REPO, token=token, commit_message=f"feeds: {day}")
+        return publish_folder(Path(tmp), repo_id or DEFAULT_REPO, token=token, commit_message=f"feeds: {day}",
+                              allow_patterns=PUBLISH_PATTERNS)
 
 
 def main(argv: list[str] | None = None) -> int:

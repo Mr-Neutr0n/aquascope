@@ -365,7 +365,7 @@ aquascope river record --at 46.948 7.452          # that reach's simulated daily
 aquascope river trace --at 46.948 7.452           # follow it to the sea: length, path, the gauges, dams and countries it passes
 aquascope river dams --at 46.948 7.452            # the dams upstream of that reach and the degree of regulation
 aquascope now --station usgs/USGS-01350000        # today against normal, and the 15-day forecast corrected to the gauge
-aquascope watch usgs/USGS-01350000 river:760021611 --since 2026-10-01   # what changed since then: data, status, forecast, floods
+aquascope watch usgs/USGS-01350000 river:230260670 --since 2026-10-01   # what changed since then: data, status, forecast, floods
 aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
 aquascope context 51.86 5.95                      # flood history, surface water, flood depth, dams, rain gauge, ET and soil at a place
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive

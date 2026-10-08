@@ -108,14 +108,40 @@ def test_publish_uploads_only_the_feeds_folder(monkeypatch, tmp_path):
     (tmp_path / "forecasts" / "manifest.json").write_text("{}")
     seen = {}
 
-    def fake_publish(folder, repo_id, token=None, commit_message=None):
+    def fake_publish(folder, repo_id, token=None, commit_message=None, allow_patterns=None):
         seen["files"] = sorted(str(p.relative_to(folder)) for p in Path(folder).rglob("*") if p.is_file())
         seen["message"] = commit_message
+        seen["patterns"] = allow_patterns
         return "https://hf.co/commit/2"
 
     monkeypatch.setattr("aquascope.archive.publish.publish_folder", fake_publish)
     assert feeds.publish(tmp_path) == "https://hf.co/commit/2"
     assert seen["files"] == ["feeds/index.json", "feeds/usgs/1.xml"] and seen["message"] == "feeds: 2026-10-08"
+    # the Atom files themselves must pass the upload's allow-list
+    assert "*.xml" in seen["patterns"]
+
+
+def test_publish_folder_uploads_xml_when_asked(monkeypatch, tmp_path):
+    from aquascope.archive import publish as pub
+
+    calls = {}
+
+    class FakeApi:
+        def __init__(self, token=None):
+            pass
+
+        def create_repo(self, *a, **k):
+            return None
+
+        def upload_folder(self, **kw):
+            calls.update(kw)
+            return type("Info", (), {"commit_url": "https://hf.co/commit/3"})()
+
+    monkeypatch.setattr(pub, "require", lambda *a, **k: type("Hub", (), {"HfApi": FakeApi}))
+    pub.publish_folder(tmp_path, "x/y", token="t", allow_patterns=feeds.PUBLISH_PATTERNS)
+    assert "*.xml" in calls["allow_patterns"]
+    pub.publish_folder(tmp_path, "x/y", token="t")
+    assert "*.xml" not in calls["allow_patterns"] and "*.parquet" in calls["allow_patterns"]
 
 
 def test_the_workflow_builds_feeds_after_the_forecasts_and_publishes_like_them():

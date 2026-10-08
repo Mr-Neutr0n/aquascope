@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_WATCH, WATCH_KEY, _resetMemory, addItem, applyDigest, areaName, digestRequest, findItem, isWatched, makeItem,
+  MAX_WATCH, WATCH_KEY, _resetMemory, addItem, applyDigest, areaBox, areaName, digestRequest, findItem, isWatched, makeItem,
   normaliseThreshold, readWatch, removeItem, setThreshold, shouldGreet, thresholdChoice, thresholdLabel, toggleItem,
   watchId,
 } from "../src/watch-core.js?v=__BUILD__";
@@ -141,4 +141,12 @@ test("the greeting shows once a day, and only with something watched", () => {
   assert.equal(shouldGreet({ items: [], lastVisit: null }, "2026-10-08"), false);
   assert.equal(shouldGreet({ items: [gauge()], lastVisit: "2026-10-07" }, "2026-10-08"), true);
   assert.equal(shouldGreet({ items: [gauge()], lastVisit: "2026-10-08" }, "2026-10-08"), false);
+});
+
+test("a box drawn on a wrapped map is brought back to -180..180", () => {
+  assert.deepEqual(areaBox([200, 10, 210, 20]), [-160, 10, -150, 20]);
+  assert.deepEqual(areaBox([-77.5, 38.1, -76.8, 39]), [-77.5, 38.1, -76.8, 39]);
+  assert.deepEqual(areaBox([170, 0, 190, 5]), [170, 0, -170, 5]);
+  assert.deepEqual(areaBox([-200, 0, 200, 5]), [-180, 0, 180, 5]);
+  assert.equal(makeItem("area", { bbox: [-400, 0, -390, 5] }).id, "area:-40,0,-30,5");
 });
