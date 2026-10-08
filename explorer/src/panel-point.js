@@ -11,6 +11,7 @@ import { flyToPoint, setPointMarker, highlightStation } from "./map.js?v=__BUILD
 import { addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
 import { hideCard, selectTab, setCard, setTab, showSurface } from "./shell.js?v=__BUILD__";
 import { call } from "./worker-client.js?v=__BUILD__";
+import { startRiver } from "./river.js?v=__BUILD__";
 import { groupStationSites } from "./sites.js?v=__BUILD__";
 import { canonicalUrl, writeUrl } from "./url.js?v=__BUILD__";
 
@@ -96,7 +97,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true, fly = fal
   renderMethodList("pt-methods", []);
   $("pt-attribution").textContent = "";
   clearCatchment();
-  for (const name of ["modelled", "catchment", "similar"]) {
+  for (const name of ["river", "modelled", "catchment", "similar"]) {
     setTab(root(), name, { enabled: false, reason: "Looking this point up…", count: null });
   }
   setTab(root(), "overview", { enabled: true });
@@ -108,8 +109,11 @@ export async function selectPoint(lat, lon, { tab = null, push = true, fly = fal
 
   void renderNearestStations(lat, lon, my);
 
+  // The river first: the catchment card waits on the snap, so a click on a hillside is not described as
+  // the whole river basin below it (#516).
+  const snap = startRiver("pt", lat, lon);
   requestCatchment({ point: { lat, lon }, target: "pt" });
-  requestBasin(lat, lon, "pt");
+  requestBasin(lat, lon, "pt", { snap });
   requestAssess({ lat, lon, target: "pt" });
 
   setCard($("pt-climate-card"), "loading", {

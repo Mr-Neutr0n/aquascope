@@ -55,6 +55,7 @@ export function readUrl(hash = location.hash) {
   }
   if (q.has("hide")) out.hidden = String(q.get("hide")).split(",").filter(Boolean);
   if (q.has("basins")) out.basins = q.get("basins") === "1";
+  if (q.has("rivers")) out.rivers = q.get("rivers") === "1";
   // layers (#232)
   if (q.has("m")) out.mode = q.get("m");
   if (q.has("b")) out.basemap = q.get("b");
@@ -82,6 +83,7 @@ function currentHash({ view } = {}) {
   if (view) q.set("v", `${view.zoom.toFixed(2)}/${view.lat.toFixed(4)}/${view.lon.toFixed(4)}`);
   if (state.hidden.size) q.set("hide", [...state.hidden].join(","));
   if (state.basinsOn) q.set("basins", "1");
+  if (state.riversOn) q.set("rivers", "1");
   if (state.basemap && state.basemap !== LAYER_DEFAULTS.basemap) q.set("b", state.basemap);
   if (state.overlays && state.overlays.size) q.set("o", [...state.overlays].join(","));
   if (state.date && (state.overlays.size || state.basemap === "daily")) q.set("d", state.date);

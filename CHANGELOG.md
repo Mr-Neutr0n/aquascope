@@ -7,7 +7,18 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Rivers as objects** (#516). `aquascope.rivers` snaps a point to its GEOGLOWS v2 river reach and treats the reach as the thing being studied, keyless and in the browser too.
+  - `snap_to_river(lat, lon)` reads the global stream network (`streams.pmtiles`, 2.4 GB, by byte ranges) and returns the reach, its stream order and the distance, or says there is no stream within the tolerance (1 km) and names the nearest one.
+  - `reach_record(river_id)` fetches the reach's simulated daily discharge since 1940 and analyses it like a gauge: annual maxima, return periods (GEV and LP3 with 90 % intervals), the flow-duration curve, the monthly regime and the trend. Labelled modelled everywhere, GEOGLOWS v2 output under CC BY 4.0.
+  - `upstream_area(river_id)` adds up the unit catchments upstream from the model's routing tables.
+  - `trace_downstream(river_id)` follows the network to the outlet: the reaches, the length, the path geometry (TDX-Hydro, CC BY-SA 4.0, for display) and the catalog gauges within 2 km of it, in the order the water reaches them. Dams on the path come later.
+  - The same functions are the `aquascope river snap|record|area|trace` command, four MCP tools (`snap_to_river`, `reach_record`, `upstream_area`, `trace_downstream`) and an Analyst tool. `forecast_stats(river_id)` fetches the 15-day forecast for the forecast view to come.
+- **The River tab and a rivers layer in the Explorer** (#516). A click snaps to its river and says so; a gauge shows the reach it sits on. The tab draws the 86 years of simulated flow, the return-period table, the flow-duration curve and the monthly regime, and "Trace to the sea" draws the path down to the outlet and lists the gauges it passes. A "Rivers (GEOGLOWS)" layer in the rail shows the stream network by stream order.
+- **The Studio reads the reach** (#516). The Scout lists the GEOGLOWS reach the site snaps to as a modelled dataset, and the regional branches of the ungauged-flow and flood playbooks end with an optional `reach_record` step, quoted as modelled beside the transferred numbers.
+
 ### Fixed
+- **A click on a hillside is no longer given the river's whole catchment** (#516). The Explorer's catchment card waits for the snap: with no stream within 1 km it says so, instead of quoting the upstream area of the BasinATLAS sub-basin the point happens to sit in.
 - **A source's health record keeps the error under a wrapped failure** (#498). BOM raises one `RuntimeError` once every parameter type has failed, and the harvest recorded only that message, so the 2026-10-05 outage (503s and timeouts) was filed as unclassified and sent to the repair bot as a possible code fault. The catalog error now carries the exceptions it was raised from, so the health issue names the 503.
 - **The weekly harvest now reaches the files the 40-year cap truncated** (#501). The 0.21.0 change (#270) sorted them first among stations due a refresh, but behind every station never harvested; USGS has about 25,000 of those, enough to fill each weekly budget of 150, so its 133 truncated files would have waited about three years. They now go ahead of new stations, and the stations the Explorer's daily live check reads (Fish River, Thames at Kingston, Seine at Paris) go first of all while new, stale or truncated.
 - Record the verified v0.25.0 Zenodo DOI (`10.5281/zenodo.23219118`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.

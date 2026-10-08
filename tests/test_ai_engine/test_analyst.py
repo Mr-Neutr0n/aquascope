@@ -117,7 +117,9 @@ def test_tool_specs_cover_the_mcp_surface():
                      "filter_gauges",
                      # the advanced study steps: change, nonstationary floods, models, projections, regions
                      "change_points", "nonstationary_flood", "pot_flood", "catchment_model", "climate_projection",
-                     "regional_flood", "compare_gauges"}
+                     "regional_flood", "compare_gauges",
+                     # the river reach at a point and its simulated record (#516)
+                     "reach_record"}
     tools = analyst._openai_tools(analyst._tool_specs())
     assert all(t["type"] == "function" and "parameters" in t["function"] for t in tools)
 

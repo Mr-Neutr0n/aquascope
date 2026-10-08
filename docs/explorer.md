@@ -147,10 +147,44 @@ and `regionalization_skill.json`, computed weekly by the harvest; see
 [archive.md](archive.md#estimated-flow-regime-prediction-in-ungauged-basins-the-predictive-half)).
 Not a measurement, and it says so.
 
+A click on a hillside is not a river. Every point click is first snapped to the
+river network (see **Rivers** below), and when no stream runs within 1 km the
+card says so, rather than quoting the upstream area of the level-12 sub-basin
+the point sits in: that area belongs to the river at the bottom of the slope,
+which used to be reported as the point's own catchment.
+
 Why not HydroBASINS itself: the HydroSHEDS core licence forbids distributing
 the data "as a stand-alone product" and requires an end-user licence, so it
 cannot be hosted on the free-tier archive; HydroATLAS is CC BY 4.0, which is
 why BasinATLAS is what we mirror. MERIT-Basins is CC BY-NC.
+
+## Rivers
+
+A click lands on a river, not just a coordinate. The point is snapped to the
+nearest reach of the GEOGLOWS v2 river network (about 6.8 million reaches,
+TDX-Hydro geometry) within 1 km, the marker moves onto the river, and a line
+under the title says how far it moved and which reach it is. With no stream
+within 1 km it says that instead, and the River tab offers the nearest mapped
+reach. A gauge shows the reach it sits on.
+
+The **River** tab shows that reach's simulated daily discharge from 1940 to the
+latest weekly update, analysed the way a gauge is: the hydrograph with the
+annual maxima, the return-period table (GEV by L-moments and Log-Pearson III
+with 90 % intervals, downloadable as CSV), the flow-duration curve and the
+monthly regime with its 10th to 90th percentile band. It is a model (ERA5 runoff
+routed down the network), labelled modelled everywhere, and a gauge on the same
+river outranks it. The record comes from the GEOGLOWS REST API, under CC BY 4.0.
+
+**Trace to the sea** follows the reach downstream to its outlet with the
+model's own routing tables, draws the path on the map, and lists the gauges
+within 2 km of it in the order the water reaches them, with the length and the
+area that drains to the starting reach. The **Rivers (GEOGLOWS)** layer in the
+rail draws the whole network by stream order, read in place from the 2.4 GB
+`streams.pmtiles` in the GEOGLOWS bucket. The network geometry is CC BY-SA 4.0:
+shown here, never republished. Dams on the path are not there yet.
+
+The same functions are `aquascope river snap|record|area|trace` and the MCP
+tools `snap_to_river`, `reach_record`, `upstream_area` and `trace_downstream`.
 
 ## Ask ✨: the Analyst in the page
 

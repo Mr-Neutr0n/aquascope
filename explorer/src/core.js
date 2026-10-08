@@ -59,7 +59,7 @@ export const state = {
   selected: null, result: null, point: null,
   period: null,   // the station's analysis period (#270): null = full record, else the last N years
   workerReady: false, booting: true, pending: new Map(), reqId: 0,
-  mapOk: false, marker: null, basinsOn: false,
+  mapOk: false, marker: null, basinsOn: false, riversOn: false,
   // layers (#232)
   overlays: new Set(), opacity: {}, date: null,
   ...LAYER_DEFAULTS,

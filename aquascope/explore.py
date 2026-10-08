@@ -111,6 +111,14 @@ METHODS: dict[str, dict[str, str]] = {
         "citation": "Hersbach, H. et al. (2020). The ERA5 global reanalysis. Q. J. R. Meteorol. Soc., 146, "
         "1999-2049; Open-Meteo.com (CC BY 4.0).",
     },
+    "geoglows": {
+        "name": "GEOGLOWS v2 simulated discharge for a river reach",
+        "text": "Daily discharge simulated for the river reach by the GEOGLOWS v2 hydrologic model: ERA5 runoff "
+        "routed down the TDX-Hydro river network with Muskingum parameters, from 1940 to the latest update. "
+        "Modelled, not observed: a gauge on the same river outranks it.",
+        "citation": "Hales, R. C. et al. (2022). Advancing global hydrologic modeling with the GEOGloWS ECMWF "
+        "streamflow service. J. Flood Risk Manag., doi:10.1111/jfr3.12859. GEOGLOWS v2 data, CC BY 4.0.",
+    },
     "glofas": {
         "name": "GloFAS modelled discharge via Open-Meteo",
         "text": "Daily river discharge simulated by the Global Flood Awareness System (LISFLOOD, ~5 km grid) "

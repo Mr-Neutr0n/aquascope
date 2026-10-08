@@ -8,6 +8,7 @@ import {
 } from "./core.js?v=__BUILD__";
 import { addTableDownload, emphasisColor, plot, surfaceColor } from "./charts.js?v=__BUILD__";
 import { requestAssess } from "./assess.js?v=__BUILD__";
+import { startRiver } from "./river.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment, stationArea } from "./basins.js?v=__BUILD__";
 import { flyToStation, highlightStation, clearPointMarker } from "./map.js?v=__BUILD__";
 import { GR4J_METHODS, addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
@@ -87,7 +88,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   $("attribution").textContent = "";
   resetGr4j();
   clearCatchment();
-  for (const name of ["floods", "flows", "model", "catchment", "similar"]) {
+  for (const name of ["floods", "flows", "model", "river", "catchment", "similar"]) {
     setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
   }
   setTab(root(), "overview", { enabled: true });
@@ -102,6 +103,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   requestAnalysis(r, my);
   requestCatchment({ station: r, target: "st" });
   requestBasin(r.lat, r.lon, "st");
+  startRiver("st", r.lat, r.lon, { gauge: true });
   requestAssess({ lat: r.lat, lon: r.lon, target: "st", key });
 }
 
