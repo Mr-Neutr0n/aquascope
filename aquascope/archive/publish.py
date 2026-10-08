@@ -54,7 +54,8 @@ def publish_folder(
     """Upload ``folder`` to the ``repo_id`` dataset and return the commit URL.
 
     Only files matching ``allow_patterns`` are uploaded (by default the Archive's parquet, GeoJSON, JSON,
-    csv.gz, FlatGeobuf, PMTiles and README; the feeds add ``*.xml``).
+    csv.gz, FlatGeobuf, PMTiles and README; the feeds add ``*.xml`` and the monthly bulletin its HTML,
+    Markdown and PNG).
 
     The token comes from ``token``, then ``HF_TOKEN`` / ``HUGGING_FACE_HUB_TOKEN``,
     then the local ``huggingface_hub`` login. Nothing is ever bundled in the

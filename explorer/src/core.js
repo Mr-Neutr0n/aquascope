@@ -67,6 +67,8 @@ export const state = {
   timeStep: "day", timeRange: null, compare: null, playing: false,
   // today against normal (#517): the daily status snapshot, read when the gauges are coloured by it
   nowStatus: null, nowMeta: null,
+  // last month's status (#523): the monthly bulletin's status.parquet, read when the gauges are coloured by it
+  bulletinStatus: null, bulletinMeta: null,
   ...LAYER_DEFAULTS,
   ask: { running: false, catalogSent: false, markdown: null, run: 0 },
   // One drawer, two modes (Ask, Study); an open Study drawer is part of the URL.

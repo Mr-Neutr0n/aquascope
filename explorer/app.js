@@ -21,6 +21,7 @@ import { setBasinsVisible } from "./src/basins.js?v=__BUILD__";
 import { setRiversVisible } from "./src/river-map.js?v=__BUILD__";
 import { clearRiver, initRiver } from "./src/river.js?v=__BUILD__";
 import { initNow } from "./src/now.js?v=__BUILD__";
+import { initBulletin } from "./src/bulletin.js?v=__BUILD__";
 import { initSearch } from "./src/search.js?v=__BUILD__";
 import { initShell, initTabs, selectTab, setStatusEl, showSurface } from "./src/shell.js?v=__BUILD__";
 import { initStationPanel, reanalyze, selectStation, setPeriod } from "./src/panel-station.js?v=__BUILD__";
@@ -201,6 +202,7 @@ function goHome() {
   initPointPanel();
   initRiver();
   initNow();
+  initBulletin();
   initWorkbench();
   initPlaces();  // My places + Compare
   initWatch();   // Watch (#521)

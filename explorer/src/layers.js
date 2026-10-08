@@ -375,6 +375,8 @@ export const GAUGE_STYLES = [
   { id: "skill", label: "Best model skill" },
   // #517: from the daily status snapshot (now-map.js), not from the catalog.
   { id: "now", label: "Today vs normal" },
+  // #523: from the monthly bulletin (bulletin.js).
+  { id: "bulletin", label: "Last month's status" },
 ];
 
 // Years of record from the catalog's own period columns (no extra data needed).

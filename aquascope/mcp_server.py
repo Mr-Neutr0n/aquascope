@@ -453,6 +453,29 @@ def flow_status(source: str, station_id: str, date: str | None = None) -> dict[s
     return res
 
 
+def status_bulletin(month: str | None = None, sources: list[str] | None = None,
+                    country: str | None = None) -> dict[str, Any]:
+    """The month's state of the rivers in the WMO HydroSOS style: every Archive gauge's monthly mean flow placed
+    against the same month in its other years (25 days a month, 10 years, else left out and counted) in the five
+    classes (much below normal to much above normal), rolled up per country and per BasinATLAS river basin, with
+    the new monthly records, the gauges furthest from normal, the coverage and a summary paragraph written by rules.
+    month is YYYY-MM (default the latest published bulletin, else the last full month); the published bulletin is
+    read when there is one, else it is built from the Archive's discharge records (slow the first time). country
+    (ISO3, e.g. GBR) lists that country's classed gauges. Quote the summary; it says how many gauges it rests on."""
+    from aquascope import bulletin
+
+    try:
+        res = bulletin.status_bulletin(month, sources)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    gauges = res.pop("gauges", None) or []
+    res["basins"] = (res.get("basins") or [])[:15]
+    if country:
+        code = country.strip().upper()
+        res["gauges"] = [g for g in gauges if (g.get("country") or "").upper() == code][:200]
+    return res
+
+
 def flow_forecast(lat: float | None = None, lon: float | None = None, river_id: int | None = None,
                   station: str | None = None, days: int = 15) -> dict[str, Any]:
     """The next 15 days of river flow from two global models, MODELLED: GEOGLOWS v2 (ECMWF 51-member ensemble
@@ -1217,6 +1240,7 @@ def build_server():
     server.tool()(model_to_lean_on)
     server.tool()(flow_status)
     server.tool()(flow_forecast)
+    server.tool()(status_bulletin)
     server.tool()(correct_to_gauge)
     server.tool()(watch_digest)
     server.tool()(place_context)

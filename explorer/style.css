@@ -1201,3 +1201,5 @@ body.workbench-mode .drawer { right: auto; left: 50%; transform: translateX(-50%
 .now-peak { margin: 0 0 6px; }
 .now-skill { margin: 6px 0 0; font-size: .8rem; }
 .now-legend-note { flex-basis: 100%; margin: .2rem 0 0; font-size: .68rem; line-height: 1.35; }
+/* the monthly bulletin (#523): "Read it" under the legend; the reader reuses .study-reader */
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--blue); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }

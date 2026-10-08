@@ -19,6 +19,7 @@ import { openAreaStudy } from "./area-study.js?v=__BUILD__";
 import { cancelAreaContext, openAreaContext } from "./context.js?v=__BUILD__";
 import { loadSkillGrades, skillLegendHtml } from "./evidence.js?v=__BUILD__";
 import { ensureNowStatus, nowLegendHtml } from "./now-map.js?v=__BUILD__";
+import { bulletinLegendHtml, ensureBulletinStatus } from "./bulletin.js?v=__BUILD__";
 import { areaWatchButton } from "./watch.js?v=__BUILD__";
 
 // A tiny swatch standing in for each basemap, so eight radio rows become two
@@ -164,6 +165,7 @@ function gaugeLegendHtml(mode) {
   if (mode === "recent") return RECENT_BREAKS.map((b) => swatch(b.color, b.label)).join("");
   if (mode === "skill") return skillLegendHtml();
   if (mode === "now") return nowLegendHtml();
+  if (mode === "bulletin") return bulletinLegendHtml();
   return "";
 }
 
@@ -194,6 +196,15 @@ function buildGaugeStyle() {
         refreshMapData();
         setGaugeStyle("now");
         $("gauge-legend").innerHTML = gaugeLegendHtml("now");
+      });
+    }
+    // Last month's status reads the latest bulletin the first time it is picked (#523).
+    if (state.gaugeStyle === "bulletin" && !state.bulletinStatus) {
+      ensureBulletinStatus().then(() => {
+        if (state.gaugeStyle !== "bulletin") return;
+        refreshMapData();
+        setGaugeStyle("bulletin");
+        $("gauge-legend").innerHTML = gaugeLegendHtml("bulletin");
       });
     }
   };

@@ -307,6 +307,17 @@ Both forecasts are model output under CC BY 4.0 (GEOGLOWS v2; Open-Meteo, free f
 non-commercial use). The same functions are `aquascope now` and the MCP tools
 `flow_status`, `flow_forecast` and `correct_to_gauge`.
 
+## The monthly bulletin
+
+**Bulletin** in the Tools menu opens last month's state of the rivers in a reader:
+the document the monthly workflow wrote (every Archive gauge's monthly mean against
+the same month in its other years, by country and river basin, with the new records
+and a map), with Print or save as PDF and the Markdown beside it. **Last month's
+status** in the gauge colouring colours the gauges by their class in that bulletin;
+gauges it did not class are light grey. Before the first bulletin is published, both
+say so and the gauges keep their agency colours. The numbers come from
+`aquascope.bulletin` ([details](bulletin.md)); the page only shows them.
+
 ## Watch: since you were here
 
 **☆ Watch** on a gauge, on a clicked point's river reach and on a drawn area keeps it
