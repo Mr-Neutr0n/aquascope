@@ -7,6 +7,7 @@ import io
 import json
 import struct
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -166,3 +167,14 @@ def test_the_cli_entry_runs_a_step(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(cm, "build_ghcn", lambda out: {"rows": 3, "cells": []})
     assert cm.main(["ghcn", "--out", str(tmp_path)]) == 0
     assert json.load(io.StringIO(capsys.readouterr().out)) == {"rows": 3}
+
+
+def test_a_smoke_run_of_the_workflow_never_publishes():
+    yaml = pytest.importorskip("yaml")
+    path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mirror-context.yml"
+    wf = yaml.safe_load(path.read_text())
+    steps = wf["jobs"]["publish"]["steps"]
+    publish = next(s for s in steps if "context_mirror publish" in str(s.get("run", "")))
+    cond = publish["if"]
+    assert "HF_TOKEN" in cond and "inputs.publish" in cond
+    assert "inputs.max_files == ''" in cond and "inputs.groundsource_max_rows == ''" in cond

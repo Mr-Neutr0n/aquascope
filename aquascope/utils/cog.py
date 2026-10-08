@@ -562,8 +562,9 @@ class COG:
             need = w * h * spp * itemsize
         buf = np.frombuffer(data[:need], dtype=np.uint8)
         if img.predictor == 3:
-            rows = buf.reshape(h, w * spp * itemsize)
-            rows = np.cumsum(rows, axis=1, dtype=np.uint8)
+            # libtiff undoes the byte differencing with a stride of one pixel (``spp`` bytes)
+            rows = buf.reshape(h, w * itemsize, spp)
+            rows = np.cumsum(rows, axis=1, dtype=np.uint8).reshape(h, w * spp * itemsize)
             # bytes are stored most significant first, one plane per byte position
             planes = rows.reshape(h, itemsize, w * spp).transpose(0, 2, 1)
             arr = np.ascontiguousarray(planes).view(img.dtype.newbyteorder(">")).reshape(h, w, spp)

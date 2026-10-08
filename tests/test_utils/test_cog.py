@@ -206,3 +206,40 @@ def test_the_block_cache_is_bounded_by_bytes(monkeypatch):
             assert c.read_pixel(col, row) == int(arr[row, col])
     # a 16 x 16 uint16 tile is 512 bytes: only the latest one fits
     assert len(c._tiles) == 1
+
+
+def _fp_encode(block: np.ndarray) -> bytes:
+    """libtiff's floating-point predictor for an (h, w, spp) block: big-endian byte planes, then each byte
+    minus the one a pixel (``spp`` bytes) earlier."""
+    h, w, spp = block.shape
+    size = block.dtype.itemsize
+    big = block.astype(block.dtype.newbyteorder(">")).view(np.uint8).reshape(h, w * spp, size)
+    rows = big.transpose(0, 2, 1).reshape(h, w * size, spp)
+    diff = rows.copy()
+    diff[:, 1:] = rows[:, 1:] - rows[:, :-1]
+    return diff.astype(np.uint8).tobytes()
+
+
+@pytest.mark.parametrize("spp", [1, 2, 3])
+def test_floating_point_predictor_with_several_samples_per_pixel(spp):
+    arr = (np.linspace(-5, 5, 6 * 9 * spp).reshape(6, 9, spp) ** 3).astype("float32")
+    c = object.__new__(cog.COG)
+    c._bo = "<"
+    img = cog.Image(width=9, height=6, tile_width=None, tile_height=None, rows_per_strip=6, samples=spp, planar=1,
+                    bits=32, sample_format=3, compression=1, predictor=3, subfile_type=0,
+                    offsets=cog._Tag(4, 1, 0, (0,)), counts=cog._Tag(4, 1, 0, (0,)))
+    out = c._unpack(img, _fp_encode(arr), 0)
+    assert out.shape == (6, 9, spp)
+    np.testing.assert_array_equal(out, arr)
+
+
+def test_floating_point_predictor_agrees_with_tifffile_and_imagecodecs():
+    tifffile = pytest.importorskip("tifffile")
+    pytest.importorskip("imagecodecs")
+    arr = (np.linspace(-5, 5, 24 * 20 * 2).reshape(24, 20, 2) ** 3).astype("float32")
+    buf = io.BytesIO()
+    tifffile.imwrite(buf, arr, tile=(16, 16), compression="zlib", predictor=3, photometric="minisblack",
+                     planarconfig="contig")
+    c = _open(buf.getvalue())
+    for row, col, band in ((0, 0, 0), (23, 19, 1), (11, 7, 1), (5, 17, 0)):
+        assert c.read_pixel(col, row, band=band) == float(arr[row, col, band])

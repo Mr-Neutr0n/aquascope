@@ -44,12 +44,17 @@ export function floodYears(res) {
   return null;
 }
 
+// GHCN station names are upper case ("NIJMEGEN"); the card writes them as the summary line does.
+export const titleCase = (name) => (name === name.toUpperCase()
+  ? name.toLowerCase().replace(/(^|[\s\-/(])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase())
+  : name);
+
 // Annual rainfall at the nearest gauge, for the chart when there is no flood history.
 export function rainYears(res) {
   const annual = res && res.record && res.record.annual_mm;
   if (!annual || !Object.keys(annual).length) return null;
   const years = Object.keys(annual).sort();
-  const name = res.station && (res.station.name || res.station.id);
+  const name = res.station && (res.station.name ? titleCase(res.station.name) : res.station.id);
   return { x: years, y: years.map((y) => annual[y]), what: `yearly rainfall at ${name || "the nearest gauge"}`, unit: "mm" };
 }
 

@@ -26,11 +26,11 @@ on:
         type: boolean
         default: true
       max_files:
-        description: "Microsoft tiles per shard, for a smoke run (empty = all)"
+        description: "Microsoft tiles per shard, for a smoke run that never publishes (empty = all)"
         type: string
         default: ""
       groundsource_max_rows:
-        description: "Groundsource rows, for a smoke run (empty = all)"
+        description: "Groundsource rows, for a smoke run that never publishes (empty = all)"
         type: string
         default: ""
 
@@ -161,9 +161,15 @@ jobs:
             python -c "import json; m = json.load(open('build/context/manifest.json')); [print(f'- {k}: {v.get(\"rows\")} rows, {len(v.get(\"cells\") or [])} cells, {v.get(\"licence\")}') for k, v in m['datasets'].items()]"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # A smoke run (max_files or groundsource_max_rows set) never publishes: its partial datasets would replace
+      # the full ones in the manifest, as a capped harvest once replaced the live catalogue.
       - name: Publish to Hugging Face
-        if: env.HF_TOKEN != '' && inputs.publish
+        if: env.HF_TOKEN != '' && inputs.publish && inputs.max_files == '' && inputs.groundsource_max_rows == ''
         run: python -m aquascope.archive.context_mirror publish --out build --repo "$HF_DATASET"
+
+      - name: Say why a smoke run was not published
+        if: inputs.publish && (inputs.max_files != '' || inputs.groundsource_max_rows != '')
+        run: echo "::notice::A smoke run (max_files or groundsource_max_rows set) builds and summarises but does not publish."
 
       - name: Warn when HF_TOKEN is missing
         if: env.HF_TOKEN == '' && inputs.publish

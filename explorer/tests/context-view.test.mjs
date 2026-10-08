@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CONTEXT_LAYERS, boxProblem, contextLine, credits, floodPoints, floodYears, normaliseBox, pickChart, rainYears,
+  CONTEXT_LAYERS, boxProblem, contextLine, credits, floodPoints, floodYears, normaliseBox, pickChart, rainYears, titleCase,
 } from "../src/context-view.js";
 
 const FLOODS = {
@@ -63,4 +63,13 @@ test("a drawn box is folded onto the globe and checked", () => {
   assert.match(boxProblem({ west: 0, south: 0, east: 30, north: 10 }), /smaller box/);
   assert.equal(boxProblem({ west: 4, south: 44, east: 6, north: 46 }), null);
   assert.deepEqual(normaliseBox({ west: -200, south: -95, east: 200, north: 95 }), { west: -180, south: -90, east: 180, north: 90 });
+});
+
+test("GHCN's upper-case station names read as the summary line writes them", () => {
+  assert.equal(titleCase("NIJMEGEN"), "Nijmegen");
+  assert.equal(titleCase("DE BILT"), "De Bilt");
+  assert.equal(titleCase("SAO PAULO-MIRANTE"), "Sao Paulo-Mirante");
+  assert.equal(titleCase("Already Mixed"), "Already Mixed");
+  const station = { ...RAIN, station: { id: "NLE00101989", name: "NIJMEGEN" } };
+  assert.equal(rainYears(station).what, "yearly rainfall at Nijmegen");
 });

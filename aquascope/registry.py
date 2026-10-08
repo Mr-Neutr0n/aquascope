@@ -547,15 +547,16 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
         license="MIT", redistributable=True, mirrored=True,
         attribution="Microsoft AI for Good Lab global flood dataset (Sentinel-1, 2014-2024), MIT licence",
         homepage="https://huggingface.co/datasets/ai-for-good-lab/ai4g-flood-dataset",
-        citation="Mapping global floods with 10 years of satellite radar data. Nature Communications (2025). "
-                 "doi:10.1038/s41467-025-60973-1",
+        citation="Misra, A. et al. (2025). Mapping global floods with 10 years of satellite radar data. "
+                 "Nature Communications 16, 5762. doi:10.1038/s41467-025-60973-1",
     ),
     "surface_water": ContextLayerMeta(
         key="surface_water", short="JRC Global Surface Water",
         label="Surface water since 1984 (JRC Global Surface Water)",
         provider="European Commission JRC / Google",
-        description="How often each 30 m pixel was water between March 1984 and December 2024, and how that "
-                    "changed between 1984-1999 and 2000-2024 (Landsat, release v1.5)",
+        description="How often each 30 m pixel was water between March 1984 and December 2024, and the "
+                    "occurrence change intensity between 1984-1999 and 2000-2024 (a normalised difference, "
+                    "Landsat, release v1.5)",
         license="free and open, no restrictions (Copernicus)",
         attribution="Source: EC JRC/Google, Global Surface Water v1.5 (Pekel et al. 2016)",
         homepage="https://global-surface-water.appspot.com/",

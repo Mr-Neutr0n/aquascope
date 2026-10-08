@@ -122,11 +122,27 @@ def _change(raw: int | None) -> tuple[int | None, str]:
     return None, {253: "not water", 254: "no homologous months to compare", 255: "no data"}.get(raw, "no data")
 
 
+def _change_words(change: int | None) -> str:
+    """The occurrence change intensity in words (it is a normalised difference, not percentage points)."""
+    if change is None:
+        return ""
+    if change >= 100:
+        return ", all of it since 2000 (never in 1984-1999)"
+    if change <= -100:
+        return ", none of it since 2000"
+    if change == 0:
+        return ", as often since 2000 as in 1984-1999"
+    word = "more" if change > 0 else "less"
+    return f", {word} often since 2000 than in 1984-1999 (normalised change {change:+d} %)"
+
+
 def surface_water(lat: float, lon: float) -> dict[str, Any]:
     """How often a 30 m pixel was water from 1984 to 2024, and how that changed (JRC Global Surface Water v1.5).
 
-    ``occurrence_pct`` is the share of valid monthly observations that saw water; ``change_pct`` is the
-    change in occurrence between 1984-1999 and 2000-2024 in percentage points (-100 to +100);
+    ``occurrence_pct`` is the share of valid monthly observations that saw water; ``change_norm_pct`` is
+    GSW's occurrence change intensity between 1984-1999 and 2000-2024, the normalised difference of the two
+    epochs' occurrence over homologous months (-100: water only before 2000, 0: no change, +100: water only
+    since 2000; the downloadable GeoTIFF holds this ``change_norm`` band, not the absolute difference);
     ``nearby_max_occurrence_pct`` is the highest occurrence within about 300 m, so a click beside a river
     still finds it.
     """
@@ -136,7 +152,7 @@ def surface_water(lat: float, lon: float) -> dict[str, Any]:
             occ_raw = open_cog(gsw_url("occurrence", lat, lon)).value_at(lon, lat)
         except COGNotFound:
             return layer_result("surface_water", ["surface_water"], ok=True, lat=lat, lon=lon, occurrence_pct=None,
-                                change_pct=None, period=GSW_PERIOD,
+                                change_norm_pct=None, period=GSW_PERIOD,
                                 summary="No Global Surface Water tile here (open sea or the poles).")
         change, change_status = _change(_gsw_value("change", lat, lon))
         nearby = _neighbourhood_max(lat, lon)
@@ -151,15 +167,9 @@ def surface_water(lat: float, lon: float) -> dict[str, Any]:
             summary += f"; water within about 300 m up to {nearby} % of the time"
         summary += "."
     else:
-        summary = f"Water {occ} % of the time from 1984 to 2024"
-        if change is not None and change != 0:
-            word = "up" if change > 0 else "down"
-            summary += f", {word} {abs(change)} percentage points from 1984-1999 to 2000-2024"
-        elif change == 0:
-            summary += ", no change between 1984-1999 and 2000-2024"
-        summary += "."
+        summary = f"Water {occ} % of the time from 1984 to 2024" + _change_words(change) + "."
     return layer_result(
-        "surface_water", ["surface_water"], ok=True, lat=lat, lon=lon, occurrence_pct=occ, change_pct=change,
+        "surface_water", ["surface_water"], ok=True, lat=lat, lon=lon, occurrence_pct=occ, change_norm_pct=change,
         change_status=change_status, nearby_max_occurrence_pct=nearby, period=GSW_PERIOD,
         change_epochs=list(GSW_EPOCHS), pixel_m=30, summary=summary,
     )

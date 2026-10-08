@@ -53,11 +53,21 @@ def test_surface_water_reads_occurrence_change_and_the_neighbourhood(web):
     chg[49, 50] = 120
     _gsw(web, occ, chg)
     res = context.surface_water(LAT, LON)
-    assert res["ok"] and res["occurrence_pct"] == 60 and res["change_pct"] == 20
+    assert res["ok"] and res["occurrence_pct"] == 60 and res["change_norm_pct"] == 20
     assert res["nearby_max_occurrence_pct"] == 90
-    assert "60 % of the time" in res["summary"] and "up 20 percentage points" in res["summary"]
+    assert "60 % of the time" in res["summary"]
+    assert "more often since 2000 than in 1984-1999 (normalised change +20 %)" in res["summary"]
     _assert_licensed(res)
     assert res["sources"][0]["key"] == "surface_water"
+
+
+def test_the_change_is_worded_as_the_normalised_difference_it_is():
+    assert rasters._change_words(None) == ""
+    assert rasters._change_words(100) == ", all of it since 2000 (never in 1984-1999)"
+    assert rasters._change_words(-100) == ", none of it since 2000"
+    assert rasters._change_words(0) == ", as often since 2000 as in 1984-1999"
+    assert rasters._change_words(-7).endswith("less often since 2000 than in 1984-1999 (normalised change -7 %)")
+    assert "percentage point" not in rasters._change_words(20)
 
 
 def test_the_neighbourhood_rows_come_in_one_request(web):
