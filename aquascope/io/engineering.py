@@ -217,7 +217,12 @@ def regular(rec: Record) -> tuple[pd.Series, int, list[str]]:
             step = 86400
             notes.append("The record was too irregular for one time step, so it was averaged to daily values.")
         else:
-            s = s.reindex(full)
+            # Bin onto the grid rather than reindex, so a reading a little off the grid is kept, not dropped.
+            bins = s.resample(pd.Timedelta(seconds=step), origin="start")
+            shared = int((bins.count() > 1).sum())
+            s = bins.mean()
+            if shared:
+                notes.append(f"{shared} time steps held more than one reading; each was averaged into one value.")
     s = s.loc[s.first_valid_index():s.last_valid_index()]
     gaps = int(s.isna().sum())
     if gaps:
@@ -561,11 +566,21 @@ def swmm_files(rec: Record) -> tuple[dict[str, str], list[str]]:
     files[f"{name}_timeseries.inp"] = "\n".join(
         ["[TIMESERIES]", ";;Name           Date       Time       Value"] + swmm_series_lines(s, name)) + "\n"
     wiring = ["[TIMESERIES]", ";;Name           Date       Time       Value", f'{name} FILE "{dat}"', ""]
+    gaps = int(s.isna().sum())
+    if gaps:
+        notes.append(f"{gaps} missing steps are left out of the SWMM files: SWMM interpolates a flow or level "
+                     "across them and reads missing rain as none.")
     if rec.kind == "flow":
         wiring += ["[INFLOWS]", ";;Node  Constituent  Time Series  Type  Mfactor  Sfactor",
                    f"OUTLET1  FLOW  {name}  FLOW  1.0  1.0", ""]
-        notes.append("Values are in m3/s: set FLOW_UNITS CMS in [OPTIONS], or Sfactor 35.3147 for CFS. "
-                     "Rename OUTLET1 to the node that takes the inflow.")
+        unit = dss_units(rec)
+        if unit == "CMS":
+            notes.append("Values are in m3/s: set FLOW_UNITS CMS in [OPTIONS], or Sfactor 35.3147 for CFS.")
+        elif unit == "CFS":
+            notes.append("Values are in ft3/s: set FLOW_UNITS CFS in [OPTIONS], or Sfactor 0.0283168 for CMS.")
+        else:
+            notes.append(f"Values are in {rec.unit}: set Sfactor to convert them to the project's FLOW_UNITS.")
+        notes.append("Rename OUTLET1 to the node that takes the inflow.")
     elif rec.kind == "precip":
         wiring += ["[RAINGAGES]", ";;Name  Format  Interval  SCF  Source",
                    f"RG_{name}  VOLUME  {_swmm_hhmm(step)}  1.0  TIMESERIES  {name}", ""]
@@ -757,13 +772,29 @@ def _readme(tool: str, rec: Record, files: list[str], notes: list[str]) -> str:
     meta = TOOLS[tool]
     lines = [f"{meta['label']} input from AquaScope", "=" * 40, "",
              f"Record: {rec.name or rec.location}" + (f" ({rec.source})" if rec.source else ""),
-             f"Variable: {rec.kind} in {rec.unit}, {rec.series.index[0]:%Y-%m-%d} to {rec.series.index[-1]:%Y-%m-%d}",
-             "", "Files", "-----"] + [f"  {f}" for f in files] + ["", "How to use", "----------"]
+             f"Variable: {rec.kind} in {rec.unit}, {rec.series.index[0]:%Y-%m-%d} to {rec.series.index[-1]:%Y-%m-%d}"]
+    lines += _terms(rec.source)
+    lines += ["", "Files", "-----"] + [f"  {f}" for f in files] + ["", "How to use", "----------"]
     lines += _HOWTO[tool]
     if notes:
         lines += ["", "Notes", "-----"] + [f"- {n}" for n in notes]
     lines += ["", f"Format reference: {DOCS[tool]}", ""]
     return "\n".join(lines)
+
+
+def _terms(source: str) -> list[str]:
+    """The source's licence and attribution lines from the registry (none for a CSV or an unknown source)."""
+    if not source:
+        return []
+    from aquascope.registry import SOURCES
+
+    meta = SOURCES.get(source)
+    if meta is None:
+        return []
+    out = [f"Data licence: {meta.license}"]
+    if meta.attribution:
+        out.append(f"Attribution: {meta.attribution}")
+    return out
 
 
 _HOWTO: dict[str, list[str]] = {

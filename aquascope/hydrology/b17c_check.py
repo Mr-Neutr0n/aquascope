@@ -54,6 +54,7 @@ CASES: list[dict[str, Any]] = [
         "example": "Bulletin 17C Example 2 (potentially influential low floods)",
         "station": "USGS 11274500 Orestimba Creek near Newman, California",
         "table": "Tables 10-6 (peaks) and 10-9 (quantiles); moments and PILF threshold in the text of Example 2",
+        # The station skew is negative: the text prints "-0.929 (station skew)" and figure 10-5 "-0.929 = skew (G)".
         "first_year": 1932,
         "peaks": [4260, 345, 516, 1320, 1200, 2180, 3230, 115, 3440, 3070, 1880, 6450, 1290, 5970, 782, 0, 0, 335,
                   175, 2920, 3660, 147, 0, 16, 5620, 1440, 10200, 5380, 448, 0, 1740, 8300, 156, 560, 128, 4200, 0,
@@ -62,7 +63,7 @@ CASES: list[dict[str, Any]] = [
                   0, 2110, 310, 4400, 4440, 0, 6250],
         "regional_skew": None,
         "regional_skew_mse": None,
-        "published": {"mean": 3.0227, "std": 0.6821, "skew": 0.929, "skew_kind": "station",
+        "published": {"mean": 3.0227, "std": 0.6821, "skew": -0.929, "skew_kind": "station",
                       "low_outlier_threshold": 782, "n_censored": 30,
                       "quantiles": {0.5: 1339, 0.2: 4026, 0.1: 6328, 0.04: 9426, 0.02: 11690, 0.01: 13820,
                                     0.005: 15800, 0.002: 18150}},

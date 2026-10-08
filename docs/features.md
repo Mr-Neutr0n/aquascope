@@ -95,5 +95,5 @@ For when-to-use-which guidance, see the [methodology matrix](methodology_matrix.
 
 - **Regression tests and numerical benchmarks** — see the [observed/synthetic validation scope](validation_scope.md)
 - **Interactive dashboard** — 10-page Streamlit app
-- **34 CLI commands** — `collect`, `recommend`, `eda`, `quality`, `run`, `completion`, `list-methods`, `list-sources`, `stations`, `harvest`, `ask`, `ingest`, `basins`, `assess`, `gym`, `caravan`, `mcp`, `playbooks`, `solve`, `studio`, `desk`, `studio-showcase`, `eval`, `forecast`, `plot`, `dashboard`, `agri`, `alerts`, `groundwater`, `climate`, `hydro`, `area-study`, `export`, `update`
+- **34 CLI commands**: `collect`, `recommend`, `eda`, `quality`, `run`, `completion`, `list-methods`, `list-sources`, `stations`, `harvest`, `ask`, `ingest`, `basins`, `assess`, `gym`, `caravan`, `mcp`, `playbooks`, `solve`, `studio`, `desk`, `studio-showcase`, `eval`, `forecast`, `plot`, `dashboard`, `agri`, `alerts`, `groundwater`, `climate`, `hydro`, `area-study`, `export`, `update`
 - **[Theory guide](theory.md)** — mathematical equations, DOI citations, decision trees

@@ -53,12 +53,16 @@ The tools themselves were not run.
   better input for a design value.
 - **Gaps.** HEC-RAS and MODFLOW 6 cannot hold a missing value. Gaps of up to 10 steps are filled
   by linear interpolation; a longer gap is not invented, so the file starts after the last one.
-  The README says what was filled or cut. DSS, PI-XML, SWMM and Raven keep gaps as missing.
+  The README says what was filled or cut. DSS, PI-XML and Raven keep gaps as missing values.
+  The SWMM files leave them out: SWMM interpolates a flow or level across a gap and reads
+  missing rain as none.
 - **MODFLOW 6.** The cell is layer 1, row 1, column 1 unless you pass `--cell`. Without
   `--cond` and `--rbot` the River package carries placeholders (conductance 1, bottom 1 m
   below the lowest stage), flagged in the file. Flow becomes m3/d for a Well package.
 - **Not written:** HEC-HMS project files (`.gage`, `.basin`) and HEC-SSP analysis files,
   which HEC does not document. The README in each folder gives the few clicks instead.
+- **Licence.** Each README names the source's data licence and attribution. The files are for
+  your own models; the source's terms still apply to the data in them.
 
 ## Bulletin 17C check
 
@@ -90,7 +94,7 @@ below was copied from the Bulletin's tables; the AquaScope column is
 
 | | Mean of log10 | Std of log10 | Skew |
 |---|---|---|---|
-| Published (station skew) | 3.0227 | 0.6821 | 0.929 |
+| Published (station skew) | 3.0227 | 0.6821 | -0.929 |
 | AquaScope | 2.5822 | 1.3996 | -0.705 |
 
 Low outliers: published threshold 782 ft3/s with 30 peaks censored; AquaScope threshold 39.4 ft3/s with 15 censored.
@@ -112,8 +116,10 @@ is 0.422 against 0.421, and the quantiles are within 1%, the gap growing toward 
 
 On a record with zero flows and potentially influential low floods (Example 2) it does not.
 The published Multiple Grubbs-Beck test censors 30 peaks below 782 ft3/s; AquaScope's
-version stops at 39.4 ft3/s with 15 censored, and its simplified moment adjustment then
-gives a negative skew and rare floods several times too large. Until that is fixed, use
+version stops at 39.4 ft3/s with 15 censored. With the wrong peaks censored, the standard
+deviation of the logs comes out at about twice the published one (1.40 against 0.68) and the
+skew at -0.705 against -0.929, so the median flood is less than half the published value and
+the rare floods are several times too large. Until that is fixed, use
 HEC-SSP or PeakFQ for any record with zeros or low outliers; the `b17c_settings.txt` that
 the HEC-SSP export writes says so.
 

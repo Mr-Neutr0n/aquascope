@@ -14,6 +14,8 @@ def test_the_reference_cases_match_the_publication_counts():
     assert len(moose["peaks"]) == 68 and moose["peaks"][0] == 2080 and moose["peaks"][-1] == 4250
     assert len(ores["peaks"]) == 82 and sum(1 for v in ores["peaks"] if v == 0) == 12
     assert ores["published"]["n_censored"] == 30 and ores["published"]["low_outlier_threshold"] == 782
+    # Station skew is negative in the Bulletin ("-0.929 (station skew)", figure 10-5).
+    assert ores["published"]["skew"] == -0.929 and moose["published"]["skew"] == 0.421
 
 
 def test_moose_river_agrees_within_about_one_percent():

@@ -53,6 +53,14 @@ def test_regular_keeps_the_step_and_marks_gaps():
     assert step == 86400 and "averaged to daily" in notes[0]
 
 
+def test_regular_keeps_a_reading_a_little_off_the_grid():
+    idx = pd.date_range("2020-01-01", periods=96, freq="15min")
+    s = pd.Series(np.arange(96, dtype=float), index=idx)
+    s.index = s.index.where(s.index != idx[40], idx[40] + pd.Timedelta(seconds=20))  # one clock drifted 20 s
+    reg, step, notes = eng.regular(eng.make_record(s))
+    assert step == 900 and len(reg) == 96 and reg.isna().sum() == 0 and reg.iloc[40] == 40.0
+
+
 # ── HEC-DSS ──────────────────────────────────────────────────────────────────
 
 
@@ -183,6 +191,24 @@ def test_swmm_files_follow_the_manual():
     assert 'G1 FILE "G1.dat"' in wiring and "[INFLOWS]" in wiring and "OUTLET1  FLOW  G1  FLOW  1.0  1.0" in wiring
     rain, notes = eng.swmm_files(eng.make_record(_daily(1), variable="precipitation", location="G1"))
     assert "RG_G1  VOLUME  24:00  1.0  TIMESERIES  G1" in rain["G1_sections.inp"]
+
+
+def test_swmm_notes_name_the_real_unit_and_the_gaps():
+    s = _daily(1)
+    s = s.drop(s.index[5:8])
+    files, notes = eng.swmm_files(eng.make_record(s, unit="ft3/s", location="G1"))
+    assert any("ft3/s: set FLOW_UNITS CFS" in n for n in notes)
+    assert not any("m3/s" in n for n in notes)
+    assert any(n.startswith("3 missing steps are left out") for n in notes)
+    assert len(files["G1.dat"].splitlines()) == 1 + len(s)
+
+
+def test_readme_records_the_source_licence():
+    files, _ = eng.export_files(eng.make_record(_daily(1), location="X", source="usgs"), "fews")
+    readme = files["fews/README.txt"].decode()
+    assert "Data licence: US-PD" in readme and "Attribution: U.S. Geological Survey" in readme
+    plain, _ = eng.export_files(eng.make_record(_daily(1), location="X"), "fews")
+    assert "Data licence" not in plain["fews/README.txt"].decode()
 
 
 # ── MODFLOW 6 ────────────────────────────────────────────────────────────────
