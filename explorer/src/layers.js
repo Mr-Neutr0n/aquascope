@@ -113,7 +113,8 @@ export const TERRAIN_DEM = {
   licence: "Open data, per-source attribution (tilezen/joerd)",
 };
 
-// Raster overlays. `time: true` means the URL carries {date} and the shared
+// Raster overlays (Global Surface Water added for #520, checked 2026-10-08:
+// tiles2024 is the v1.5 release, XYZ to zoom 13, CORS *). `time: true` means the URL carries {date} and the shared
 // date control drives it. Legends are the GIBS colour maps, which are SVG.
 export const OVERLAYS = [
   {
@@ -180,6 +181,17 @@ export const OVERLAYS = [
     attribution: "GRACE/GRACE-FO Tellus mascon liquid water equivalent thickness, NASA GIBS (ESDIS)",
     licence: "Open (NASA), acknowledgement requested",
     note: "Total water storage anomaly in cm of equivalent water, monthly. The signal groundwater depletion shows up in.",
+  },
+  {
+    id: "surface-water",
+    label: "Surface water since 1984",
+    group: "Water and climate",
+    tiles: ["https://storage.googleapis.com/water-world/tiles2024/occurrence/{z}/{x}/{y}.png"],
+    maxzoom: 13,
+    opacity: 0.85,
+    attribution: 'Source: EC JRC/Google, <a href="https://global-surface-water.appspot.com/">Global Surface Water</a> v1.5 (Pekel et al. 2016)',
+    licence: "Copernicus: free of charge, without restriction of use",
+    note: "How often each 30 m pixel was water from 1984 to 2024: pale for rarely, deep blue for always. Click a point and open Context for the number.",
   },
   {
     id: "landcover",

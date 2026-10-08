@@ -11,6 +11,7 @@ import { flyToPoint, setPointMarker, highlightStation } from "./map.js?v=__BUILD
 import { addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
 import { hideCard, selectTab, setCard, setTab, showSurface } from "./shell.js?v=__BUILD__";
 import { call } from "./worker-client.js?v=__BUILD__";
+import { loadPointContext, resetPointContext } from "./context.js?v=__BUILD__";
 import { groupStationSites } from "./sites.js?v=__BUILD__";
 import { canonicalUrl, writeUrl } from "./url.js?v=__BUILD__";
 
@@ -96,10 +97,12 @@ export async function selectPoint(lat, lon, { tab = null, push = true, fly = fal
   renderMethodList("pt-methods", []);
   $("pt-attribution").textContent = "";
   clearCatchment();
+  resetPointContext();
   for (const name of ["modelled", "catchment", "similar"]) {
     setTab(root(), name, { enabled: false, reason: "Looking this point up…", count: null });
   }
   setTab(root(), "overview", { enabled: true });
+  setTab(root(), "context", { enabled: true });
   setTab(root(), "methods", { enabled: true });
   // Push the selection before applying the tab (tab changes only replace).
   state.activeTab = tab && root().querySelector(`[role="tab"][data-tab="${tab}"]`) ? tab : "overview";
@@ -189,7 +192,9 @@ export function initPointPanel() {
   r.addEventListener("tabchange", (e) => {
     state.activeTab = e.detail.tab;
     writeUrl();
-    for (const id of ["plot-climate"]) {
+    // Context reads several open datasets, so it is fetched when its tab is opened, not on every click.
+    if (e.detail.tab === "context" && state.point) void loadPointContext(state.point.lat, state.point.lon);
+    for (const id of ["plot-climate", "plot-context"]) {
       const el = $(id);
       if (el && el.offsetParent !== null && el.data) Plotly.Plots.resize(el);
     }

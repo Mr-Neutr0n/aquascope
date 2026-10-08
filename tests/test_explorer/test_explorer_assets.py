@@ -276,6 +276,7 @@ ALLOWED_TILE_HOSTS = {
     "basemap.nationalmap.gov",        # USGS imagery, public domain, US only
     "elevation-tiles-prod.s3.amazonaws.com",  # AWS Terrain Tiles (Mapzen/Tilezen)
     "wmts.terrascope.be",             # ESA WorldCover, CC BY 4.0
+    "storage.googleapis.com",         # JRC Global Surface Water tiles (water-world bucket), CORS *, no key
 }
 
 # Hosts that must never appear: their terms do not allow this use, or they need

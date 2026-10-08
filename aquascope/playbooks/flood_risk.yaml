@@ -428,6 +428,14 @@ caveats:
       - path: context.years_by_variable.discharge
         op: exists
         value: false
+  - say: >-
+      Historical flood events near the site (flood reports in the news from Google Groundsource) are listed
+      with the site's data. They say that and when the place flooded, not how big the flood was: a check on the
+      estimate, never an input to it.
+    when:
+      - path: context.flood_history.events
+        op: ">"
+        value: 0
 citations:
   - "England, J. F. et al. (2019). Guidelines for determining flood flow frequency, Bulletin 17C. USGS Techniques and Methods 4-B5."
   - "Hosking, J. R. M. (1990). L-moments: analysis and estimation of distributions using linear combinations of order statistics. J. R. Stat. Soc. B 52, 105-124."
