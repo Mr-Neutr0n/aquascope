@@ -214,3 +214,23 @@ def test_a_percentage_decision_is_found_in_the_answer():
     author.author_report(ws, None)
     out = critic.critique(ws, None)
     assert {c["name"]: c["passed"] for c in out["checks"]}["decision_in_answer"]
+
+
+# ── the evidence ladder as an Interpreter input (#518) ──────────────────────
+
+
+def test_model_choice_speaks_only_when_the_study_leaned_on_a_model():
+    from types import SimpleNamespace
+
+    from aquascope.studio.roles.interpreter import model_choice
+
+    lean = {"model": "geoglows", "sentence": "Near this site, GEOGLOWS v2 tracked the gauges best."}
+    inv = SimpleNamespace(models=lean)
+    modelled = SimpleNamespace(inventory=inv, run={"results": [{"id": "s5", "tool": "reach_record", "ok": True}]})
+    assert model_choice(modelled) == lean["sentence"]
+    gauged = SimpleNamespace(inventory=inv, run={"results": [{"id": "s2", "tool": "analyze_station", "ok": True}]})
+    assert model_choice(gauged) is None
+    nothing = SimpleNamespace(inventory=SimpleNamespace(models={"model": None, "sentence": "x"}),
+                              run=modelled.run)
+    assert model_choice(nothing) is None
+    assert model_choice(SimpleNamespace(inventory=None, run=modelled.run)) is None

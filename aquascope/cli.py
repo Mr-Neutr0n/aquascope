@@ -1183,6 +1183,79 @@ def _river_target(args: argparse.Namespace) -> tuple[int | None, dict | None]:
     return int(args.river_id), None
 
 
+# ── evidence (the model-skill ladder, #518) ────────────────────────────────
+
+
+def _print_skill(res: dict) -> None:
+    where = f"{res.get('source')}/{res.get('station_id')}" if res.get("source") else f"{res.get('lat')}, {res.get('lon')}"
+    print(f"  Model skill at {where}, gauge record {res.get('obs_start')} to {res.get('obs_end')}")
+    if res.get("error"):
+        print(f"  {res['error']}")
+        return
+    print(f"  {'model':<12} {'grade':>5} {'KGE':>6} {'r':>6} {'alpha':>6} {'beta':>6} {'NSE':>6} {'PBIAS':>7} "
+          f"{'Q2 err':>7} {'Q10 err':>8} {'Q100 err':>9}")
+
+    def f(x, d=2, pct=False):
+        if x is None:
+            return "-"
+        return f"{x:+.0f} %" if pct else f"{x:.{d}f}"
+
+    for r in res.get("models") or []:
+        if r.get("kge") is None:
+            print(f"  {r.get('label', r.get('model')):<12} {'-':>5}  {r.get('why') or ''}")
+            continue
+        print(f"  {r['label']:<12} {r.get('grade') or '-':>5} {f(r.get('kge')):>6} {f(r.get('r')):>6} "
+              f"{f(r.get('alpha')):>6} {f(r.get('beta')):>6} {f(r.get('nse')):>6} {f(r.get('pbias'), 1):>7} "
+              f"{f(r.get('q2_error_pct'), pct=True):>7} {f(r.get('q10_error_pct'), pct=True):>8} "
+              f"{f(r.get('q100_error_pct'), pct=True):>9}")
+    print(f"  {res.get('sentence')}")
+    for n in res.get("notes") or []:
+        print(f"  {n}")
+    print("  Grades: A KGE >= 0.75, B >= 0.5, C > -0.41 (the mean-flow benchmark), else D; one letter lower when "
+          "the 100-year flow is off by more than 50 %.")
+
+
+def cmd_evidence(args: argparse.Namespace) -> None:
+    """`aquascope evidence skill|near|build|publish`: every global model scored at a gauge (#518)."""
+    if args.evidence_cmd == "skill":
+        from aquascope import evidence
+
+        series = None
+        if args.csv:
+            import pandas as pd
+
+            df = pd.read_csv(args.csv)
+            series = pd.Series(pd.to_numeric(df.iloc[:, 1], errors="coerce").to_numpy(float),
+                               index=pd.to_datetime(df.iloc[:, 0]))
+        at = args.at or (None, None)
+        res = evidence.model_skill(args.source, args.station_id, series=series, lat=at[0], lon=at[1],
+                                   area_km2=args.area, models=args.models, years=args.years or None)
+        if args.json:
+            print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+            return
+        _print_skill(res)
+        return
+    if args.evidence_cmd == "near":
+        from aquascope import evidence
+
+        res = evidence.lean_on(args.lat, args.lon, radius_km=args.radius_km)
+        if args.json:
+            print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+            return
+        print(f"  {res['sentence']}")
+        return
+    from aquascope.archive import skill
+
+    if args.evidence_cmd == "build":
+        argv = ["build", "--archive", args.archive, "--out", args.out, "--max-gauges", str(args.max_gauges),
+                "--nwm-years", str(args.nwm_years), "--nwm-max-columns", str(args.nwm_max_columns),
+                "--grrr-max-chunks", str(args.grrr_max_chunks), "--workers", str(args.workers)]
+        if args.smoke:
+            argv.append("--smoke")
+        sys.exit(skill.main(argv))
+    sys.exit(skill.main(["publish", "--out", args.out, "--repo", args.repo]))
+
+
 def cmd_river(args: argparse.Namespace) -> None:
     """`aquascope river snap|record|area|trace`: GEOGLOWS v2 river reaches, keyless (the modelled record is CC BY)."""
     from aquascope import rivers
@@ -3682,6 +3755,35 @@ def main() -> None:
             p_r.add_argument("--gauge-km", type=float, default=2.0, help="List gauges this close to the path (2)")
             p_r.add_argument("--geojson", default=None, help="Write the path to this GeoJSON file")
 
+    p_ev = sub.add_parser("evidence", help="Model skill at a gauge: GEOGLOWS, GloFAS, NWM and GRRR graded A to D")
+    ev_sub = p_ev.add_subparsers(dest="evidence_cmd", required=True)
+    p_evs = ev_sub.add_parser("skill", help="Score every global model against one gauge's record")
+    p_evs.add_argument("source", nargs="?", default=None, help="Station source (usgs, uk_ea, ...)")
+    p_evs.add_argument("station_id", nargs="?", default=None)
+    p_evs.add_argument("--at", nargs=2, type=float, metavar=("LAT", "LON"), help="The gauge position (with --csv)")
+    p_evs.add_argument("--csv", default=None, help="Your own daily discharge record: date,value in m3/s")
+    p_evs.add_argument("--area", type=float, default=None, help="The gauge's catchment area in km2")
+    p_evs.add_argument("--models", nargs="+", choices=["geoglows", "glofas", "nwm", "grrr"], default=None)
+    p_evs.add_argument("--years", type=int, default=30, help="Score the last N years of the record (30; 0 = all)")
+    p_evs.add_argument("--json", action="store_true")
+    p_evn = ev_sub.add_parser("near", help="Which model to lean on near a site, from the published skill")
+    p_evn.add_argument("lat", type=float)
+    p_evn.add_argument("lon", type=float)
+    p_evn.add_argument("--radius-km", type=float, default=150.0)
+    p_evn.add_argument("--json", action="store_true")
+    p_evb = ev_sub.add_parser("build", help="The monthly skill table for the Archive gauges (CI)")
+    p_evb.add_argument("--archive", required=True, help="A local copy of the dataset")
+    p_evb.add_argument("--out", required=True)
+    p_evb.add_argument("--max-gauges", type=int, default=4000)
+    p_evb.add_argument("--nwm-years", type=int, default=10)
+    p_evb.add_argument("--nwm-max-columns", type=int, default=24)
+    p_evb.add_argument("--grrr-max-chunks", type=int, default=2000)
+    p_evb.add_argument("--workers", type=int, default=8)
+    p_evb.add_argument("--smoke", action="store_true", help="Six gauges, never published")
+    p_evp = ev_sub.add_parser("publish", help="Upload the skill table to the Archive (skill/ only)")
+    p_evp.add_argument("--out", required=True)
+    p_evp.add_argument("--repo", default="Rekin226/aquascope-gauges")
+
     p_basins = sub.add_parser("basins", help="Catchments from BasinATLAS (HydroATLAS, CC BY 4.0) in the Archive")
     basins_sub = p_basins.add_subparsers(dest="basins_cmd", required=True)
     p_bat = basins_sub.add_parser("at", help="Describe the catchment upstream of a point")
@@ -4349,6 +4451,7 @@ def main() -> None:
         "basins": cmd_basins,
         "layers": cmd_layers,
         "river": cmd_river,
+        "evidence": cmd_evidence,
         "assess": cmd_assess,
         "context": cmd_context,
         "area-study": cmd_area_study,

@@ -372,6 +372,7 @@ export const GAUGE_STYLES = [
   { id: "source", label: "Agency" },
   { id: "record", label: "Record length" },
   { id: "recent", label: "Last observation" },
+  { id: "skill", label: "Best model skill" },
 ];
 
 // Years of record from the catalog's own period columns (no extra data needed).

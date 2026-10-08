@@ -118,6 +118,7 @@ nav:
     - Engineering exports (HEC, SWMM, MODFLOW, FEWS, Raven): engineering_exports.md
     - Use the Archive from R, QGIS, DuckDB: readers.md
     - The Explorer (click any gauge): explorer.md
+    - The evidence ladder (model skill at gauges): evidence.md
     - Save and share a study: adoption/sharing.md
     - Adoption measurement: adoption/measurement.md
     - Practitioner pilot: adoption/pilot.md

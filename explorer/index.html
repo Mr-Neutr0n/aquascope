@@ -245,6 +245,7 @@
           <h2 id="st-name">Station</h2>
           <div class="st-meta">
             <span id="st-id"></span> · <span id="st-vars"></span><span id="st-period"></span>
+            <span id="st-grade" class="grade-badge" hidden></span>
           </div>
           <label id="st-site-records" class="site-records" hidden>
             <span id="st-site-count"></span>
@@ -280,6 +281,7 @@
           <button role="tab" data-tab="flows" aria-controls="tab-flows" aria-selected="false" tabindex="-1" id="t-flows">Flows</button>
           <button role="tab" data-tab="model" aria-controls="tab-model" aria-selected="false" tabindex="-1" id="t-model">Model</button>
           <button role="tab" data-tab="river" aria-controls="tab-river" aria-selected="false" tabindex="-1" id="t-river">River</button>
+          <button role="tab" data-tab="evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1" id="t-evidence">Evidence</button>
           <button role="tab" data-tab="catchment" aria-controls="tab-catchment" aria-selected="false" tabindex="-1" id="t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="tab-similar" aria-selected="false" tabindex="-1" id="t-similar">Similar<span class="tab-badge" hidden></span></button>
           <button role="tab" data-tab="methods" aria-controls="tab-methods" aria-selected="false" tabindex="-1" id="t-methods">Methods</button>
@@ -372,6 +374,22 @@
 
           <section id="tab-river" role="tabpanel" aria-labelledby="t-river" tabindex="0" hidden>
             <div id="st-river" class="river"></div>
+          </section>
+
+          <section id="tab-evidence" role="tabpanel" aria-labelledby="t-evidence" tabindex="0" hidden>
+            <div id="st-evidence" class="card evidence" hidden>
+              <div class="card-title">
+                <h3>Models against this gauge</h3>
+                <span id="ev-actions" class="card-tools"></span>
+              </div>
+              <div class="card-body">
+                <p id="ev-sentence" class="ev-sentence"></p>
+                <div id="plot-evidence" class="plot"></div>
+                <div class="table-scroll"><table class="ffa" id="ev-table"></table></div>
+                <div id="ev-status" class="status" hidden></div>
+                <div id="ev-foot" class="basin-foot muted"></div>
+              </div>
+            </div>
           </section>
 
           <section id="tab-catchment" role="tabpanel" aria-labelledby="t-catchment" tabindex="0" hidden>

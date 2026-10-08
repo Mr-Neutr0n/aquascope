@@ -124,6 +124,7 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 
 - 🌊 **Pull water data** from USGS, NOAA NWPS, Colorado DWR/CDSS, US Water Quality Portal, England's Environment Agency, France Hub'Eau, Germany PEGELONLINE, Ireland OPW, Greece Hydroscope and OpenHi.net, Poland IMGW-PIB, EU WFD, Taiwan MOENV/WRA/CWA/Civil IoT/DataGov, Japan MLIT, Korea WAMIS, India WRIS, South Africa DWS, Australia BOM, Brazil ANA Hidroweb, CAMELS-CL and CAMELS-BR, GRDC, GEMStat, Copernicus ERA5, OpenMeteo, FAO AQUASTAT, FAO WaPOR and UN SDG 6 — **one unified Python API**.
 - 🏞️ **Treat rivers as objects**: snap any point to its GEOGLOWS v2 river reach (about 6.8 million worldwide), read that reach's simulated daily flow since 1940 with return periods, flow-duration curve and monthly regime (labelled modelled), and trace it downstream to the sea with the gauges it passes. `aquascope river snap|record|area|trace`, the MCP tools, the Explorer's River tab, and the Studio's ungauged studies all use the same functions.
+- 🪜 **Grade the global models at a gauge**: GEOGLOWS v2, GloFAS, NWM v3 (US) and Google's Flood Hub reanalysis set against the gauge's own record, with KGE and its parts, bias, the error at the 2-, 10- and 100-year flows, a grade from A to D and one sentence on where they disagree. `aquascope evidence skill`, the MCP tool `model_skill`, the Explorer's Evidence tab and "Best model skill" map colouring, and a monthly CI table in the Archive; the Studio uses it to say which model to lean on near an ungauged site ([how the grades work](docs/evidence.md)).
 - 📈 **Run hydrological analyses** — flood frequency (GEV / LP3 / Gumbel / non-stationary GEV, with separate EMA routines), baseflow separation, rating curves, 22 hydrological signatures.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
@@ -341,7 +342,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 37-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
+AquaScope ships a 38-command CLI (`agri`, `basins`, `caravan`, `eval`, `evidence`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data

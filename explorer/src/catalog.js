@@ -6,6 +6,7 @@ import { CONFIG } from "../config.js?v=__BUILD__";
 import { sourceStyle, state, stationKey, trace } from "./core.js?v=__BUILD__";
 import { RECENT_BREAKS, RECORD_BREAKS, breakColor, recordYears, yearsSinceLast } from "./layers.js?v=__BUILD__";
 import { colocatedOffsets } from "./sites.js?v=__BUILD__";
+import { gradeColor } from "./evidence-core.js?v=__BUILD__";
 
 let duckPromise = null;
 
@@ -104,6 +105,8 @@ export function toFeatureCollection(rows) {
           shape: sourceStyle(r.source).shape,
           colorRecord: breakColor(RECORD_BREAKS, years),
           colorRecent: breakColor(RECENT_BREAKS, stale),
+          // "Best model skill" (#518): evidence.js fills state.skillGrades from skill/model_skill.parquet
+          colorSkill: gradeColor(((state.skillGrades && state.skillGrades.get(stationKey(r))) || {}).grade),
           years: years === null ? -1 : Math.round(years * 10) / 10,
         },
       };
