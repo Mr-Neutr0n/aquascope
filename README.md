@@ -565,7 +565,7 @@ If you use AquaScope in your research, please cite:
   year    = {2026},
   url     = {https://github.com/Rekin226/aquascope},
   version = {0.26.0},
-  doi     = {10.5281/zenodo.21903143},
+  doi     = {10.5281/zenodo.23246553},
   license = {MIT}
 }
 ```
@@ -573,7 +573,7 @@ If you use AquaScope in your research, please cite:
 Machine-readable metadata lives in [CITATION.cff](CITATION.cff); GitHub's "Cite this
 repository" button renders it in APA and BibTeX. Every tagged release is archived on
 Zenodo; `10.5281/zenodo.21903143` is the concept DOI that always resolves to the latest
-version (v0.25.0 is [10.5281/zenodo.23219118](https://doi.org/10.5281/zenodo.23219118)).
+version (v0.26.0 is [10.5281/zenodo.23246553](https://doi.org/10.5281/zenodo.23246553)).
 
 ## 📄 License
 
