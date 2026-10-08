@@ -235,7 +235,8 @@ def layer_result(layer: str, sources: Iterable[str], **fields: Any) -> dict[str,
     out: dict[str, Any] = {"layer": layer}
     out.update(fields)
     out["sources"] = [
-        {"key": m.key, "label": m.label, "licence": m.license, "attribution": m.attribution,
+        {"key": m.key, "label": m.label, "short": m.short or m.label, "licence": m.license,
+         "attribution": m.attribution,
          "homepage": m.homepage, **({"citation": m.citation} if m.citation else {})}
         for m in metas
     ]

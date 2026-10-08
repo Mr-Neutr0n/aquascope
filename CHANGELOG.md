@@ -7,6 +7,15 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Place context** (#520): what a hydrologist asks first about a point or a box, from open global data, each line with its licence (`aquascope.context`, `aquascope context LAT LON` or `--bbox`, the MCP tools `place_context` and `area_context`, and a **Context** tab on a clicked point and a **Context** button on a drawn box in the Explorer).
+  - Flood history: flood events in the news (Google Groundsource, CC BY 4.0) and the months Sentinel-1 radar saw flooding from 2014 to 2024 (Microsoft AI for Good, MIT), plus the months flooded at the exact pixel.
+  - Surface water since 1984 (JRC Global Surface Water v1.5), modelled flood depth at the 10 to 500-year floods (JRC CEMS-GloFAS v2.1.2), dams nearby (Global Dam Watch v1.0, CC BY 4.0), soil texture and plant-available water (SoilGrids 2.0), actual ET (FAO WaPOR v3) and the nearest NOAA GHCN-Daily rain gauge with a summary of its record.
+  - Rasters are read a pixel at a time by a new pure-Python Cloud-Optimized GeoTIFF reader (`aquascope.utils.cog`: TIFF and BigTIFF, Deflate, LZW, PackBits, predictors 2 and 3, overviews, GDAL nodata and scale), so it runs in the Explorer's worker without GDAL.
+  - Flood events, dams and the rain-gauge index come from a new Archive mirror under `context/` (cell-sorted Parquet plus small per-cell files), built by `python -m aquascope.archive.context_mirror` and the manual `mirror-context` workflow. Until it is published those lines say so. Global Water Watch is linked only: its data licence is not confirmed.
+  - A **Surface water since 1984** map overlay, and the flood events of a point or a box drawn on the map.
+  - The Studio's Scout lists the context layers with the site's data, and for a flood question reads the flood history into the report's site notes; the flood playbook carries a caveat on historical events when the Scout found some (the plans HydroGym scores are unchanged).
+
 ### Fixed
 - **A source's health record keeps the error under a wrapped failure** (#498). BOM raises one `RuntimeError` once every parameter type has failed, and the harvest recorded only that message, so the 2026-10-05 outage (503s and timeouts) was filed as unclassified and sent to the repair bot as a possible code fault. The catalog error now carries the exceptions it was raised from, so the health issue names the 503.
 - **The weekly harvest now reaches the files the 40-year cap truncated** (#501). The 0.21.0 change (#270) sorted them first among stations due a refresh, but behind every station never harvested; USGS has about 25,000 of those, enough to fill each weekly budget of 150, so its 133 truncated files would have waited about three years. They now go ahead of new stations, and the stations the Explorer's daily live check reads (Fish River, Thames at Kingston, Seine at Paris) go first of all while new, stale or truncated.

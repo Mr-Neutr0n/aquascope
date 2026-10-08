@@ -179,3 +179,30 @@ def test_agrees_with_tifffile_when_it_is_installed():
         assert c.read_pixel(col, row) == int(arr[row, col])
     assert c.value_at(100.0 + 33.5 * 0.25, 40.0 - 17.5 * 0.25) == int(arr[17, 33])
     assert not math.isnan(float(c.read_pixel(5, 5)))
+
+
+def test_prefetch_reads_neighbouring_strips_in_one_request():
+    arr = _grid(60, 30, dtype="uint8")
+    data = build_tiff(arr, tile=None, rows_per_strip=1, compression=5, predictor=2)
+    calls: list = []
+    c = _open(data, calls)
+    before = len(calls)
+    pixels = [(5, r) for r in range(10, 31, 2)]
+    assert c.prefetch(pixels) == 11
+    assert len(calls) - before == 1
+    after = len(calls)
+    assert [c.read_pixel(col, row) for col, row in pixels] == [int(arr[row, col]) for col, row in pixels]
+    assert len(calls) == after  # every strip came from the prefetch
+    assert c.prefetch(pixels) == 0  # nothing left to fetch
+    assert c.prefetch([(5, 40), (5, 50)], max_span=1) == 0  # too wide a span: left to the one-by-one reads
+
+
+def test_the_block_cache_is_bounded_by_bytes(monkeypatch):
+    monkeypatch.setattr(cog, "MAX_CACHED_BYTES", 600)
+    arr = _grid(64, 64, dtype="uint16")
+    c = _open(build_tiff(arr, tile=(16, 16), compression=8))
+    for row in range(0, 64, 16):
+        for col in range(0, 64, 16):
+            assert c.read_pixel(col, row) == int(arr[row, col])
+    # a 16 x 16 uint16 tile is 512 bytes: only the latest one fits
+    assert len(c._tiles) == 1

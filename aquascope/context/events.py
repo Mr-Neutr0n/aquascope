@@ -119,6 +119,11 @@ def _summary(news: dict[str, Any], radar: dict[str, Any], where: str) -> str:
         months = f"{k} month{'s' if k != 1 else ''}"
         parts.append(f"at this exact spot in {months}" if radar.get("available") else
                      f"radar saw flooding at this exact spot in {months} of Oct 2014 to Sep 2024")
+    elif pixel.get("months") == 0 and not radar.get("available"):
+        parts.append("Sentinel-1 radar saw no flooding at this exact spot from Oct 2014 to Sep 2024")
+    if not news.get("available") and not radar.get("available"):
+        # the news events and the radar months live in the Archive's context mirror
+        parts.insert(0, "the flood-event mirror is not published yet")
     if not parts:
         return "Flood history is not available here yet."
     text = "; ".join(parts)
@@ -215,6 +220,14 @@ def flood_history_area(west: float, south: float, east: float, north: float, *, 
 # ── dams ─────────────────────────────────────────────────────────────────────
 
 
+def _reservoir_link() -> dict[str, str]:
+    """Global Water Watch, linked only: its reservoir series are not read or mirrored (licence not confirmed)."""
+    from aquascope.registry import CONTEXT_LAYERS
+
+    m = CONTEXT_LAYERS["global_water_watch"]
+    return {"label": m.label, "url": m.homepage, "note": "linked only; its data licence is not confirmed"}
+
+
 def _dam(r: dict[str, str]) -> dict[str, Any]:
     year = num(r.get("year"))
     return {
@@ -272,7 +285,7 @@ def dams(lat: float, lon: float, *, radius_km: float = 50.0, limit: int = 5,
         summary = f"No dams in Global Dam Watch within {radius_km:g} km."
     return layer_result("dams", ["dams"], ok=True, lat=lat, lon=lon, available=True, radius_km=radius_km,
                         n_dams=len(found), total_capacity_mcm=round(total_cap, 1) if found else 0.0,
-                        nearest=found[:max(0, int(limit))], summary=summary)
+                        nearest=found[:max(0, int(limit))], see_also=_reservoir_link(), summary=summary)
 
 
 def dams_area(west: float, south: float, east: float, north: float, *, limit: int = 5,
@@ -297,4 +310,5 @@ def dams_area(west: float, south: float, east: float, north: float, *, limit: in
     summary = (f"{len(inside)} dam{'s' if len(inside) != 1 else ''} in this box, about {total:,.0f} million m3 of "
                f"storage; largest: {_dam_line(inside[0])}." if inside else "No dams in Global Dam Watch in this box.")
     return layer_result("dams", ["dams"], ok=True, bbox=list(bbox), available=True, n_dams=len(inside),
-                        total_capacity_mcm=round(total, 1), largest=inside[:max(0, int(limit))], summary=summary)
+                        total_capacity_mcm=round(total, 1), largest=inside[:max(0, int(limit))],
+                        see_also=_reservoir_link(), summary=summary)

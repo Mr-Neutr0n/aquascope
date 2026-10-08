@@ -554,6 +554,22 @@ table.regime td:first-child { white-space: nowrap; }
 #methods, #pt-methods { padding-left: 1.1rem; font-size: .8rem; line-height: 1.6; }
 #methods .cite, #pt-methods .cite { color: var(--muted); font-size: .74rem; }
 
+/* place context (#520): one line per layer, a small chart, the sources */
+.ctx-lines { list-style: none; padding: 0; margin: 0; font-size: .83rem; width: 100%; }
+.ctx-line { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .5rem; padding: .32rem 0; border-bottom: 1px solid var(--line); }
+.ctx-line:last-child { border-bottom: 0; }
+.ctx-label { color: var(--muted); }
+.ctx-line.error .ctx-text, .ctx-line.empty .ctx-text { color: var(--muted); }
+.ctx-text .spinner { margin-right: .35rem; vertical-align: middle; }
+.ctx-credits { font-size: .72rem; margin: .5rem 0 0; }
+.ctx-attrib summary { cursor: pointer; margin-top: .25rem; }
+.ctx-attrib ul { margin: .25rem 0 0; padding-left: 1rem; }
+.plot.small { min-height: 150px; }
+.area-context { width: 100%; margin-top: .35rem; }
+.area-context .ctx-lines { font-size: .76rem; }
+.area-context .ctx-line { grid-template-columns: 5.5rem minmax(0, 1fr); }
+@media (max-width: 430px) { .ctx-line { grid-template-columns: minmax(0, 1fr); gap: .1rem; } }
+
 .nearest { list-style: none; padding: 0; margin: 0; font-size: .83rem; }
 .nearest li { display: flex; gap: .5rem; align-items: center; padding: .34rem .3rem; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: var(--radius-xs); }
 .nearest li:last-child { border-bottom: 0; }

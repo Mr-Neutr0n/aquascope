@@ -23,3 +23,15 @@ def _fresh_imgw_frames():
     PolandIMGWCollector._shared_frames.clear()
     yield
     PolandIMGWCollector._shared_frames.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_flood_history_reads(monkeypatch):
+    """The Studio Scout reads the flood history for a flood question (#520); tests never reach the network for it.
+
+    A test that wants a flood history patches ``scout._read_flood_history`` again with what it needs.
+    """
+    from aquascope.studio.roles import scout
+
+    monkeypatch.setattr(scout, "_read_flood_history", lambda lat, lon: {})
+    yield

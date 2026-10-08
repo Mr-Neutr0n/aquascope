@@ -44,8 +44,10 @@ from aquascope.context.rasters import (
 __all__ = [
     "AREA_LAYERS",
     "LAYERS",
+    "LAYER_SOURCES",
     "actual_et",
     "area_context",
+    "area_layer",
     "dams",
     "flood_hazard",
     "flood_history",
@@ -66,6 +68,17 @@ LAYERS: dict[str, Callable[..., dict[str, Any]]] = {
     "rain_gauge": rain_gauge,
     "actual_et": actual_et,
     "soil": soil,
+}
+
+#: The registry entries (``aquascope.registry.CONTEXT_LAYERS``) behind each layer, for licences and credits.
+LAYER_SOURCES: dict[str, tuple[str, ...]] = {
+    "flood_history": ("groundsource", "microsoft_floods"),
+    "surface_water": ("surface_water",),
+    "flood_hazard": ("flood_hazard",),
+    "dams": ("dams",),
+    "rain_gauge": ("rain_gauge",),
+    "actual_et": ("actual_et",),
+    "soil": ("soil",),
 }
 
 AREA_LAYERS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -103,6 +116,13 @@ def layer(name: str, lat: float, lon: float, **kwargs: Any) -> dict[str, Any]:
     if name not in LAYERS:
         raise ValueError(f"unknown context layer {name!r}; choose from {list(LAYERS)}")
     return LAYERS[name](lat, lon, **kwargs)
+
+
+def area_layer(name: str, west: float, south: float, east: float, north: float, **kwargs: Any) -> dict[str, Any]:
+    """One layer by name over a box (the Explorer's area card asks for them one at a time too)."""
+    if name not in AREA_LAYERS:
+        raise ValueError(f"unknown context layer {name!r}; choose from {list(AREA_LAYERS)}")
+    return AREA_LAYERS[name](*check_bbox(west, south, east, north), **kwargs)
 
 
 def place_context(lat: float, lon: float, layers: list[str] | str | None = None) -> dict[str, Any]:

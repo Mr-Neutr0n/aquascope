@@ -39,7 +39,9 @@ INSTRUCTIONS = (
     "Greece Hydroscope, Taiwan CWA and more) behind one schema. Start with find_stations (no agency call), "
     "then get_timeseries or "
     "analyze_station for a specific station. For a place or a station, assess_site(lat, lon) first says which "
-    "methods the record there supports; do not run one it marks not_defensible. Flood frequency needs at least "
+    "methods the record there supports; do not run one it marks not_defensible. place_context(lat, lon) gives "
+    "the flood history, surface water, flood hazard, dams, soil, evapotranspiration and nearest rain gauge of a "
+    "place. Flood frequency needs at least "
     "10 complete years of daily flow. Always show the licence/attribution returned with the data."
 )
 
@@ -378,6 +380,39 @@ def describe_catchment(lat: float, lon: float, upstream: bool = True) -> dict[st
         return {"error": f"{exc}"}
     except Exception as exc:  # noqa: BLE001 - the model gets to see it
         return {"error": f"catchment lookup failed: {type(exc).__name__}: {exc}"}
+
+
+def place_context(lat: float, lon: float, layers: list[str] | None = None) -> dict[str, Any]:
+    """What a hydrologist asks first about a point, from open global datasets, each with its licence: flood
+    history (flood events in the news from Google Groundsource, and Sentinel-1 radar flood detections
+    2014-2024), surface water since 1984 (JRC Global Surface Water: how often this 30 m pixel was water, and
+    the change), modelled flood depth at the 10 to 500-year floods (JRC CEMS-GloFAS hazard maps), dams nearby
+    (Global Dam Watch), soil texture and plant-available water (SoilGrids), actual evapotranspiration (FAO
+    WaPOR v3) and the nearest real rain gauge with a summary of its record (NOAA GHCN-Daily). layers picks
+    some of: flood_history, surface_water, flood_hazard, dams, rain_gauge, actual_et, soil (default all).
+    Every layer has a one-line summary; quote the attribution with the numbers.
+    """
+    from aquascope import context
+
+    try:
+        return context.place_context(float(lat), float(lon), layers=layers)
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"place context failed: {type(exc).__name__}: {exc}"}
+
+
+def area_context(west: float, south: float, east: float, north: float,
+                 layers: list[str] | None = None) -> dict[str, Any]:
+    """The place-context layers over a box (west, south, east, north in degrees): flood events from the news
+    and radar flood months inside it, dams and their combined storage, rain gauges, and surface water, flood
+    depth, soil and actual evapotranspiration sampled on a small grid. Keep the box under about 16 x 16
+    degrees. Same layer names as place_context.
+    """
+    from aquascope import context
+
+    try:
+        return context.area_context(float(west), float(south), float(east), float(north), layers=layers)
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"area context failed: {type(exc).__name__}: {exc}"}
 
 
 def similar_basins(
@@ -947,6 +982,8 @@ def build_server():
     server.tool()(assess_site)
     server.tool()(study_area)
     server.tool()(describe_catchment)
+    server.tool()(place_context)
+    server.tool()(area_context)
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)
     from aquascope.archive.signatures import filter_gauges  # the map's signature filter (signatures.parquet)

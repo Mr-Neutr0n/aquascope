@@ -888,6 +888,39 @@ _out
   }
 }
 
+// ── Place context (#520): aquascope.context, one layer per message so the card
+// fills line by line as each answers. op "point" reads a layer at (lat, lon),
+// op "area" over bbox [west, south, east, north]. Every layer reads open data
+// hosts that answer CORS (COG range reads, the Archive's context/ mirror).
+async function placeContext({ id, op, name, lat, lon, bbox }) {
+  self.__aqContext = JSON.stringify({
+    op: op || "point", name: String(name || ""), lat: Number(lat), lon: Number(lon),
+    bbox: Array.isArray(bbox) ? bbox.map(Number) : null,
+  });
+  const code = `
+import json
+from js import __aqContext
+from aquascope import context as _ctx
+_a = json.loads(__aqContext)
+try:
+    if _a["op"] == "point":
+        _out = _ctx.layer(_a["name"], _a["lat"], _a["lon"])
+    elif _a["op"] == "area":
+        _out = _ctx.area_layer(_a["name"], *_a["bbox"])
+    else:
+        _out = {"error": "unknown op"}
+except ValueError as exc:
+    _out = {"error": str(exc)}
+json.dumps(_out, default=str)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqContext = null;
+  }
+}
+
 self.onmessage = async (e) => {
   const m = e.data;
   try {
@@ -911,6 +944,7 @@ self.onmessage = async (e) => {
     if (m.type === "tool") return await runTool(m);
     if (m.type === "frame_from_station") return await frameFromStation(m);
     if (m.type === "area_study") return await areaStudy(m);
+    if (m.type === "context") return await placeContext(m);
   } catch (err) {
     // Pyodide raises PythonError with the full traceback in .message; keep the
     // exception line (last non-empty) and log the whole thing for debugging.

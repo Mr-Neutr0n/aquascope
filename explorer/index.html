@@ -352,6 +352,7 @@
 
         <div class="tabs" role="tablist" aria-label="Point analyses">
           <button role="tab" data-tab="overview" aria-controls="pt-tab-overview" aria-selected="true" id="pt-t-overview">Overview</button>
+          <button role="tab" data-tab="context" aria-controls="pt-tab-context" aria-selected="false" tabindex="-1" id="pt-t-context">Context</button>
           <button role="tab" data-tab="modelled" aria-controls="pt-tab-modelled" aria-selected="false" tabindex="-1" id="pt-t-modelled">Modelled</button>
           <button role="tab" data-tab="catchment" aria-controls="pt-tab-catchment" aria-selected="false" tabindex="-1" id="pt-t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="pt-tab-similar" aria-selected="false" tabindex="-1" id="pt-t-similar">Similar<span class="tab-badge" hidden></span></button>
@@ -397,6 +398,20 @@
               <div class="card-body">
                 <div id="pt-glofas-kpis" class="kpis"></div>
                 <table class="ffa" id="pt-ffa-table"></table>
+              </div>
+            </div>
+          </section>
+
+          <section id="pt-tab-context" role="tabpanel" aria-labelledby="pt-t-context" tabindex="0" hidden>
+            <div id="pt-context" class="card ctx" hidden>
+              <div class="card-title"><h3>What this place has seen</h3></div>
+              <div class="card-body">
+                <ul id="pt-context-lines" class="ctx-lines" aria-live="polite"></ul>
+                <div id="pt-context-chart" hidden>
+                  <h4 id="pt-context-chart-title"></h4>
+                  <div id="plot-context" class="plot small"></div>
+                </div>
+                <div id="pt-context-credits" class="ctx-credits muted"></div>
               </div>
             </div>
           </section>

@@ -522,11 +522,14 @@ class ContextLayerMeta:
     mirrored: bool = False
     #: Whether the page can read it directly (CORS open to the Explorer's origin, checked 2026-10-08).
     browser_reachable: bool = True
+    #: A name short enough for a credits line ("Groundsource", "SoilGrids").
+    short: str = ""
 
 
 CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
     "groundsource": ContextLayerMeta(
-        key="groundsource", label="Flood events from news (Groundsource)", provider="Google Research",
+        key="groundsource", short="Groundsource",
+        label="Flood events from news (Groundsource)", provider="Google Research",
         description="About 2.6 million flood events extracted from news articles in more than 150 countries, "
                     "with dates and an affected area",
         license="CC-BY-4.0", redistributable=True, mirrored=True,
@@ -536,7 +539,8 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
                  "doi:10.5281/zenodo.18647054",
     ),
     "microsoft_floods": ContextLayerMeta(
-        key="microsoft_floods", label="Floods seen by Sentinel-1 radar, 2014 to 2024",
+        key="microsoft_floods", short="Microsoft Sentinel-1 floods",
+        label="Floods seen by Sentinel-1 radar, 2014 to 2024",
         provider="Microsoft AI for Good Lab",
         description="Flood detections from ten years of Sentinel-1 radar at 20 m (October 2014 to September 2024), "
                     "with a per-pixel count of the months in which flooding was seen",
@@ -547,29 +551,33 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
                  "doi:10.1038/s41467-025-60973-1",
     ),
     "surface_water": ContextLayerMeta(
-        key="surface_water", label="Surface water since 1984 (JRC Global Surface Water)",
+        key="surface_water", short="JRC Global Surface Water",
+        label="Surface water since 1984 (JRC Global Surface Water)",
         provider="European Commission JRC / Google",
         description="How often each 30 m pixel was water between March 1984 and December 2024, and how that "
                     "changed between 1984-1999 and 2000-2024 (Landsat, release v1.5)",
-        license="Copernicus: free of charge, without restriction of use",
+        license="free and open, no restrictions (Copernicus)",
         attribution="Source: EC JRC/Google, Global Surface Water v1.5 (Pekel et al. 2016)",
         homepage="https://global-surface-water.appspot.com/",
         citation="Pekel, J.-F., Cottam, A., Gorelick, N. and Belward, A. S. (2016). High-resolution mapping of "
                  "global surface water and its long-term changes. Nature 540, 418-422. doi:10.1038/nature20584",
     ),
     "flood_hazard": ContextLayerMeta(
-        key="flood_hazard", label="Modelled flood depth by return period (JRC GloFAS)",
+        key="flood_hazard", short="JRC GloFAS flood hazard maps",
+        label="Modelled flood depth by return period (JRC GloFAS)",
         provider="European Commission JRC (CEMS-GloFAS)",
         description="River flood depth at about 90 m for the 10 to 500-year floods, from the CEMS-GloFAS "
-                    "global flood hazard maps v2.1.2, read from a community Cloud-Optimized GeoTIFF mirror",
-        license="JRC: no restrictions (free and open Copernicus product); mirror listed as CC-BY-4.0",
+                    "global flood hazard maps v2.1.2 (JRC: no restrictions, a free and open Copernicus product), "
+                    "read from a community Cloud-Optimized GeoTIFF mirror that lists CC BY 4.0",
+        license="CC-BY-4.0",
         attribution="European Union, 2016-2021, GloFAS: global river flood hazard maps v2.1.2 (CEMS); COG mirror "
                     "by N. Lebovits on Source Cooperative",
         homepage="https://data.jrc.ec.europa.eu/collection/id-0054",
         citation="JRC CEMS-GloFAS global river flood hazard maps v2.1.2, https://data.jrc.ec.europa.eu/collection/id-0054",
     ),
     "dams": ContextLayerMeta(
-        key="dams", label="Dams and reservoirs (Global Dam Watch)", provider="Global Dam Watch consortium",
+        key="dams", short="Global Dam Watch",
+        label="Dams and reservoirs (Global Dam Watch)", provider="Global Dam Watch consortium",
         description="41,145 dams and barriers with name, river, year, height, storage capacity and main use",
         license="CC-BY-4.0", redistributable=True, mirrored=True,
         attribution="Global Dam Watch database v1.0 (Lehner et al. 2024), CC BY 4.0",
@@ -578,7 +586,8 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
                  "doi:10.6084/m9.figshare.25988293.v1",
     ),
     "soil": ContextLayerMeta(
-        key="soil", label="Soil texture and water holding (SoilGrids 2.0)", provider="ISRIC - World Soil Information",
+        key="soil", short="SoilGrids",
+        label="Soil texture and water holding (SoilGrids 2.0)", provider="ISRIC - World Soil Information",
         description="Sand, silt and clay of the top 30 cm and the water held between field capacity (33 kPa) and "
                     "wilting point (1500 kPa) in the top metre, from the 1 km SoilGrids aggregates",
         license="CC-BY-4.0",
@@ -588,15 +597,18 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
                  "quantified spatial uncertainty. SOIL 7, 217-240. doi:10.5194/soil-7-217-2021",
     ),
     "actual_et": ContextLayerMeta(
-        key="actual_et", label="Actual evapotranspiration (FAO WaPOR v3)", provider="FAO",
-        description="Annual actual evapotranspiration and interception (AETI) at 300 m, 2018 onward",
+        key="actual_et", short="FAO WaPOR",
+        label="Actual evapotranspiration (FAO WaPOR v3)", provider="FAO",
+        description="Annual actual evapotranspiration and interception (AETI) at 300 m, 2018 onward. The licence "
+                    "is the one recorded for the wapor source; FAO's terms for commercial use are not confirmed",
         license="CC-BY-4.0",
-        attribution="FAO WaPOR v3, L1 AETI annual (CC BY 4.0, as recorded for the wapor source)",
+        attribution="FAO WaPOR v3, L1 AETI annual",
         homepage="https://data.apps.fao.org/wapor/",
         citation="FAO (2024). WaPOR v3. https://www.fao.org/in-action/remote-sensing-for-water-productivity/",
     ),
     "rain_gauge": ContextLayerMeta(
-        key="rain_gauge", label="Nearest rain gauge (NOAA GHCN-Daily)", provider="NOAA NCEI",
+        key="rain_gauge", short="NOAA GHCN-Daily",
+        label="Nearest rain gauge (NOAA GHCN-Daily)", provider="NOAA NCEI",
         description="The nearest GHCN-Daily station that records precipitation, and a summary of its record",
         license="CC0-1.0", redistributable=True, mirrored=True,
         attribution="NOAA NCEI, Global Historical Climatology Network - Daily (via NOAA Open Data Dissemination, CC0)",
@@ -605,7 +617,8 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
                  "database. J. Atmos. Oceanic Technol. 29, 897-910. doi:10.1175/JTECH-D-11-00103.1",
     ),
     "global_water_watch": ContextLayerMeta(
-        key="global_water_watch", label="Reservoir surface area (Global Water Watch)",
+        key="global_water_watch", short="Global Water Watch",
+        label="Reservoir surface area (Global Water Watch)",
         provider="Deltares, WRI, WWF and partners",
         description="Satellite reservoir surface-area series. Linked only: the data licence is not confirmed, "
                     "so nothing is read or mirrored",

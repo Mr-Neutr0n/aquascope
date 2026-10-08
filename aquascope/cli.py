@@ -1130,6 +1130,50 @@ def cmd_assess(args: argparse.Namespace) -> None:
     print(_format_assessment(res, radius_km=args.radius_km))
 
 
+# ── context (place context layers, #520) ────────────────────────────────────
+
+_CONTEXT_LABELS = {
+    "flood_history": "Flood history", "surface_water": "Surface water", "flood_hazard": "Flood hazard",
+    "dams": "Dams", "rain_gauge": "Rain gauge", "actual_et": "Actual ET", "soil": "Soil",
+}
+
+
+def _format_context(res: dict[str, Any]) -> str:
+    if res.get("bbox"):
+        w, s, e, n = res["bbox"]
+        lines = [f"Context of the box {w:g}, {s:g} to {e:g}, {n:g} (west, south to east, north)"]
+    else:
+        lines = [f"Context of {res['lat']:.4f}, {res['lon']:.4f}"]
+    for name, layer in res["layers"].items():
+        lines.append(f"  {_CONTEXT_LABELS.get(name, name):<14}  {layer.get('summary') or ''}")
+    lines.append("")
+    lines.append("Data: " + "; ".join(res.get("attribution") or []))
+    return "\n".join(lines)
+
+
+def cmd_context(args: argparse.Namespace) -> None:
+    """`aquascope context LAT LON` (or `--bbox`): flood history, surface water, flood hazard, dams, rain gauge,
+    actual ET and soil at a place, from open global data, each line with its source (thin face)."""
+    from aquascope import context
+
+    layers = args.layers or None
+    try:
+        if args.bbox:
+            res = context.area_context(*_parse_bbox(args.bbox), layers=layers)
+        elif args.lat is not None and args.lon is not None:
+            res = context.place_context(args.lat, args.lon, layers=layers)
+        else:
+            logger.error("give LAT LON, or --bbox=west,south,east,north")
+            sys.exit(2)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(2)
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+    print(_format_context(res))
+
+
 # ── area-study (Study this area) ─────────────────────────────────────────────
 
 
@@ -3470,6 +3514,21 @@ def main() -> None:
     p_assess.add_argument("--return-period", type=float, default=None, help="The T (years) the question asks for")
     p_assess.add_argument("--json", action="store_true")
 
+    p_ctx = sub.add_parser(
+        "context",
+        help="Flood history, surface water, flood hazard, dams, rain gauge, actual ET and soil at a place",
+    )
+    p_ctx.add_argument("lat", type=float, nargs="?", default=None)
+    p_ctx.add_argument("lon", type=float, nargs="?", default=None,
+                       help="Longitude (a negative value is fine as a positional)")
+    p_ctx.add_argument("--bbox", default=None,
+                       help="west,south,east,north instead of a point (write --bbox=-77,38,-76,39 when it starts "
+                            "with a minus)")
+    p_ctx.add_argument("--layers", default=None,
+                       help="Comma-separated: flood_history, surface_water, flood_hazard, dams, rain_gauge, "
+                            "actual_et, soil (default all)")
+    p_ctx.add_argument("--json", action="store_true")
+
     p_area = sub.add_parser(
         "area-study", help="Study the gauges of an area together: per-site floods, trend field, regional growth curve"
     )
@@ -4022,6 +4081,7 @@ def main() -> None:
         "mcp": cmd_mcp,
         "basins": cmd_basins,
         "assess": cmd_assess,
+        "context": cmd_context,
         "area-study": cmd_area_study,
         "gym": cmd_gym,
         "caravan": cmd_caravan,

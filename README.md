@@ -53,6 +53,8 @@ Start with one task:
 - **Find river data:** search a gauge, inspect its actual available period and units, then download CSV.
 - **Explore a worked analysis:** open a recorded study, read its limits and reproduce its plan at another gauge.
 - **Analyse my table:** use a sample CSV, check the inferred columns, then replace it with your own data.
+- **Read a place:** click anywhere and open **Context** for what flooded there before, how often the ground has
+  been water since 1984, modelled flood depth, dams, soil, evaporation and the nearest rain gauge, each with its source.
 
 Catalog coverage varies by agency and variable. A station on the map is not a guarantee
 of accessible observations or a sufficiently long record. Explorer fetches the full record
@@ -116,6 +118,7 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
 - 🧑‍🔬 **Hand a study to the crew** — `aquascope studio "PROBLEM" --lat --lon`: a Consultant, a Scout, a Methodologist, Analysts, an Interpreter, a Critic and an Author over one workspace, the plan shown before it runs, every step gated (a failed gate fails its step, not the study), every answer graded (established, indicative, screening, not established) with findings that point at the result they rest on, a request for the data that would unlock a question instead of a decline, and the bundle at the end: a technical report and a memo (Word and print-ready HTML) that lead with the answer and its grade, the Excel workbook, publication figures, the notebook, findings.json and study.yaml. Also in the Explorer and over MCP. The [advanced studies](docs/advanced_studies.md) go past the design flow: change points and a nonstationary flood fit, GR4J with a snow store validated on years it never saw, "what if" scenarios, and CMIP6 change factors through the calibrated model.
+- 🧭 **Read the context of any place** — `aquascope context LAT LON` (also over MCP and in the Explorer): flood events in the news (Groundsource) and Sentinel-1 radar floods 2014-2024, surface water since 1984 (JRC), modelled flood depth at the 10 to 500-year floods (JRC GloFAS), dams (Global Dam Watch), soil texture and available water (SoilGrids), actual ET (FAO WaPOR) and the nearest NOAA GHCN-Daily rain gauge. Keyless, each line with its licence; rasters are read pixel by pixel from Cloud-Optimized GeoTIFFs in pure Python.
 - 📊 **Visualise + report** — 17 plot types, Q-Q / P-P diagnostics, Markdown / HTML reports with embedded figures, threshold alerts (WHO / EPA / EU WFD).
 - 🗺️ **Spatial hydrology** — DEM processing, D8 flow direction, watershed delineation, Strahler ordering.
 
@@ -327,7 +330,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 33-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym` and `playbooks` carry subcommands) for the most common workflows:
+AquaScope ships a 34-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym` and `playbooks` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -337,6 +340,7 @@ aquascope basins at 48.85 2.35                    # the catchment of any point: 
 aquascope basins similar 25.04 121.56             # gauged basins whose catchments look most like this point's (ungauged-site donors)
 aquascope basins regionalize 52.29 -3.51          # estimated flow regime of an ungauged point from those donors, with the leave-one-out skill
 aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
+aquascope context 51.86 5.95                      # flood history, surface water, flood depth, dams, rain gauge, ET and soil at a place
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive
 aquascope gym run --basin uk_ea/013054a3-670e-49ee-afda-e0865a449197   # HydroGym: calibrate GR4J on a real basin as a gym episode
 aquascope mcp                                     # serve the same tools to Claude / Cursor over MCP

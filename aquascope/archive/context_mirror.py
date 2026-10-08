@@ -358,6 +358,8 @@ def dam_rows(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         for k in ("year", "height_m", "capacity_mcm", "area_km2", "dor_pc", "catchment_km2", "grand_id"):
             if isinstance(r.get(k), float) and r[k] < 0:  # GDW codes missing numbers as negative values
                 r[k] = None
+        if not r.get("grand_id"):  # 0 means "not in GRanD"
+            r["grand_id"] = None
         for k in ("gdw_id", "year", "grand_id"):
             if isinstance(r.get(k), float):
                 r[k] = int(r[k])
@@ -456,13 +458,24 @@ def write_manifest(out: str | Path, *, repo_id: str = "Rekin226/aquascope-gauges
 
 def publish(out: str | Path, *, repo_id: str = "Rekin226/aquascope-gauges", token: str | None = None) -> str:
     """Upload ``<out>/context`` to the Archive dataset (needs HF_TOKEN with write access)."""
+    import shutil
+
     from aquascope.archive.publish import publish_folder
 
-    root = Path(out)
-    for p in (root / MIRROR_FOLDER).glob("_*.json"):
+    src = Path(out) / MIRROR_FOLDER
+    for p in src.glob("_*.json"):
         p.unlink()
-    names = ", ".join(sorted(json.loads((root / MIRROR_FOLDER / "manifest.json").read_text())["datasets"]))
-    return publish_folder(root, repo_id, token=token, commit_message=f"context mirrors: {names}")
+    names = ", ".join(sorted(json.loads((src / "manifest.json").read_text())["datasets"]))
+    # Upload a folder holding only context/, so working files next to it (the Microsoft shard parts) stay local
+    # and nothing lands outside context/ in the Archive.
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp) / MIRROR_FOLDER
+        try:  # hard links: no second copy of a few hundred MB on the runner's disk
+            shutil.copytree(src, stage, copy_function=os.link)
+        except OSError:
+            shutil.rmtree(stage, ignore_errors=True)
+            shutil.copytree(src, stage)
+        return publish_folder(Path(tmp), repo_id, token=token, commit_message=f"context mirrors: {names}")
 
 
 def main(argv: list[str] | None = None) -> int:
