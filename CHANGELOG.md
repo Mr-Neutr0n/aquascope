@@ -7,7 +7,21 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Time on the map** (#522). One date control at the bottom of the Explorer's map drives every dated layer (VIIRS true colour, IMERG rain, SMAP soil moisture, MODIS snow and land temperature, GRACE water storage).
+  - Step back and forward by a day, a week or a month, and **play** a range in a loop.
+  - **Click a day on any hydrograph** and the map jumps to it with a short "Map set to" note; rain comes on if no dated layer is.
+  - **Swipe compare**: a second map over the first, cut by a draggable handle, showing another date or one other dated layer.
+  - **GIF export** of the range, made in the browser (gifenc 1.0.3, MIT): up to 40 frames at 640 px, each stamped with its date and the NASA credit.
+  - The date, step, range and compare date are in the link (`d`, `ts`, `r`, `cmp`, `cl`).
+  - The date is one state field with a subscribe hook (`setTime` and `onTime` in `core.js`), so later features such as the forecast can follow it. In-browser agents get a `set_map_date` WebMCP tool.
+- `aquascope.map_time`: the dated layers with their first and last day as GIBS reports them, and the frames of a time-lapse. Exposed as the MCP tools `dated_layers` and `layer_frames` and as `aquascope layers list [--live]` and `aquascope layers frames LAYER --start --end --step`. `--live` reads the exact intervals and gaps from the GIBS WMTS capabilities.
+
+### Changed
+- The date row moved out of the layer rail into the time bar.
+
 ### Fixed
+- The water storage layer (GRACE) showed nothing at the default date, because GIBS has no month after July 2022. The time bar now says when a date is outside a layer's range, and each dated layer carries its first and last day.
 - **A source's health record keeps the error under a wrapped failure** (#498). BOM raises one `RuntimeError` once every parameter type has failed, and the harvest recorded only that message, so the 2026-10-05 outage (503s and timeouts) was filed as unclassified and sent to the repair bot as a possible code fault. The catalog error now carries the exceptions it was raised from, so the health issue names the 503.
 - **The weekly harvest now reaches the files the 40-year cap truncated** (#501). The 0.21.0 change (#270) sorted them first among stations due a refresh, but behind every station never harvested; USGS has about 25,000 of those, enough to fill each weekly budget of 150, so its 133 truncated files would have waited about three years. They now go ahead of new stations, and the stations the Explorer's daily live check reads (Fish River, Thames at Kingston, Seine at Paris) go first of all while new, stale or truncated.
 - Record the verified v0.25.0 Zenodo DOI (`10.5281/zenodo.23219118`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.

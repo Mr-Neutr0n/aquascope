@@ -232,6 +232,7 @@ function render(res, r) {
       // colours (red markers on the UK's green line are ΔE 5.5 under protanopia).
       marker: { color: emphasisColor(), size: 6, line: { color: surfaceColor(), width: 1.5 } },
       name: "annual max",
+      meta: { mapDate: false },   // drawn at 1 July, not on the day of the peak (#522)
       hovertemplate: "%{x|%Y} annual max<br>%{y:.3~f} " + unit + "<extra></extra>",
     });
   }

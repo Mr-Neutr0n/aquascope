@@ -154,7 +154,7 @@ const FALLBACK_STYLE = {
   layers: [{ id: "base", type: "raster", source: "base" }],
 };
 
-function styleFor(basemapId, date) {
+export function styleFor(basemapId, date) {
   const b = basemapById(basemapId);
   return b.kind === "style" ? b.url : rasterStyle(b, date);
 }
@@ -333,6 +333,37 @@ export function applyDate(date, activeOverlays, basemapId) {
     const src = map.getSource("base");
     if (src && src.setTiles) src.setTiles(tileUrls(b, date));
   }
+}
+
+// ── time (#522) ─────────────────────────────────────────────────────────────
+
+/** Resolves once the map has drawn every tile it asked for (true), or after `timeoutMs` (false). */
+export function whenSettled(timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!state.mapOk || !map) { resolve(false); return; }
+    let timer = null;
+    const finish = (ok) => { clearTimeout(timer); map.off("idle", onIdle); resolve(ok); };
+    const onIdle = () => finish(true);
+    timer = setTimeout(() => finish(false), timeoutMs);
+    map.on("idle", onIdle);
+    map.triggerRepaint();
+  });
+}
+
+/**
+ * Hand the map's canvas to `draw` while its pixels are still there. WebGL clears
+ * the drawing buffer once a frame is shown, so reading it later gives a blank
+ * image; inside the render event of the same frame it is intact, which saves
+ * turning on preserveDrawingBuffer (a cost on every frame) for an occasional GIF.
+ */
+export function captureMap(draw) {
+  return new Promise((resolve) => {
+    if (!state.mapOk || !map) { resolve(false); return; }
+    map.once("render", () => {
+      try { draw(map.getCanvas()); resolve(true); } catch (err) { console.warn("capture failed", err); resolve(false); }
+    });
+    map.triggerRepaint();
+  });
 }
 
 export function ensureTerrainSource() {

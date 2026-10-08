@@ -91,8 +91,42 @@ which reads as an empty page rather than as a map.
 **Overlays**, each with an opacity slider and its own colour scale: GPM IMERG
 precipitation rate, SMAP root-zone soil moisture, MODIS snow cover, MODIS land
 surface temperature, GRACE water storage anomaly, and ESA WorldCover land cover.
-The time-driven ones share a single date control, so you can walk a flood or a
-snowmelt day by day.
+The time-driven ones follow one date, set in the time bar (below).
+
+## Time on the map
+
+The **time bar** sits at the bottom of the map whenever a dated layer is on (the
+clock button under the projection button opens it at any time). Every dated
+layer follows its one date: VIIRS true colour, IMERG rain, SMAP soil moisture,
+MODIS snow and land temperature, GRACE water storage.
+
+- **‹ ›** step back and forward, by a day, a week or a month.
+- **Play** walks a range and loops. Without a range it plays the twelve steps up
+  to the date.
+- **Click a day on a chart** (a hydrograph, a GR4J run, a comparison) and the
+  map jumps to that day, with a short "Map set to" note. If no dated layer is
+  on, rain comes on so the jump shows. Annual-maximum markers do not move the
+  map, because they are drawn at 1 July rather than on the day of the peak.
+- Behind **⋯**: the step, the range, **Compare** and **Make a GIF**.
+  **Compare** lays a second map over the first, cut by a handle you drag: the
+  right side shows another date, or one other dated layer. The gauges stay on
+  the left, where they can still be clicked. **Make a GIF** plays the range
+  (up to 40 frames, 640 px wide), waits for each day's tiles, stamps the date
+  and the NASA credit on every frame and downloads the file. It is all made in
+  the browser, with [gifenc](https://github.com/mattdesl/gifenc) (MIT).
+
+Each layer knows its first and last day (GRACE in GIBS stops in July 2022, SMAP
+starts in March 2015), and the bar says so when the date is outside one.
+`aquascope layers list --live` shows the exact intervals and gaps from GIBS, and
+`aquascope layers frames LAYER --start --end --step` the dates and tile URLs of
+a time-lapse (the MCP tools `dated_layers` and `layer_frames` are the same
+functions).
+
+The date, the step, the range and the compare date go in the link
+(`d=2024-05-01&ts=week&r=2024-01-01..2024-06-30&cmp=2023-05-01`), so a
+time-lapse view can be shared. Other features can follow the same date: it is
+`state.date`, changed only through `setTime()` in `core.js`, with `onTime()` to
+subscribe.
 
 **The gauges themselves** carry their agency as a shape as well as a colour: a
 circle for USGS, a triangle for the Environment Agency, a square for Hub'Eau, a
@@ -283,7 +317,8 @@ loop is nine times faster, same numbers to 1e-14), which is what makes
 
 - `index.html`, `style.css` and ES modules under `src/` (still no bundler):
   `map.js`, `layers.js` and `layer-ui.js` (MapLibre, the basemap and overlay
-  registry), `catalog.js` (DuckDB-WASM over the archive's GeoParquet, GeoJSON
+  registry), `timeline.js`, `time-ui.js`, `compare-map.js` and `gif.js` (the map
+  date, the time bar, swipe compare and the GIF), `catalog.js` (DuckDB-WASM over the archive's GeoParquet, GeoJSON
   fallback), `search.js`, `shell.js` and `url.js` (the map-first shell and
   URL-as-state), the `panel-*.js` inspectors, `charts.js` (Plotly), `ask.js`
   with `showcase.js` and `local-model.js`, `studio.js` with `intake.js`,

@@ -105,11 +105,6 @@
 
       <details class="rail-group">
         <summary>Overlays</summary>
-        <div id="rail-date" class="rail-date" hidden>
-          <button id="date-prev" class="icon-btn tiny" type="button" title="Previous day">‹</button>
-          <input type="date" id="date-input" aria-label="Date for the time-driven layers" />
-          <button id="date-next" class="icon-btn tiny" type="button" title="Next day">›</button>
-        </div>
         <div id="rail-overlays" class="rail-list"></div>
         <div class="rail-list">
           <label class="rail-row">
@@ -145,6 +140,62 @@
             <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><ellipse cx="12" cy="12" rx="4.2" ry="9" />
           </svg>
         </button>
+        <button id="btn-time" class="map-tool" type="button" aria-pressed="false" aria-controls="timebar" hidden
+                title="Map date" aria-label="Map date">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.2 2" />
+          </svg>
+        </button>
+      </div>
+      <!-- swipe compare (#522): a second map over the first, cut by the handle -->
+      <div id="compare" class="compare" hidden>
+        <div class="compare-map"></div>
+        <span id="compare-left" class="compare-label left"></span>
+        <span id="compare-right" class="compare-label right"></span>
+        <div id="compare-handle" class="compare-handle" role="slider" tabindex="0" aria-label="Compare divider"
+             aria-valuemin="5" aria-valuemax="95" aria-valuenow="50"><span aria-hidden="true">‹ ›</span></div>
+      </div>
+      <!-- the map date (#522): one control that every dated layer follows -->
+      <div id="timebar-wrap" class="timebar-wrap">
+        <div id="timebar" class="timebar" role="group" aria-label="Map date" hidden>
+          <div id="tb-panel" class="tb-panel" hidden>
+            <div class="tb-row">
+              <span class="tb-key">Step</span>
+              <div id="tb-steps" class="tb-seg" role="radiogroup" aria-label="Step">
+                <label><input type="radio" name="tb-step" value="day" checked /><span>Day</span></label>
+                <label><input type="radio" name="tb-step" value="week" /><span>Week</span></label>
+                <label><input type="radio" name="tb-step" value="month" /><span>Month</span></label>
+              </div>
+            </div>
+            <div class="tb-row">
+              <span class="tb-key">Range</span>
+              <input type="date" id="tb-from" aria-label="Play from" />
+              <span class="muted">to</span>
+              <input type="date" id="tb-to" aria-label="Play to" />
+            </div>
+            <div class="tb-row">
+              <label class="tb-key tb-check"><input type="checkbox" id="tb-compare" /> Compare</label>
+              <input type="date" id="tb-cmp-date" aria-label="Date on the right of the divider" />
+              <select id="tb-cmp-layer" aria-label="Layer on the right of the divider"></select>
+            </div>
+            <div class="tb-row">
+              <button id="tb-gif" class="btn tiny" type="button">Make a GIF</button>
+              <span id="tb-gif-status" class="muted" role="status"></span>
+            </div>
+          </div>
+          <div class="tb-main">
+            <button id="tb-prev" class="tb-btn" type="button" title="Back one step" aria-label="Back one step">‹</button>
+            <input type="date" id="tb-date" aria-label="Map date" />
+            <button id="tb-next" class="tb-btn" type="button" title="Forward one step" aria-label="Forward one step">›</button>
+            <button id="tb-play" class="tb-btn tb-play" type="button" aria-pressed="false" title="Play" aria-label="Play">
+              <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" /></svg>
+              <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" fill="currentColor" /></svg>
+            </button>
+            <button id="tb-more" class="tb-btn" type="button" aria-expanded="false" aria-controls="tb-panel"
+                    title="Step, range, compare and GIF" aria-label="Step, range, compare and GIF">⋯</button>
+          </div>
+          <div id="tb-note" class="tb-note" role="status" hidden></div>
+        </div>
       </div>
       <section id="area-study" class="area-study" aria-label="Study this area" hidden></section>
       <div id="map-fallback" class="map-fallback" hidden>

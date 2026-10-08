@@ -86,6 +86,7 @@ export const BASEMAPS = [
     tiles: [`${GIBS}/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`],
     maxzoom: 9,
     time: true,
+    since: "2015-11-24",
     attribution: "Imagery from NASA Worldview / GIBS (ESDIS)",
     licence: "Open (NASA), acknowledgement requested",
     note: "VIIRS true colour for the chosen date, coarse (about 250 m). Move the date to see a flood or a storm.",
@@ -115,6 +116,9 @@ export const TERRAIN_DEM = {
 
 // Raster overlays. `time: true` means the URL carries {date} and the shared
 // date control drives it. Legends are the GIBS colour maps, which are SVG.
+// `since` and `until` are the first and last day GIBS has (an open `until` runs
+// to about today), read from the WMTS capabilities on 2026-10-08 and kept in step
+// with aquascope/map_time.py by a test. A date outside them draws nothing.
 export const OVERLAYS = [
   {
     id: "precip",
@@ -123,6 +127,7 @@ export const OVERLAYS = [
     tiles: [`${GIBS}/IMERG_Precipitation_Rate/default/{date}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`],
     maxzoom: 6,
     time: true,
+    since: "2000-06-01",
     opacity: 0.75,
     legend: `${GIBS_LEGENDS}/GPM_Precipitation_Rate_H.svg`,
     attribution: "GPM IMERG precipitation rate, NASA GIBS (ESDIS)",
@@ -136,6 +141,7 @@ export const OVERLAYS = [
     tiles: [`${GIBS}/SMAP_L4_Analyzed_Root_Zone_Soil_Moisture/default/{date}/GoogleMapsCompatible_Level6/{z}/{y}/{x}.png`],
     maxzoom: 6,
     time: true,
+    since: "2015-03-31",
     opacity: 0.75,
     legend: `${GIBS_LEGENDS}/SMAP_Analyzed_Soil_Moisture_H.svg`,
     attribution: "SMAP L4 analysed root-zone soil moisture, NASA GIBS (ESDIS)",
@@ -149,6 +155,7 @@ export const OVERLAYS = [
     tiles: [`${GIBS}/MODIS_Terra_NDSI_Snow_Cover/default/{date}/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`],
     maxzoom: 8,
     time: true,
+    since: "2000-02-24",
     opacity: 0.8,
     legend: `${GIBS_LEGENDS}/MODIS_NDSI_Snow_Cover_H.svg`,
     attribution: "MODIS/Terra NDSI snow cover, NASA GIBS (ESDIS)",
@@ -162,6 +169,7 @@ export const OVERLAYS = [
     tiles: [`${GIBS}/MODIS_Terra_Land_Surface_Temp_Day/default/{date}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`],
     maxzoom: 7,
     time: true,
+    since: "2000-02-24",
     opacity: 0.7,
     legend: `${GIBS_LEGENDS}/MODIS_Land_Surface_Temp_H.svg`,
     attribution: "MODIS/Terra daytime land surface temperature, NASA GIBS (ESDIS)",
@@ -175,11 +183,13 @@ export const OVERLAYS = [
     maxzoom: 6,
     time: true,
     monthly: true,
+    since: "2002-04-04",
+    until: "2022-07-01",
     opacity: 0.75,
     legend: `${GIBS_LEGENDS}/GRACE_Tellus_Liquid_Water_Equivalent_Thickness_Mascon_CRI_H.svg`,
     attribution: "GRACE/GRACE-FO Tellus mascon liquid water equivalent thickness, NASA GIBS (ESDIS)",
     licence: "Open (NASA), acknowledgement requested",
-    note: "Total water storage anomaly in cm of equivalent water, monthly. The signal groundwater depletion shows up in.",
+    note: "Total water storage anomaly in cm of equivalent water, monthly, April 2002 to July 2022 with gaps. The signal groundwater depletion shows up in.",
   },
   {
     id: "landcover",
@@ -211,7 +221,23 @@ export function defaultDate(today = new Date()) {
 
 export function layerDate(layer, date) {
   if (!date) return date;
-  return layer && layer.monthly ? `${date.slice(0, 7)}-01` : date;
+  if (!layer || !layer.monthly) return date;
+  // The first of the month, or the layer's first day when that is later
+  // (GIBS answers a date inside a period with that period's image).
+  const first = `${date.slice(0, 7)}-01`;
+  return layer.since && first < layer.since && date >= layer.since ? layer.since : first;
+}
+
+// Every dated layer on screen: the dated basemap and the dated overlays.
+export function datedLayersOn(basemapId, overlayIds) {
+  const out = [];
+  const base = basemapById(basemapId);
+  if (base && base.time) out.push(base);
+  for (const id of overlayIds || []) {
+    const o = overlayById(id);
+    if (o && o.time) out.push(o);
+  }
+  return out;
 }
 
 export function tileUrls(layer, date) {

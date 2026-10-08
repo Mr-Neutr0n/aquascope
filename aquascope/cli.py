@@ -951,6 +951,40 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     mcp_main(transport=args.transport)
 
 
+def cmd_layers(args: argparse.Namespace) -> None:
+    """`aquascope layers`: the dated map layers and their valid dates, or the frames of a time-lapse (#522)."""
+    from aquascope.map_time import dated_layers, layer_frames
+
+    if args.layers_cmd == "frames":
+        res = layer_frames(args.layer, args.start, args.end, step=args.step, max_frames=args.max_frames)
+        if args.json:
+            print(json.dumps(res, indent=2, ensure_ascii=False))
+            return
+        if res.get("error"):
+            print(f"  {res['error']}")
+            sys.exit(1)
+        print(f"  {res['label']}, every {res['step']}, {len(res['frames'])} frames"
+              + (" (capped)" if res.get("truncated") else "")
+              + (f", {res['skipped']} dates outside the layer's range" if res.get("skipped") else ""))
+        if res.get("note"):
+            print(f"  {res['note']}")
+        for f in res["frames"]:
+            print(f"  {f['date']}  {f['tiles']}")
+        print(f"\n  {res['attribution']} ({res['licence']})")
+        return
+    res = dated_layers(live=args.live)
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return
+    if res.get("live_error"):
+        print(f"  Could not read GIBS ({res['live_error']}); showing the ranges recorded on {res['checked']}.")
+    for lay in res["layers"]:
+        until = lay.get("latest") or lay.get("until") or "now"
+        gaps = f", {len(lay['gaps'])} gaps" if lay.get("gaps") else ""
+        print(f"  {lay['id']:<8} {lay['label']:<28} {lay['cadence']:<6} {lay['since']} to {until}{gaps}")
+    print(f"\n  Steps: {', '.join(res['steps'])}. {res['note']}")
+
+
 def cmd_basins(args: argparse.Namespace) -> None:
     """`aquascope basins`: catchments from BasinATLAS in the Archive (at LAT LON | upstream HYBAS_ID | build GDB)."""
     from aquascope.archive import basins
@@ -3398,6 +3432,19 @@ def main() -> None:
     p_ingest.add_argument("--out", "-o", default=None, help="Output stem (default: <file>_clean)")
 
     # ── mcp ──────────────────────────────────────────────────────────
+    # ── layers (#522) ────────────────────────────────────────────────
+    p_layers = sub.add_parser("layers", help="The dated map layers and their valid dates, or a time-lapse's frames")
+    layers_sub = p_layers.add_subparsers(dest="layers_cmd", required=True)
+    p_llist = layers_sub.add_parser("list", help="List the dated layers, their cadence and first and last day")
+    p_llist.add_argument("--live", action="store_true", help="Read the exact intervals (gaps included) from GIBS")
+    p_llist.add_argument("--json", action="store_true")
+    p_lframes = layers_sub.add_parser("frames", help="The dates and tile URLs of a time-lapse of one layer")
+    p_lframes.add_argument("layer", help="daily, precip, soil, snow, lst or storage")
+    p_lframes.add_argument("--start", required=True, help="YYYY-MM-DD")
+    p_lframes.add_argument("--end", required=True, help="YYYY-MM-DD")
+    p_lframes.add_argument("--step", choices=["day", "week", "month"], default="day")
+    p_lframes.add_argument("--max-frames", type=int, default=60)
+    p_lframes.add_argument("--json", action="store_true")
     # ── basins ───────────────────────────────────────────────────────
     p_basins = sub.add_parser("basins", help="Catchments from BasinATLAS (HydroATLAS, CC BY 4.0) in the Archive")
     basins_sub = p_basins.add_subparsers(dest="basins_cmd", required=True)
@@ -4021,6 +4068,7 @@ def main() -> None:
         "harvest": cmd_harvest,
         "mcp": cmd_mcp,
         "basins": cmd_basins,
+        "layers": cmd_layers,
         "assess": cmd_assess,
         "area-study": cmd_area_study,
         "gym": cmd_gym,

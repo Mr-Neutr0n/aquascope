@@ -6,7 +6,7 @@
 // single "apply this URL" path that Back, a pasted link and a deep link all
 // go through.
 
-import { $, actions, state, trace } from "./src/core.js?v=__BUILD__";
+import { $, actions, setTime, state, trace } from "./src/core.js?v=__BUILD__";
 import { loadCatalog, toFeatureCollection } from "./src/catalog.js?v=__BUILD__";
 import {
   DEFAULT_CENTER, addStationLayers, fitWorldZoom, flyToStation, highlightStation, initMap, map,
@@ -15,6 +15,7 @@ import {
 } from "./src/map.js?v=__BUILD__";
 import { defaultDate } from "./src/layers.js?v=__BUILD__";
 import { applyLayerState, initLayerUI, syncRailControls } from "./src/layer-ui.js?v=__BUILD__";
+import { initTimeBar } from "./src/time-ui.js?v=__BUILD__";
 import { buildRail, syncRail, updateCount } from "./src/rail.js?v=__BUILD__";
 import { setBasinsVisible } from "./src/basins.js?v=__BUILD__";
 import { initSearch } from "./src/search.js?v=__BUILD__";
@@ -76,6 +77,10 @@ function applyUrl(url, { fromHistory = false } = {}) {
     syncRail();
   }
   if (fromHistory && readLayerState(url)) applyLayerState();
+  if (fromHistory) {   // the map date, step, range and compare (#522), through the one setter
+    setTime({ date: url.date || state.date, step: url.step || "day", range: url.range || null,
+      compare: url.compare || null }, { source: "url" });
+  }
   if (url.basins !== undefined && url.basins !== state.basinsOn) setBasinsVisible(url.basins);
   if (url.view) { state.view = url.view; setView(url.view); }
   if (url.mode === "workbench") { openWorkbench(); return; }
@@ -118,7 +123,6 @@ function readLayerState(url) {
     if (state[key] !== value) { state[key] = value; changed = true; }
   };
   set("basemap", url.basemap);
-  set("date", url.date);
   set("terrain", url.terrain);
   set("hillshade", url.hillshade);
   set("globe", url.globe);
@@ -156,6 +160,7 @@ function bringMapOnline(url) {
     setView(url.view);
   }
   initLayerUI();
+  initTimeBar();
   applyLayerState();
   syncRailControls();
   if (state.basinsOn || url.basins) setBasinsVisible(true);
@@ -218,7 +223,12 @@ function goHome() {
   });
 
   if (url.hidden) state.hidden = new Set(url.hidden);
+  // The map date and how it moves (#522). Set directly here, before anything
+  // subscribes; every later change goes through setTime().
   state.date = url.date || defaultDate();
+  state.timeStep = url.step || "day";
+  state.timeRange = url.range || null;
+  state.compare = url.compare || null;
   readLayerState(url);
   // A white basemap inside a dark interface is a lamp in a dark room. With no
   // basemap in the URL, follow the reader's system theme; "Copy link" then
