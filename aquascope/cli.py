@@ -1227,6 +1227,123 @@ def cmd_river(args: argparse.Namespace) -> None:
         return
 
 
+# ── context (place context layers, #520) ────────────────────────────────────
+
+_CONTEXT_LABELS = {
+    "flood_history": "Flood history", "surface_water": "Surface water", "flood_hazard": "Flood hazard",
+    "dams": "Dams", "rain_gauge": "Rain gauge", "actual_et": "Actual ET", "soil": "Soil",
+}
+
+
+def _format_context(res: dict[str, Any]) -> str:
+    if res.get("bbox"):
+        w, s, e, n = res["bbox"]
+        lines = [f"Context of the box {w:g}, {s:g} to {e:g}, {n:g} (west, south to east, north)"]
+    else:
+        lines = [f"Context of {res['lat']:.4f}, {res['lon']:.4f}"]
+    for name, layer in res["layers"].items():
+        lines.append(f"  {_CONTEXT_LABELS.get(name, name):<14}  {layer.get('summary') or ''}")
+    lines.append("")
+    lines.append("Data: " + "; ".join(res.get("attribution") or []))
+    return "\n".join(lines)
+
+
+def cmd_context(args: argparse.Namespace) -> None:
+    """`aquascope context LAT LON` (or `--bbox`): flood history, surface water, flood hazard, dams, rain gauge,
+    actual ET and soil at a place, from open global data, each line with its source (thin face)."""
+    from aquascope import context
+
+    layers = args.layers or None
+    try:
+        if args.bbox:
+            res = context.area_context(*_parse_bbox(args.bbox), layers=layers)
+        elif args.lat is not None and args.lon is not None:
+            res = context.place_context(args.lat, args.lon, layers=layers)
+        else:
+            logger.error("give LAT LON, or --bbox=west,south,east,north")
+            sys.exit(2)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(2)
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+    print(_format_context(res))
+
+
+# ── export (engineering tools, #519) ─────────────────────────────────────────
+
+
+#: The ``--to`` choices, kept literal so the parser stays import-light (a test pins it to engineering.TOOLS).
+EXPORT_TOOLS = ("hec-hms", "hec-ras", "hec-ssp", "dss", "swmm", "modflow6", "fews", "raven")
+
+
+def _export_series_from_file(path: str, column: str | None):
+    """A CSV's first datetime-like column as the index and ``column`` (or the first numeric one) as values."""
+    import pandas as pd
+
+    df = pd.read_csv(path)
+    if df.shape[1] < 2:
+        raise ValueError(f"{path}: need a date column and a value column")
+    when = pd.to_datetime(df.iloc[:, 0], errors="coerce", utc=False)
+    if column:
+        if column not in df.columns:
+            raise ValueError(f"{path}: no column {column!r}; columns are {list(df.columns)}")
+        values = df[column]
+    else:
+        numeric = [c for c in df.columns[1:] if pd.api.types.is_numeric_dtype(df[c])]
+        if not numeric:
+            raise ValueError(f"{path}: no numeric value column")
+        values = df[numeric[0]]
+    s = pd.Series(pd.to_numeric(values, errors="coerce").to_numpy(), index=pd.DatetimeIndex(when))
+    return s[s.index.notna()]
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """`aquascope export --to TOOL`: a gauge's record (or a CSV) as inputs for an engineering tool (thin face)."""
+    from aquascope.io import engineering as eng
+
+    opts = {"regional_skew": args.regional_skew, "regional_skew_mse": args.regional_skew_mse,
+            "year_start_month": args.year_start_month, "subbasin_id": args.subbasin_id,
+            "cellid": tuple(args.cell) if args.cell else (1, 1, 1), "cond": args.cond, "rbot": args.rbot,
+            "period": args.period, "engine": args.engine, "dss_binary": False if args.no_dss else None}
+    try:
+        if args.station:
+            source, _, station_id = args.station.partition("/")
+            if not station_id:
+                raise ValueError("give --station as source/station_id, for example usgs/01646500")
+            res = eng.export_station(source, station_id, args.to, years=args.years, variable=args.variable,
+                                     **opts)
+        elif args.file:
+            s = _export_series_from_file(args.file, args.column)
+            res = eng.export_series(s, args.to, variable=args.variable or "discharge", unit=args.unit,
+                                    location=args.location or Path(args.file).stem, name=args.location, **opts)
+        else:
+            raise ValueError("give --station source/station_id or --file a CSV")
+    except (ValueError, KeyError) as exc:
+        logger.error("%s", exc)
+        sys.exit(2)
+    if "error" in res:
+        logger.error("%s", res["error"])
+        sys.exit(1)
+    files = eng.files_from(res)
+    if args.zip:
+        out = Path(args.out_dir if args.out_dir.endswith(".zip") else f"{args.out_dir}.zip")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(eng.zip_bytes(files))
+        written = [str(out)]
+    else:
+        written = eng.write_files(files, args.out_dir)
+    if args.json:
+        print(json.dumps({"written": written, "notes": res["notes"], "tool": res["tool"]}, indent=2))
+        return
+    print(f"{res['label']}: {len(files)} file(s)")
+    for w in written:
+        print(f"  {w}")
+    for n in res["notes"]:
+        print(f"- {n}")
+
+
 # ── area-study (Study this area) ─────────────────────────────────────────────
 
 
@@ -3589,6 +3706,21 @@ def main() -> None:
     p_assess.add_argument("--return-period", type=float, default=None, help="The T (years) the question asks for")
     p_assess.add_argument("--json", action="store_true")
 
+    p_ctx = sub.add_parser(
+        "context",
+        help="Flood history, surface water, flood hazard, dams, rain gauge, actual ET and soil at a place",
+    )
+    p_ctx.add_argument("lat", type=float, nargs="?", default=None)
+    p_ctx.add_argument("lon", type=float, nargs="?", default=None,
+                       help="Longitude (a negative value is fine as a positional)")
+    p_ctx.add_argument("--bbox", default=None,
+                       help="west,south,east,north instead of a point (write --bbox=-77,38,-76,39 when it starts "
+                            "with a minus)")
+    p_ctx.add_argument("--layers", default=None,
+                       help="Comma-separated: flood_history, surface_water, flood_hazard, dams, rain_gauge, "
+                            "actual_et, soil (default all)")
+    p_ctx.add_argument("--json", action="store_true")
+
     p_area = sub.add_parser(
         "area-study", help="Study the gauges of an area together: per-site floods, trend field, regional growth curve"
     )
@@ -4113,6 +4245,34 @@ def main() -> None:
     p_climate.add_argument("--output", default=None, help="Save results to JSON")
 
     # ── hydro ─────────────────────────────────────────────────────────
+    p_export = sub.add_parser(
+        "export", help="Inputs for HEC-HMS, HEC-RAS, HEC-SSP, HEC-DSS, SWMM, MODFLOW 6, Delft-FEWS or Raven (#519)"
+    )
+    p_export.add_argument("--to", required=True, choices=[*EXPORT_TOOLS, "all"], help="The tool to write inputs for")
+    p_export.add_argument("--station", default=None, help="A gauge as source/station_id, e.g. usgs/01646500")
+    p_export.add_argument("--file", default=None, help="Or a CSV: a date column, then the values")
+    p_export.add_argument("--column", default=None, help="The value column of --file (default: first numeric)")
+    p_export.add_argument("--variable", default=None,
+                          help="discharge (default), water_level, groundwater_level or precipitation")
+    p_export.add_argument("--unit", default=None, help="Unit of --file values (default m3/s, m or mm)")
+    p_export.add_argument("--location", default=None, help="Identifier for --file in the outputs")
+    p_export.add_argument("--years", type=int, default=None, help="Only the last N years of the gauge record")
+    p_export.add_argument("-o", "--out-dir", default="aquascope-export", help="Folder to write (default aquascope-export)")
+    p_export.add_argument("--zip", action="store_true", help="Write one zip (OUT_DIR.zip) instead of a folder")
+    p_export.add_argument("--no-dss", action="store_true", help="Write the DSS CSV even where hecdss loads")
+    p_export.add_argument("--regional-skew", type=float, default=None, help="HEC-SSP: weight the skew with this")
+    p_export.add_argument("--regional-skew-mse", type=float, default=None, help="HEC-SSP: MSE of the regional skew")
+    p_export.add_argument("--year-start-month", type=int, default=10, help="HEC-SSP: first month of the water year")
+    p_export.add_argument("--subbasin-id", type=int, default=1, help="Raven: the subbasin at the gauge")
+    p_export.add_argument("--cell", type=int, nargs=3, metavar=("LAYER", "ROW", "COL"), default=None,
+                          help="MODFLOW 6: the river or well cell (default 1 1 1)")
+    p_export.add_argument("--cond", type=float, default=None, help="MODFLOW 6 RIV: riverbed conductance")
+    p_export.add_argument("--rbot", type=float, default=None, help="MODFLOW 6 RIV: riverbed bottom elevation")
+    p_export.add_argument("--period", default=None, help="MODFLOW 6: resample first, e.g. MS for monthly")
+    p_export.add_argument("--engine", choices=["text", "flopy"], default="text",
+                          help="MODFLOW 6: write as text (default) or through FloPy")
+    p_export.add_argument("--json", action="store_true", help="Print the written paths and notes as JSON")
+
     p_hydro = sub.add_parser("hydro", help="Run hydrological analysis (FDC, baseflow, recession, flood-freq)")
     p_hydro.add_argument(
         "--analysis",
@@ -4142,6 +4302,7 @@ def main() -> None:
         "basins": cmd_basins,
         "river": cmd_river,
         "assess": cmd_assess,
+        "context": cmd_context,
         "area-study": cmd_area_study,
         "gym": cmd_gym,
         "caravan": cmd_caravan,
@@ -4158,6 +4319,7 @@ def main() -> None:
         "forecast": cmd_forecast,
         "plot": cmd_plot,
         "hydro": cmd_hydro,
+        "export": cmd_export,
         "alerts": cmd_alerts,
         "dashboard": cmd_dashboard,
         "agri": cmd_agri,

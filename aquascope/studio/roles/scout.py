@@ -7,6 +7,12 @@ reach, the catchment, the donor pool, the ERA5 cell (reachable for any point
 on land), the GEOGLOWS v2 river reach the site snaps to (86 years of simulated
 daily flow, listed as modelled), and one dataset per upload, run through the ingest mapping and QA
 so the report can say what the table holds and how complete it is.
+
+It also lists the place-context layers (#520) that cover any site: flood
+history, surface water, flood depth, dams, rain gauges, actual ET and soil,
+each with its sources and licences. For a flood question it reads the flood
+history (news events and radar detections near the site), so the report can
+set the historical events beside the estimate.
 """
 
 from __future__ import annotations
@@ -18,11 +24,13 @@ from typing import Any
 
 from aquascope.studio.workspace import Dataset, Inventory, Workspace
 
-__all__ = ["choose_column", "reach_dataset", "scout", "upload_dataset"]
+__all__ = ["FLOOD_PLAYBOOKS", "choose_column", "context_layers", "reach_dataset", "scout", "upload_dataset"]
 
 logger = logging.getLogger(__name__)
 
 ERA5_START = "1940-01-01"
+#: The playbooks whose questions are about floods: the Scout reads the flood history for them.
+FLOOD_PLAYBOOKS = ("flood_risk", "flood_change")
 
 
 def _say(ws: Workspace):
@@ -152,6 +160,52 @@ def reach_dataset(lat: float, lon: float) -> tuple[Dataset | None, str | None]:
     return ds, None
 
 
+def context_layers() -> list[dict[str, Any]]:
+    """The place-context layers as inventory rows: what each says and whose data it is (no network)."""
+    from aquascope.context import LAYER_SOURCES
+    from aquascope.registry import CONTEXT_LAYERS
+
+    rows = []
+    for layer, keys in LAYER_SOURCES.items():
+        metas = [CONTEXT_LAYERS[k] for k in keys]
+        rows.append({"layer": layer, "label": " and ".join(m.label for m in metas),
+                     "sources": [m.provider for m in metas], "licences": [m.license for m in metas]})
+    return rows
+
+
+def _read_flood_history(lat: float, lon: float) -> dict[str, Any]:
+    """The flood_history layer at the site (network; the tests replace it)."""
+    from aquascope.context import flood_history
+
+    return flood_history(lat, lon)
+
+
+def _flood_history_note(ws: Workspace, inv: Inventory) -> None:
+    """Read the flood history for a flood question and keep it with the context rows and in the notes."""
+    try:
+        res = _read_flood_history(inv.site["lat"], inv.site["lon"])
+    except Exception as exc:  # noqa: BLE001 - context is never a reason for the study to stop
+        ws.event("scout", "context", f"flood history unreadable: {type(exc).__name__}: {exc}")
+        return
+    if not isinstance(res, dict) or not res.get("summary"):
+        return
+    for row in inv.context:
+        if row["layer"] == "flood_history":
+            row["summary"] = str(res["summary"])
+            news = res.get("news") or {}
+            if news.get("available"):
+                row["events"] = news.get("n_events")
+                row["latest"] = news.get("latest")
+                # where the flood playbook's historical-events caveat looks (context.flood_history.events);
+                # copied, never written into the reconnaissance dict the caller may share
+                ctx = dict(inv.recon.get("context") or {})
+                ctx["flood_history"] = {"events": news.get("n_events"), "latest": news.get("latest"),
+                                        "radius_km": res.get("radius_km")}
+                inv.recon = {**inv.recon, "context": ctx}
+    inv.notes.insert(0, f"Flood history: {res['summary']}")  # first, so the report keeps it
+    ws.event("scout", "context", f"flood history: {res['summary']}")
+
+
 def scout(ws: Workspace) -> Inventory:
     """Build the inventory and write it to ``ws.inventory``. Never raises on the reconnaissance's account."""
     from aquascope.ai_engine.team import _scout
@@ -192,6 +246,9 @@ def scout(ws: Workspace) -> Inventory:
         inv.datasets.append(reach)
     if reach_note:
         inv.notes.append(reach_note)
+    inv.context = context_layers()
+    if ws.brief.playbook in FLOOD_PLAYBOOKS:
+        _flood_history_note(ws, inv)
     chosen = ws.brief.intake.get("value_column")
     for dataset_id, csv in ws.tables.items():
         try:

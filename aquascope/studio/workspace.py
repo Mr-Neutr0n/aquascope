@@ -163,6 +163,9 @@ class Inventory:
     catchment: dict[str, Any] | None = None
     donors: int | None = None
     notes: list[str] = field(default_factory=list)
+    #: The place-context layers that cover the site (#520): ``{layer, label, sources, licences, summary?}``.
+    #: Listed, not counted as datasets: they describe the place, they are not a record to analyse.
+    context: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def sufficiency(self) -> list[dict[str, Any]]:
@@ -180,8 +183,11 @@ class Inventory:
         return [d for d in self.datasets if d.kind == "upload"]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"site": dict(self.site), "datasets": [d.to_dict() for d in self.datasets], "recon": self.recon,
-                "catchment": self.catchment, "donors": self.donors, "notes": list(self.notes)}
+        out = {"site": dict(self.site), "datasets": [d.to_dict() for d in self.datasets], "recon": self.recon,
+               "catchment": self.catchment, "donors": self.donors, "notes": list(self.notes)}
+        if self.context:
+            out["context"] = [dict(c) for c in self.context]
+        return out
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> Inventory | None:
@@ -190,7 +196,8 @@ class Inventory:
         return cls(site=dict(d.get("site") or {}),
                    datasets=[Dataset.from_dict(x) for x in (d.get("datasets") or []) if isinstance(x, dict)],
                    recon=dict(d.get("recon") or {}), catchment=d.get("catchment"), donors=d.get("donors"),
-                   notes=[str(n) for n in (d.get("notes") or [])])
+                   notes=[str(n) for n in (d.get("notes") or [])],
+                   context=[dict(c) for c in (d.get("context") or []) if isinstance(c, dict)])
 
 
 # ── artifacts and messages ──────────────────────────────────────────────────

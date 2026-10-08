@@ -39,7 +39,9 @@ INSTRUCTIONS = (
     "Greece Hydroscope, Taiwan CWA and more) behind one schema. Start with find_stations (no agency call), "
     "then get_timeseries or "
     "analyze_station for a specific station. For a place or a station, assess_site(lat, lon) first says which "
-    "methods the record there supports; do not run one it marks not_defensible. Flood frequency needs at least "
+    "methods the record there supports; do not run one it marks not_defensible. place_context(lat, lon) gives "
+    "the flood history, surface water, flood hazard, dams, soil, evapotranspiration and nearest rain gauge of a "
+    "place. Flood frequency needs at least "
     "10 complete years of daily flow. For a river with no gauge, snap_to_river then reach_record gives 86 years "
     "of simulated flow, labelled modelled. Always show the licence/attribution returned with the data."
 )
@@ -425,6 +427,39 @@ def describe_catchment(lat: float, lon: float, upstream: bool = True) -> dict[st
         return {"error": f"{exc}"}
     except Exception as exc:  # noqa: BLE001 - the model gets to see it
         return {"error": f"catchment lookup failed: {type(exc).__name__}: {exc}"}
+
+
+def place_context(lat: float, lon: float, layers: list[str] | None = None) -> dict[str, Any]:
+    """What a hydrologist asks first about a point, from open global datasets, each with its licence: flood
+    history (flood events in the news from Google Groundsource, and Sentinel-1 radar flood detections
+    2014-2024), surface water since 1984 (JRC Global Surface Water: how often this 30 m pixel was water, and
+    the change), modelled flood depth at the 10 to 500-year floods (JRC CEMS-GloFAS hazard maps), dams nearby
+    (Global Dam Watch), soil texture and plant-available water (SoilGrids), actual evapotranspiration (FAO
+    WaPOR v3) and the nearest real rain gauge with a summary of its record (NOAA GHCN-Daily). layers picks
+    some of: flood_history, surface_water, flood_hazard, dams, rain_gauge, actual_et, soil (default all).
+    Every layer has a one-line summary; quote the attribution with the numbers.
+    """
+    from aquascope import context
+
+    try:
+        return context.place_context(float(lat), float(lon), layers=layers)
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"place context failed: {type(exc).__name__}: {exc}"}
+
+
+def area_context(west: float, south: float, east: float, north: float,
+                 layers: list[str] | None = None) -> dict[str, Any]:
+    """The place-context layers over a box (west, south, east, north in degrees): flood events from the news
+    and radar flood months inside it, dams and their combined storage, rain gauges, and surface water, flood
+    depth, soil and actual evapotranspiration sampled on a small grid. Keep the box under about 16 x 16
+    degrees. Same layer names as place_context.
+    """
+    from aquascope import context
+
+    try:
+        return context.area_context(float(west), float(south), float(east), float(north), layers=layers)
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"area context failed: {type(exc).__name__}: {exc}"}
 
 
 def similar_basins(
@@ -917,6 +952,46 @@ def studio_export(workspace: dict[str, Any], out_dir: str) -> dict[str, Any]:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
+MAX_EXPORT_CHARS = 60_000
+
+
+def engineering_export(
+    source: str, station_id: str, tool: str, years: int | None = None, variable: str | None = None,
+    regional_skew: float | None = None, regional_skew_mse: float | None = None, out_dir: str | None = None,
+    max_chars: int = MAX_EXPORT_CHARS,
+) -> dict[str, Any]:
+    """Inputs for an engineering tool from a gauge's record: tool is one of hec-hms, hec-ras, hec-ssp, dss,
+    swmm, modflow6, fews, raven (or "all"). Returns each file's text (a long file is cut at max_chars and marked
+    truncated) and the notes to read before using it; pass out_dir to also write the files there. hec-ssp adds
+    the Bulletin 17C settings and AquaScope's own result to compare; regional_skew weights its skew. DSS is a
+    real .dss where HEC's hecdss loads, else the CSV hecdss reads.
+    """
+    from aquascope.io import engineering as eng
+
+    if source not in SOURCES:
+        return {"error": f"unknown source {source!r}"}
+    if tool != "all" and tool not in eng.TOOLS:
+        return {"error": f"unknown tool {tool!r}; choose from {', '.join(eng.TOOLS)} or all"}
+    try:
+        res = eng.export_station(source, station_id, tool, years=int(years) if years else None, variable=variable,
+                                 regional_skew=regional_skew, regional_skew_mse=regional_skew_mse)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" in res:
+        return res
+    if out_dir:
+        res["written"] = eng.write_files(eng.files_from(res), out_dir)
+    for f in res["files"]:
+        f.pop("base64", None)  # a binary .dss stays on disk (out_dir), never in the reply
+        text = f.get("text")
+        if isinstance(text, str) and len(text) > max_chars:
+            f["text"] = text[:max_chars]
+            f["truncated"] = True
+    meta = SOURCES[source]
+    res.update({"license": meta.license, "attribution": meta.attribution})
+    return res
+
+
 def _sparkline(values: list[float], width: int = 560, height: int = 120) -> str:
     """A dependency-free hydrograph: the shape of a record, in an inline SVG."""
     clean = [v for v in values if isinstance(v, (int, float))]
@@ -998,6 +1073,8 @@ def build_server():
     server.tool()(reach_record)
     server.tool()(upstream_area)
     server.tool()(trace_downstream)
+    server.tool()(place_context)
+    server.tool()(area_context)
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)
     from aquascope.archive.signatures import filter_gauges  # the map's signature filter (signatures.parquet)
@@ -1018,6 +1095,7 @@ def build_server():
     server.tool()(list_analyses)
     server.tool()(analyse_table)
     server.tool()(station_view)
+    server.tool()(engineering_export)
     server.tool()(list_playbooks)
     server.tool()(describe_playbook)
     server.tool()(solve_plan)

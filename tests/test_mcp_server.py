@@ -289,3 +289,18 @@ def test_analyze_station_asks_for_the_full_record_by_default_and_keeps_the_note(
         ff = m.flood_frequency("usgs", "USGS-1", years=12)
     assert seen["years"] == 12
     assert "fetch_note" in ff and ff["requested"]["catalog_start"] == "1930-01-01"
+
+
+def test_place_and_area_context_tools_wrap_the_engine(monkeypatch):
+    seen = {}
+
+    def fake_place(lat, lon, layers=None):
+        seen["place"] = (lat, lon, layers)
+        return {"layers": {}, "summary": []}
+
+    monkeypatch.setattr("aquascope.context.place_context", fake_place)
+    assert m.place_context("45.1", "5.1", layers=["dams"]) == {"layers": {}, "summary": []}
+    assert seen["place"] == (45.1, 5.1, ["dams"])
+    assert "west, south, east, north" in m.area_context(6, 44, 4, 46)["error"]
+    names = {t.name for t in asyncio.run(m.build_server().list_tools())}
+    assert {"place_context", "area_context"} <= names

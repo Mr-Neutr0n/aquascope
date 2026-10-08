@@ -46,6 +46,8 @@ If `aquascope` is not on the client's PATH, use the interpreter explicitly:
 | `describe_methods()` | what each analysis computes and the reference to cite | no |
 | `assess_site(lat, lon, radius_km, problem, return_period)` | what can be answered at a place before any analysis: the gauges within reach with their true catalog spans, the BasinATLAS catchment, the site context, and a sufficiency table marking every method defensible, marginal or not defensible here with the reason and the station it would use; call it first for a place or a station | no (catalog and Archive `basins/` files) |
 | `describe_catchment(lat, lon, upstream=True)` | the BasinATLAS (HydroATLAS, CC BY 4.0) catchment of a point: sub-basin, upstream area, elevation, climate, land cover, soils, population, dams; `upstream=False` for the local sub-basin | no (Archive `basins/` files) |
+| `place_context(lat, lon, layers)` | the context of a place, each layer with a one-line summary and its licence: flood events in the news (Groundsource) and Sentinel-1 radar flood months 2014-2024, how often the ground was water since 1984 (JRC Global Surface Water), modelled flood depth at the 10 to 500-year floods (JRC CEMS-GloFAS), dams nearby (Global Dam Watch), soil texture and plant-available water (SoilGrids), actual evapotranspiration (FAO WaPOR v3) and the nearest GHCN-Daily rain gauge with its record | no agency; open data hosts and the Archive `context/` mirror |
+| `area_context(west, south, east, north, layers)` | the same layers over a box: flood events and radar months inside it, dams and their storage, rain gauges, and the rasters sampled on a small grid | no agency; as above |
 | `similar_basins(lat, lon | source, station_id, k, method, sources)` | the gauged basins whose catchments most resemble a point's or a station's (BasinATLAS attribute space and/or distance): donor selection for ungauged sites | no (Archive `basins/station_catchments.parquet`) |
 | `regionalize_signatures(lat, lon, k, method)` | the estimated flow regime of an ungauged point (mean/median/Q95/Q05 flow in mm/d, annual maximum, runoff ratio, baseflow index, FDC slope, flow frequencies, seasonality, flashiness) transferred from the most similar gauged donors, with a band and the leave-one-out skill; `method`: similarity, regression or both | no (Archive `basins/station_signatures.parquet` + `regionalization_skill.json`) |
 | `drought_indices(lat, lon, years, timescales, source, station_id, pet)` | drought status at a place: SPI and SPEI at 1, 3 and 12 months (or `timescales`) with the divergence between them, from a rain gauge (`source` + `station_id`, its whole record, ERA5 for the PET) or the ERA5 cell over the last `years`; `pet`: thornthwaite (default), fao56 or none; plus the ERA5 temperature trend and the drought events | Open-Meteo (ERA5); the gauge's agency or the Archive |
@@ -64,6 +66,7 @@ If `aquascope` is not on the client's PATH, use the interpreter explicitly:
 | `describe_playbook(id)` | one playbook in full: intake, branches with conditions and steps, gates, fallbacks, declines, caveats, citations | no |
 | `solve_plan(problem, lat, lon, playbook, intake)` | reconnaissance of the point, the playbook and branch the tree picks, and the study (version 2) it fills, with a gate per step; nothing is executed and no model is called; `declined` carries the playbook's reason when it refuses | no (the catalog) |
 | `solve_run(study)` | execute a study from `solve_plan` (edited or not): every gate outcome, the report, the study with its results, which `aquascope run` reproduces | yes (the study's tools) |
+| `engineering_export(source, station_id, tool, years, variable, regional_skew, regional_skew_mse, out_dir)` | the record as inputs for an engineering tool (`hec-hms`, `hec-ras`, `hec-ssp`, `dss`, `swmm`, `modflow6`, `fews`, `raven`, or `all`): each file's text, cut at `max_chars`, with the notes to read first; `out_dir` also writes them ([formats](engineering_exports.md)) | yes |
 | `station_view(source, station_id, years)` | the `analyze_station` result plus a self-contained HTML view (inline hydrograph, headline numbers, attribution) under `_meta["mcp/view"]`, for clients that support the MCP Apps extension; clients that do not simply ignore the extra key | yes |
 
 Resources: `aquascope://sources` and `aquascope://methods` (JSON).
@@ -87,7 +90,7 @@ arrays in analyses): an assistant's context is not a data lake. Ask for
 
 ## Keys and terms
 
-Every tool works keyless. `USGS_API_KEY` in the environment lifts the shared demo-key throttling for USGS;
+Every tool works keyless. `USGS_API_KEY` in the environment raises the keyless USGS rate limit;
 `HF_TOKEN` is not needed to read the public catalog. Data licences are returned with every result;
 sources whose terms do not allow redistribution are still searchable but their observations are only
 ever fetched live from the agency, never mirrored.

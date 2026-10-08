@@ -55,7 +55,8 @@ _CAPTIONS = {
     "findings": "The Interpreter's findings: every claim with the result path it rests on, the decision block "
                 "with its grade, the data the crew would ask for.",
     "json": "The workspace without the artifact bytes (resume with aquascope studio --resume).",
-    "zip": "Everything above and every figure and table, with a README.",
+    "zip": "Everything above and every figure and table, with a README, and engineering/ inputs for HEC, SWMM, "
+           "MODFLOW 6, Delft-FEWS and Raven when the study has a gauge record.",
 }
 
 
@@ -64,8 +65,78 @@ def _artifact(fmt: str, data: bytes) -> Artifact:
     return Artifact(id=aid, kind=kind, name=name, data=data, media_type=MEDIA_TYPES[media], caption=_CAPTIONS[fmt])
 
 
-def readme_text(ws: Workspace) -> str:
-    """``README.txt`` for the bundle: what is in it and how to reproduce the study."""
+#: The folder of engineering-tool inputs inside the bundle (#519).
+ENGINEERING_DIR = "engineering"
+
+
+def _main_record(ws: Workspace) -> dict[str, Any] | None:
+    """The study's main gauge record: the first step whose result is a station series AquaScope can export,
+    with its full observations (the retained ``series`` table, else the payload's own arrays)."""
+    import pandas as pd
+
+    from aquascope.io.engineering import kind_of
+    from aquascope.studio.deliverables._payload import series_of
+    from aquascope.studio.deliverables.tables import frame_of
+
+    for r in c.results_of(ws):
+        payload = r.get("result")
+        if not r.get("ok", True) or not isinstance(payload, dict) or payload.get("error"):
+            continue
+        try:
+            kind_of(payload.get("variable"))
+        except ValueError:
+            continue
+        series = None
+        art = next((a for a in ws.artifacts if a.id == f"tab-{r.get('id')}-series"), None)
+        if art is not None:
+            df = frame_of(art)
+            if {"datetime", "value"} <= set(df.columns):
+                series = pd.Series(pd.to_numeric(df["value"], errors="coerce").to_numpy(),
+                                   index=pd.to_datetime(df["datetime"], utc=True, errors="coerce"))
+        if series is None:
+            got = series_of(payload, "observations", preserve_time=True) or series_of(payload, preserve_time=True)
+            if got:
+                series = pd.Series(pd.to_numeric(pd.Series(got[1]), errors="coerce").to_numpy(),
+                                   index=pd.to_datetime(pd.Series(got[0]), utc=True, errors="coerce"))
+        if series is None or not series.notna().any():
+            continue
+        if series.index.tz is not None and (series.index == series.index.normalize()).all():
+            series.index = series.index.tz_localize(None)  # plain dates: no time zone to keep
+        return {"series": series[series.index.notna()], "payload": payload, "step": r.get("id")}
+    return None
+
+
+def engineering_files(ws: Workspace) -> tuple[dict[str, bytes], str | None]:
+    """Inputs for every engineering tool that takes the study's main record, under ``engineering/``.
+
+    Returns the files and the record's label (None, with no files, when the study has no exportable record).
+    A tool that cannot take the record (too few years for HEC-SSP, say) is left out, not an error.
+    """
+    from aquascope.io import engineering as eng
+    from aquascope.studio.deliverables._payload import record_name
+
+    main = _main_record(ws)
+    if main is None:
+        return {}, None
+    p = main["payload"]
+    try:
+        rec = eng.make_record(main["series"], variable=p.get("variable"), unit=p.get("unit"),
+                              location=p.get("station_id") or main["step"], name=p.get("station_name") or p.get("name"),
+                              source=p.get("source"))
+        files, skipped = eng.bundle(rec)
+    except Exception as exc:  # noqa: BLE001 - the exports are an extra; the study's documents stand without them
+        logger.warning("engineering exports skipped: %s", exc)
+        return {}, None
+    for tool, why in skipped.items():
+        logger.info("engineering export %s skipped: %s", tool, why)
+    return {f"{ENGINEERING_DIR}/{k}": v for k, v in files.items()}, record_name(p)
+
+
+def readme_text(ws: Workspace, *, engineering: tuple[dict[str, bytes], str | None] | None = None) -> str:
+    """``README.txt`` for the bundle: what is in it and how to reproduce the study.
+
+    ``engineering`` is :func:`engineering_files` when the caller already has it (it is computed otherwise).
+    """
     lines = [c.title_of(ws), "=" * min(len(c.title_of(ws)), 78), ""]
     site = c.site_text(ws)
     if site:
@@ -79,6 +150,11 @@ def readme_text(ws: Workspace) -> str:
         if a.kind == "bundle":
             continue
         lines.append(f"{a.name:40s} {a.caption or ''}".rstrip())
+    eng_files, eng_record = engineering if engineering is not None else engineering_files(ws)
+    if eng_files:
+        tools = sorted({k.split("/")[1] for k in eng_files})
+        lines.append(f"{ENGINEERING_DIR + '/':40s} Inputs for {', '.join(tools)} from {eng_record}; "
+                     "each folder has a README.")
     lines += ["", "Reproduce", "---------",
               "pip install aquascope[studio]",
               "aquascope run study.yaml          # replays every step with its gates, no model needed",
@@ -91,14 +167,18 @@ def readme_text(ws: Workspace) -> str:
 def bundle_bytes(ws: Workspace) -> bytes:
     """The zip of every artifact except the bundle itself, plus ``README.txt``."""
     buf = io.BytesIO()
+    eng = engineering_files(ws)
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("README.txt", readme_text(ws))
+        zf.writestr("README.txt", readme_text(ws, engineering=eng))
         seen: set[str] = set()
         for a in ws.artifacts:
             if a.kind == "bundle" or a.id == "bundle" or not a.name or a.name in seen:
                 continue
             seen.add(a.name)
             zf.writestr(a.name, a.data)
+        for name, data in eng[0].items():
+            if name not in seen:
+                zf.writestr(name, data)
     return buf.getvalue()
 
 
@@ -147,8 +227,8 @@ def build(ws: Workspace, *, formats: list[str] | tuple[str, ...] | None = None) 
 
 
 def export(ws: Workspace, out_dir: str | Path) -> dict[str, str]:
-    """Write every artifact under ``out_dir`` (``figures/`` and ``tables/`` as subdirectories); returns
-    ``{artifact id: path}``."""
+    """Write every artifact under ``out_dir`` (``figures/`` and ``tables/`` as subdirectories) and the
+    ``engineering/`` inputs; returns ``{artifact id: path}``."""
     root = Path(out_dir)
     root.mkdir(parents=True, exist_ok=True)
     paths: dict[str, str] = {}
@@ -160,6 +240,10 @@ def export(ws: Workspace, out_dir: str | Path) -> dict[str, str]:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(a.data)
         paths[a.id] = str(dest)
+    from aquascope.io.engineering import write_files
+
+    # The engineering inputs are written beside the artifacts (they are not artifacts, so not in ``paths``).
+    write_files(engineering_files(ws)[0], root)
     return paths
 
 

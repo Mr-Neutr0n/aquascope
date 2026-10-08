@@ -15,6 +15,7 @@ import { openModal } from "./shell.js?v=__BUILD__";
 import { RIVERS_CREDIT } from "./river-core.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
 import { openAreaStudy } from "./area-study.js?v=__BUILD__";
+import { cancelAreaContext, openAreaContext } from "./context.js?v=__BUILD__";
 
 const anyTimeLayer = () =>
   [...state.overlays].some((id) => (overlayById(id) || {}).time) || Boolean(basemapById(state.basemap).time);
@@ -212,6 +213,7 @@ function showSelection(bbox) {
   const btn = $("btn-area");
   btn.classList.remove("active");
   btn.textContent = "Select an area";
+  cancelAreaContext();
   if (!bbox) { $("area-result").hidden = true; return; }
   const rows = stationsIn(bbox);
   const box = $("area-result");
@@ -242,10 +244,17 @@ function showSelection(bbox) {
   study.disabled = rows.length === 0;
   study.addEventListener("click", () => openAreaStudy(rows, bbox));
   box.appendChild(study);
+  // Place context (#520): flood history, surface water, flood depth, dams, rain gauges, ET and soil in the box.
+  const ctx = document.createElement("button");
+  ctx.className = "btn tiny";
+  ctx.textContent = "Context";
+  ctx.title = "Flood history, surface water, flood depth, dams, rain gauges, evaporation and soil in this box";
+  ctx.addEventListener("click", () => { void openAreaContext(bbox, box); });
+  box.appendChild(ctx);
   const clear = document.createElement("button");
   clear.className = "btn tiny";
   clear.textContent = "Clear";
-  clear.addEventListener("click", () => { box.hidden = true; });
+  clear.addEventListener("click", () => { box.hidden = true; cancelAreaContext(); });
   box.appendChild(clear);
 }
 

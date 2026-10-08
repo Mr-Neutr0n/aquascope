@@ -36,3 +36,15 @@ def _no_geoglows_network(monkeypatch):
 
     for name in ("_fetch_range", "_fetch_json", "_fetch_text"):
         monkeypatch.setattr(rivers, name, offline)
+
+
+@pytest.fixture(autouse=True)
+def _no_flood_history_reads(monkeypatch):
+    """The Studio Scout reads the flood history for a flood question (#520); tests never reach the network for it.
+
+    A test that wants a flood history patches ``scout._read_flood_history`` again with what it needs.
+    """
+    from aquascope.studio.roles import scout
+
+    monkeypatch.setattr(scout, "_read_flood_history", lambda lat, lon: {})
+    yield

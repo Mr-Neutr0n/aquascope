@@ -123,8 +123,12 @@ studio = [
     "python-docx>=1.1",
     "questionary>=2.0",
 ]
+engineering = [
+    "hecdss>=0.1.33",
+    "flopy>=3.8",
+]
 all = [
-    "aquascope[ml,forecast,copernicus,viz,llm,scientific,dashboard,spatial,interop,archive,mcp,basins,studio]",
+    "aquascope[ml,forecast,copernicus,viz,llm,scientific,dashboard,spatial,interop,archive,mcp,basins,studio,engineering]",
 ]
 dev = [
     "pytest>=7.0",
