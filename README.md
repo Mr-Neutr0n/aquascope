@@ -65,6 +65,11 @@ of accessible observations or a sufficiently long record. Explorer fetches the f
 by default (or the last 40 or 20 years, your choice) and shows the period it actually
 analyzes; modelled discharge is distinguished from gauge observations.
 
+**Time on the map:** one date drives the NASA satellite, rain, soil moisture, snow and
+water storage layers. Play a range, click a day on a hydrograph to see the map on that
+day, swipe-compare two dates, and save the range as a GIF. The date is in the link
+([details](docs/explorer.md#time-on-the-map)).
+
 **Study** guides you from a question through a plan you approve to a report and export
 bundle: Word, Excel, figures, notebook, findings and study YAML. Core studies run without
 an API key. Optional model setup is available when you choose to use it. Beyond the design
@@ -336,7 +341,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 36-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `playbooks` and `river` carry subcommands) for the most common workflows:
+AquaScope ships a 37-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -353,6 +358,7 @@ aquascope context 51.86 5.95                      # flood history, surface water
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive
 aquascope export --to hec-ssp --station usgs/01134500   # inputs for HEC-HMS/RAS/SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven
 aquascope gym run --basin uk_ea/013054a3-670e-49ee-afda-e0865a449197   # HydroGym: calibrate GR4J on a real basin as a gym episode
+aquascope layers frames precip --start 2024-05-01 --end 2024-05-20   # a time-lapse of a dated map layer: dates and tile URLs
 aquascope mcp                                     # serve the same tools to Claude / Cursor over MCP
 aquascope ask "100-year flood of the Seine at Paris?"   # the analyst: tools + a cited Markdown report
 aquascope ingest agency_export.csv --unit cfs     # any CSV/Excel -> clean daily series + QA report

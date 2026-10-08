@@ -10,7 +10,8 @@
 // in this page's Pyodide worker, so an agent gets the world's gauges without
 // aquascope being installed anywhere.
 
-import { state } from "./core.js?v=__BUILD__";
+import { setTime, state } from "./core.js?v=__BUILD__";
+import { STEPS, isIsoDate, normaliseRange, todayIso } from "./timeline.js?v=__BUILD__";
 import { call } from "./worker-client.js?v=__BUILD__";
 
 const TOOLS = [
@@ -93,6 +94,21 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "aquascope_set_map_date",
+    description: "Set the date the map's dated layers show (NASA GIBS rain, soil moisture, snow, land temperature, "
+      + "satellite imagery, GRACE water storage), and optionally the play step and range. Dates are YYYY-MM-DD.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD" },
+        step: { type: "string", enum: ["day", "week", "month"] },
+        from: { type: "string", description: "Range start, YYYY-MM-DD" },
+        to: { type: "string", description: "Range end, YYYY-MM-DD" },
+      },
+      required: ["date"],
+    },
+  },
 ];
 
 export function webmcpAvailable() {
@@ -118,6 +134,15 @@ export function registerWebMcpTools({ actions }) {
             return textResult(question
               ? await actions.setSignatureFilterFromQuestion(question, fields)
               : await actions.setSignatureFilter(fields));
+          }
+          if (spec.name === "aquascope_set_map_date") {  // page-side: the time bar (#522)
+            if (!isIsoDate(args.date) || args.date > todayIso()) return textResult({ error: "Give a past date as YYYY-MM-DD." });
+            const patch = { date: args.date };
+            if (STEPS.includes(args.step)) patch.step = args.step;
+            const range = normaliseRange({ from: args.from, to: args.to });
+            if (range) patch.range = range;
+            setTime(patch, { source: "agent" });
+            return textResult({ date: state.date, step: state.timeStep, range: state.timeRange });
           }
           if (spec.name === "aquascope_show_on_map") {
             if (args.source && args.station_id) {

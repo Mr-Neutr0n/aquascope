@@ -8,6 +8,14 @@ All notable changes to AquaScope are documented here.
 ## [Unreleased]
 
 ### Added
+- **Time on the map** (#522). One date control at the bottom of the Explorer's map drives every dated layer (VIIRS true colour, IMERG rain, SMAP soil moisture, MODIS snow and land temperature, GRACE water storage).
+  - Step back and forward by a day, a week or a month, and **play** a range in a loop.
+  - **Click a day on any hydrograph** and the map jumps to it with a short "Map set to" note; rain comes on if no dated layer is.
+  - **Swipe compare**: a second map over the first, cut by a draggable handle, showing another date or one other dated layer.
+  - **GIF export** of the range, made in the browser (gifenc 1.0.3, MIT): up to 40 frames at 640 px, each stamped with its date and the NASA credit.
+  - The date, step, range and compare date are in the link (`d`, `ts`, `r`, `cmp`, `cl`).
+  - The date is one state field with a subscribe hook (`setTime` and `onTime` in `core.js`), so later features such as the forecast can follow it. In-browser agents get a `set_map_date` WebMCP tool.
+- `aquascope.map_time`: the dated layers with their first and last day as GIBS reports them, and the frames of a time-lapse. Exposed as the MCP tools `dated_layers` and `layer_frames` and as `aquascope layers list [--live]` and `aquascope layers frames LAYER --start --end --step`. `--live` reads the exact intervals and gaps from the GIBS WMTS capabilities.
 - **Rivers as objects** (#516). `aquascope.rivers` snaps a point to its GEOGLOWS v2 river reach and treats the reach as the thing being studied, keyless and in the browser too.
   - `snap_to_river(lat, lon)` reads the global stream network (`streams.pmtiles`, 2.4 GB, by byte ranges) and returns the reach, its stream order and the distance, or says there is no stream within the tolerance (1 km) and names the nearest one.
   - `reach_record(river_id)` fetches the reach's simulated daily discharge since 1940 and analyses it like a gauge: annual maxima, return periods (GEV and LP3 with 90 % intervals), the flow-duration curve, the monthly regime and the trend. Labelled modelled everywhere, GEOGLOWS v2 output under CC BY 4.0.
@@ -31,9 +39,12 @@ All notable changes to AquaScope are documented here.
 - **Bulletin 17C check** (`aquascope.hydrology.b17c_check`, docs page "Engineering exports"): AquaScope's EMA against the published Bulletin 17C examples, which HEC states HEC-SSP reproduces. It matches Example 1 (Moose River, weighted skew) within 1%, and does not match Example 2 (Orestimba Creek, zeros and low outliers): its Multiple Grubbs-Beck test censors 15 peaks where the Bulletin censors 30, so the rare floods come out several times too large. Examples 3 to 7 need flow intervals the EMA does not take yet.
 
 ### Changed
+- The date row moved out of the layer rail into the time bar.
 - **USGS now comes entirely from the Water Data OGC API, version 1** (#515). USGS retires the legacy NWIS Water Services host in Q1 2027, and when it goes a call left behind would have become a quiet empty frame and a hole in the Archive. The keyless path, which still called that host for daily and instantaneous values and for station names, now asks `api.waterdata.usgs.gov/ogcapi/v1` like the keyed one, with no key at all instead of the shared demo key. The base moves from `ogcapi/v0` to `v1`, the old collection names (`sta`, `discrete`, `dv`, `iv`) map onto their v1 collections, `statCd` reaches the API as `statistic_id`, and a keyed walk puts the key back on each `next` link, which USGS builds without it. The quality mapping from #481 now reads the v1 `approval_status` and qualifier list, and the shared pacing from #459 is unchanged. The Explorer and the harvest fetch a station's daily mean as one slim page (no geometry, only the fields read, up to 50,000 rows), as USGS advises. Station names no longer fall back on the retired NWIS site service: sites the `monitoring-locations` walk misses (it failed, or a capped run without a bbox walked other sites) are asked for by id, 100 per request and at most 2,000 per call, so a small `--max-items` harvest now names its stations. A test fails the build if the legacy host appears anywhere under `aquascope/`.
 
 ### Fixed
+- The water storage layer (GRACE) showed nothing at the default date, because GIBS has no month after July 2022. The time bar now says when a date is outside a layer's range, and each dated layer carries its first and last day.
+- GRACE months whose image starts mid-month (February 2004 starts on the 4th, February 2011 on the 8th) drew nothing, because the map asked GIBS for the first of the month. The layer now carries the image list from the GIBS capabilities and asks for the image that covers the day, and the bar says when a month has no image (the GRACE to GRACE-FO gap).
 - **A click on a hillside is no longer given the river's whole catchment** (#516). The Explorer's catchment card waits for the snap: with no stream within 1 km it says so, instead of quoting the upstream area of the BasinATLAS sub-basin the point happens to sit in.
 - `aquascope/io/hec.py` no longer says the DSS format needs a proprietary library: HEC's `hecdss` is MIT and on PyPI.
 - **Windows test assumptions:** repair evidence carries POSIX paths, and the workflow shell check skips on Windows (part of #432).

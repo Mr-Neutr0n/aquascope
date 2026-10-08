@@ -400,6 +400,23 @@ def describe_methods() -> dict[str, Any]:
     return {"return_periods": RETURN_PERIODS, "min_years_for_ffa": MIN_YEARS_FOR_FFA, "methods": METHODS}
 
 
+def dated_layers(live: bool = False) -> dict[str, Any]:
+    """The map layers that change with the date (NASA GIBS satellite imagery, IMERG rain, SMAP soil
+    moisture, MODIS snow and land temperature, GRACE water storage): their cadence, first and last day,
+    licence and tile template. live=True reads the exact intervals, gaps included, from GIBS."""
+    from aquascope.map_time import dated_layers as _dated
+
+    return _dated(live=bool(live))
+
+
+def layer_frames(layer: str, start: str, end: str, step: str = "day", max_frames: int = 60) -> dict[str, Any]:
+    """The frames of a time-lapse of one dated map layer: each date from start to end (YYYY-MM-DD) at a
+    step of day, week or month, with its XYZ tile URL, skipping dates the layer cannot show (at most 60)."""
+    from aquascope.map_time import layer_frames as _frames
+
+    return _frames(layer, start, end, step=step, max_frames=max_frames)
+
+
 def archive_health() -> dict[str, Any]:
     """Status of the last catalog harvest per source (health.json from the Archive)."""
     import httpx
@@ -1092,6 +1109,8 @@ def build_server():
                advanced.climate_projection, advanced.regional_flood, advanced.compare_gauges):
         server.tool()(fn)
     server.tool()(archive_health)
+    server.tool()(dated_layers)
+    server.tool()(layer_frames)
     server.tool()(list_analyses)
     server.tool()(analyse_table)
     server.tool()(station_view)

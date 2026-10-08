@@ -60,6 +60,8 @@ If `aquascope` is not on the client's PATH, use the interpreter explicitly:
 | `upstream_area(river_id, lat, lon)` | the area draining to a reach (km2) and the reaches upstream, summed from the model's unit catchments; approximate, within about 7 % of four agency-published gauge areas in our checks | GEOGLOWS routing tables |
 | `trace_downstream(river_id or lat, lon, gauge_km)` | the reach followed to its outlet: reaches, length, the path (TDX-Hydro, CC BY-SA 4.0, for display), the catalog gauges within `gauge_km` of it in downstream order, the upstream area | GEOGLOWS tiles and routing tables |
 | `archive_health()` | per-source status of the last catalog harvest | no |
+| `dated_layers(live)` | the map layers that change with the date (NASA GIBS VIIRS true colour, IMERG rain, SMAP soil moisture, MODIS snow and land temperature, GRACE water storage): cadence, first and last day, licence, tile template; `live=True` reads the exact intervals and gaps from the GIBS capabilities | no (GIBS, only with `live`) |
+| `layer_frames(layer, start, end, step, max_frames)` | the frames of a time-lapse of one dated layer: each date at a day, week or month step with its XYZ tile URL, skipping dates the layer cannot show, at most 60 | no |
 | `list_analyses()` | the eighteen `aquascope.workbench` analyses with their parameters: quality, preprocessing, insights, the WHO drinking-water screen, the water quality index (CCME WQI 1.0 against WHO 2022 drinking-water, FAO 29 irrigation or CCME aquatic-life guidelines, plus the NSF WQI) and the FAO 29 irrigation suitability index, flow duration, three baseflow separations, recession, GEV flood frequency, flow signatures, return periods, FAO-56 ET0 and irrigation, SGI drought, WTF recharge, Theis drawdown | no |
 | `analyse_table(csv, analysis, params)` | run one of those on a table the assistant already has (a user's own export, for instance): the date and value columns are detected, units converted to SI, and the result carries its methods and citations | no |
 | `list_playbooks()` | the problem playbooks (flood risk, ungauged flow, groundwater decline, drought status, supply reliability, irrigation feasibility, water quality): id, title, branches, intake fields | no |
@@ -73,8 +75,8 @@ Resources: `aquascope://sources` and `aquascope://methods` (JSON).
 
 In a browser, the same tools are available a second way: where WebMCP
 (`navigator.modelContext`) exists, the [Explorer](explorer.md) registers
-`find_stations`, `analyze_station`, `anywhere`, `describe_catchment` and
-`show_on_map` in the page itself, with nothing installed at all.
+`find_stations`, `analyze_station`, `anywhere`, `describe_catchment`,
+`show_on_map` and `set_map_date` in the page itself, with nothing installed at all.
 
 Response sizes are bounded on purpose (station caps, thinning, no raw daily
 arrays in analyses): an assistant's context is not a data lake. Ask for

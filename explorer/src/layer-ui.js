@@ -1,24 +1,22 @@
 // The layer panel in the left rail: basemap, terrain, overlays with opacity
-// and legends, the shared date for the time-driven layers, how the gauges are
-// coloured, and "select an area".
+// and legends, how the gauges are coloured, and "select an area". The date the
+// dated layers follow is not here: it is the time bar on the map (time-ui.js).
 
-import { $, downloadBlob, escapeHtml, sourceStyle, state, stationKey, toCsv } from "./core.js?v=__BUILD__";
+import { $, actions, downloadBlob, escapeHtml, state, toCsv } from "./core.js?v=__BUILD__";
 import {
   BASEMAPS, GAUGE_STYLES, OVERLAYS, OVERLAY_GROUPS, RECENT_BREAKS, RECORD_BREAKS,
   basemapById, creditLines, defaultDate, overlayById, recordYears, yearsSinceLast,
 } from "./layers.js?v=__BUILD__";
 import {
-  applyDate, areaSelectActive, currentBasemap, globeSupported, setBasemap, setGaugeStyle, setGlobe,
+  areaSelectActive, currentBasemap, globeSupported, setBasemap, setGaugeStyle, setGlobe,
   setHeatmap, setHillshade, setOverlay, setOverlayOpacity, setTerrain, startAreaSelect,
 } from "./map.js?v=__BUILD__";
+import { syncTimeBar } from "./time-ui.js?v=__BUILD__";
 import { openModal } from "./shell.js?v=__BUILD__";
 import { RIVERS_CREDIT } from "./river-core.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
 import { openAreaStudy } from "./area-study.js?v=__BUILD__";
 import { cancelAreaContext, openAreaContext } from "./context.js?v=__BUILD__";
-
-const anyTimeLayer = () =>
-  [...state.overlays].some((id) => (overlayById(id) || {}).time) || Boolean(basemapById(state.basemap).time);
 
 // A tiny swatch standing in for each basemap, so eight radio rows become two
 // columns of chips you can pick from at a glance.
@@ -51,19 +49,24 @@ function basemapChip(b) {
   return row;
 }
 
+// Switch the basemap exactly as its chip would (the time bar's "Satellite" uses it too).
+export function chooseBasemap(id) {
+  const b = basemapById(id);
+  state.basemap = b.id;
+  for (const input of document.querySelectorAll('#rail-basemaps input[type=radio]')) input.checked = input.value === b.id;
+  reflectBasemap();
+  setBasemap(b.id, { date: state.date });
+  renderCredits();
+  syncTimeBar({ layersChanged: true });
+  writeUrl();
+}
+
 function buildBasemaps() {
   const box = $("rail-basemaps");
   box.innerHTML = "";
   for (const b of BASEMAPS) {
     const row = basemapChip(b);
-    row.querySelector("input").addEventListener("change", () => {
-      state.basemap = b.id;
-      reflectBasemap();
-      setBasemap(b.id, { date: state.date });
-      renderCredits();
-      syncDateRow();
-      writeUrl();
-    });
+    row.querySelector("input").addEventListener("change", () => chooseBasemap(b.id));
     box.appendChild(row);
   }
   reflectBasemap();
@@ -101,14 +104,7 @@ function overlayRow(o) {
     `</div>`;
   const check = wrap.querySelector("input[type=checkbox]");
   const controls = wrap.querySelector(".overlay-controls");
-  check.addEventListener("change", (e) => {
-    if (e.target.checked) state.overlays.add(o.id); else state.overlays.delete(o.id);
-    controls.hidden = !e.target.checked;
-    setOverlay(o.id, e.target.checked, { date: state.date, opacity: state.opacity[o.id] ?? null });
-    renderCredits();
-    syncDateRow();
-    writeUrl();
-  });
+  check.addEventListener("change", (e) => toggleOverlay(o.id, e.target.checked));
   wrap.querySelector("input[type=range]").addEventListener("input", (e) => {
     const v = Number(e.target.value);
     state.opacity[o.id] = v;
@@ -140,36 +136,21 @@ function buildOverlays() {
   }
 }
 
-// ── the shared date ─────────────────────────────────────────────────────────
-
-function syncDateRow() {
-  const row = $("rail-date");
-  row.hidden = !anyTimeLayer();
-  $("date-input").value = state.date;
-}
-
-function stepDate(days) {
-  const d = new Date(`${state.date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  const iso = d.toISOString().slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  state.date = iso > today ? today : iso;
-  $("date-input").value = state.date;
-  applyDate(state.date, [...state.overlays], state.basemap);
+// Turn an overlay on or off exactly as its checkbox would. The time bar uses it
+// for "show rain" when the reader picks a date with no dated layer on.
+export function toggleOverlay(id, on) {
+  const o = overlayById(id);
+  if (!o) return;
+  if (on) state.overlays.add(id); else state.overlays.delete(id);
+  const check = $(`ov-${id}`);
+  if (check) {
+    check.checked = on;
+    check.closest(".overlay-row").querySelector(".overlay-controls").hidden = !on;
+  }
+  setOverlay(id, on, { date: state.date, opacity: state.opacity[id] ?? null });
+  renderCredits();
+  syncTimeBar({ layersChanged: true });
   writeUrl();
-}
-
-function buildDate() {
-  $("date-input").value = state.date;
-  $("date-input").max = new Date().toISOString().slice(0, 10);
-  $("date-input").addEventListener("change", (e) => {
-    state.date = e.target.value;
-    applyDate(state.date, [...state.overlays], state.basemap);
-    writeUrl();
-  });
-  $("date-prev").addEventListener("click", () => stepDate(-1));
-  $("date-next").addEventListener("click", () => stepDate(1));
-  syncDateRow();
 }
 
 // ── gauge styling ───────────────────────────────────────────────────────────
@@ -309,7 +290,8 @@ export function initLayerUI() {
   buildGlobeButton();
   buildTerrain();
   buildOverlays();
-  buildDate();
+  actions.setOverlay = toggleOverlay;
+  actions.setBasemap = chooseBasemap;
   buildGaugeStyle();
   buildAreaSelect();
   renderCredits();
@@ -331,7 +313,7 @@ export function applyLayerState() {
     setGaugeStyle(state.gaugeStyle);
     syncRailControls();
     renderCredits();
-    syncDateRow();
+    syncTimeBar({ layersChanged: true });
   };
   if (currentBasemap() === state.basemap) rest();
   else setBasemap(state.basemap, { date: state.date, then: rest });
