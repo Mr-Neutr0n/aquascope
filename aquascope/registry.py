@@ -594,6 +594,20 @@ class StationCatalog:
         return self.error is None
 
 
+def _error_text(exc: BaseException) -> str:
+    """``Type: message``, followed by the exceptions it was raised from.
+
+    A collector that wraps its failures (BOM raises one ``RuntimeError`` after every parameter type failed) would
+    otherwise hide the cause, so the health report could not tell an agency outage (503, timeouts) from a code fault.
+    """
+    text = f"{type(exc).__name__}: {exc}"
+    cause, seen = exc.__cause__, 0
+    while cause is not None and seen < 3:
+        text += f" (from {type(cause).__name__}: {cause})"
+        cause, seen = cause.__cause__, seen + 1
+    return text
+
+
 def station_catalogs(
     *,
     bbox: tuple[float, float, float, float] | None = None,
@@ -625,7 +639,7 @@ def station_catalogs(
             return StationCatalog(source=key, stations=list(found), seconds=time.perf_counter() - t0)
         except Exception as exc:  # noqa: BLE001 - one bad source must not sink the others
             logger.warning("[%s] station lookup failed: %s", key, exc)
-            return StationCatalog(source=key, error=f"{type(exc).__name__}: {exc}", seconds=time.perf_counter() - t0)
+            return StationCatalog(source=key, error=_error_text(exc), seconds=time.perf_counter() - t0)
 
     if not keys:
         return {}
