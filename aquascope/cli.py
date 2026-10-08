@@ -965,7 +965,7 @@ def cmd_layers(args: argparse.Namespace) -> None:
             sys.exit(1)
         print(f"  {res['label']}, every {res['step']}, {len(res['frames'])} frames"
               + (" (capped)" if res.get("truncated") else "")
-              + (f", {res['skipped']} dates outside the layer's range" if res.get("skipped") else ""))
+              + (f", {res['skipped']} dates it cannot show" if res.get("skipped") else ""))
         if res.get("note"):
             print(f"  {res['note']}")
         for f in res["frames"]:

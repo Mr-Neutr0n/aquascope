@@ -116,7 +116,9 @@ MODIS snow and land temperature, GRACE water storage.
   the browser, with [gifenc](https://github.com/mattdesl/gifenc) (MIT).
 
 Each layer knows its first and last day (GRACE in GIBS stops in July 2022, SMAP
-starts in March 2015), and the bar says so when the date is outside one.
+starts in March 2015), and the bar says so when the date is outside one. GRACE
+also knows its missing months (the GRACE to GRACE-FO gap) and its images that
+start mid-month, so each month asks for the image GIBS really has.
 `aquascope layers list --live` shows the exact intervals and gaps from GIBS, and
 `aquascope layers frames LAYER --start --end --step` the dates and tile URLs of
 a time-lapse (the MCP tools `dated_layers` and `layer_frames` are the same

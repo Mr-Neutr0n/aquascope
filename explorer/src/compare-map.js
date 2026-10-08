@@ -74,7 +74,7 @@ function dress() {
   }
   for (const id of rightLayers()) {
     const spec = overlayById(id);
-    if (!spec) continue;
+    if (!spec || cmap.getSource(`ov-${id}`)) continue;   // a second style.load must not add it twice
     cmap.addSource(`ov-${id}`, {
       type: "raster", tileSize: 256, tiles: tileUrls(spec, c.date),
       minzoom: spec.minzoom || 0, maxzoom: spec.maxzoom || 9,

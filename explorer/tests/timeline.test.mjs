@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_SPAN, addStep, chartDate, clampDate, defaultRange, frameDates, gifSize, isIsoDate, layerCovers,
-  layersMissing, nextFrame, normaliseRange, readTimeParams, shortDate, spanLabel, writeTimeParams,
+  layersMissing, missingNote, nextFrame, normaliseRange, readTimeParams, shortDate, spanLabel, writeTimeParams,
 } from "../src/timeline.js";
-import { OVERLAYS, basemapById, datedLayersOn, layerDate, overlayById } from "../src/layers.js";
+import { OVERLAYS, basemapById, datedLayersOn, imageFor, layerDate, layerImages, overlayById } from "../src/layers.js";
 import { onTime, setTime, state } from "../src/core.js";
 import { clickedDay } from "../src/charts.js";
 
@@ -90,6 +90,25 @@ test("a monthly layer asks for the first of the month, or its own first day", ()
   assert.equal(layerDate(overlayById("precip"), "2010-05-17"), "2010-05-17");
 });
 
+test("GRACE asks for a day GIBS has an image for, and knows its gaps", () => {
+  const storage = overlayById("storage");
+  // Checked against GIBS tiles on 2026-10-08: 2004-02-01 is a 404, 2004-02-04 is the February image.
+  assert.equal(layerDate(storage, "2004-02-15"), "2004-02-04");
+  assert.equal(layerDate(storage, "2004-02-01"), "2004-02-04", "the month's image, though it starts later");
+  assert.equal(layerDate(storage, "2011-02-20"), "2011-02-08");
+  assert.equal(layerDate(storage, "2004-01-20"), "2004-01-01", "January 2004's image covers 13 days only");
+  assert.equal(layerDate(storage, "2016-01-15"), "2016-01-04");
+  assert.equal(layerDate(storage, "2016-01-30"), "2016-01-29", "two images in January 2016");
+  assert.equal(imageFor(storage, "2002-06-15"), null, "June 2002 is a gap");
+  assert.equal(imageFor(storage, "2017-09-01"), null, "the GRACE to GRACE-FO gap");
+  assert.equal(imageFor(storage, "2022-08-01"), null, "nothing after July 2022");
+  assert.ok(layerImages(storage).every((img) => img.start <= "2022-07-01"));
+  assert.ok(!layerCovers(storage, "2017-09-01", "2026-10-08"));
+  assert.ok(layerCovers(storage, "2004-02-01", "2026-10-08"));
+  assert.equal(missingNote(storage, "2017-09-01", "2026-10-08"), "Water storage anomaly: no image for Sep 2017.");
+  assert.equal(missingNote(storage, "2024-05-01", "2026-10-08"), "Water storage anomaly: Apr 2002 to Jul 2022 only.");
+});
+
 test("the dated layers on screen are the dated basemap and the dated overlays", () => {
   assert.deepEqual(datedLayersOn("daily", ["precip", "landcover"]).map((l) => l.id), ["daily", "precip"]);
   assert.deepEqual(datedLayersOn("light", new Set(["landcover"])), []);
@@ -99,6 +118,7 @@ test("a chart's x value becomes a day, and anything else is ignored", () => {
   assert.equal(chartDate("2021-07-14"), "2021-07-14");
   assert.equal(chartDate("2021-07-14 06:30"), "2021-07-14");
   assert.equal(chartDate("2021-07-14T06:30:00Z"), "2021-07-14");
+  assert.equal(chartDate("2021-07-14T00:00:00+00:00"), "2021-07-14", "a pandas isoformat");
   assert.equal(chartDate(new Date(Date.UTC(2021, 6, 14))), "2021-07-14");
   assert.equal(chartDate("Jul"), null);
   assert.equal(chartDate(1998), null);

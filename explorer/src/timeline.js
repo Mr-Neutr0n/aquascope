@@ -9,6 +9,8 @@
 // take and what a hydrograph's x axis carries. The same stepping rules live in
 // aquascope/map_time.py, which the CLI and the MCP server use.
 
+import { imageFor } from "./layers.js?v=__BUILD__";
+
 export const STEPS = ["day", "week", "month"];
 export const DEFAULT_STEP = "day";
 // How many steps a range covers when the reader presses play without setting one.
@@ -105,11 +107,20 @@ export function layerSpan(layer, today = todayIso()) {
   return { since, until: iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), daysInMonth(d.getUTCFullYear(), d.getUTCMonth())))) };
 }
 
-/** Whether a dated layer has data for a date (gaps inside the span are not known here). */
-export function layerCovers(layer, date, today = todayIso()) {
-  if (!layer || !layer.time || !isIsoDate(date)) return true;
+/** Whether a date falls inside a dated layer's first and last day. */
+function inSpan(layer, date, today) {
   const { since, until } = layerSpan(layer, today);
   return (!since || date >= since) && date <= until;
+}
+
+/**
+ * Whether a dated layer has data for a date. A layer that lists its images
+ * (`periods`, GRACE) knows its gaps too; for the others only the span is known.
+ */
+export function layerCovers(layer, date, today = todayIso()) {
+  if (!layer || !layer.time || !isIsoDate(date)) return true;
+  if (!inSpan(layer, date, today)) return false;
+  return !layer.periods || Boolean(imageFor(layer, date));
 }
 
 /** The dated layers in `layers` that cannot show `date`, for the "no data for this day" note. */
@@ -125,6 +136,14 @@ export function shortDate(date) {
   return `${+d} ${MONTHS[+m - 1]} ${y}`;
 }
 
+/** The note for a layer that cannot show a date: when it runs, or that this month is a gap. */
+export function missingNote(layer, date, today = todayIso()) {
+  if (isIsoDate(date) && inSpan(layer, date, today)) {
+    return `${layer.label}: no image for ${shortDate(date).replace(/^\d+ /, "")}.`;
+  }
+  return `${layer.label}: ${spanLabel(layer)} only.`;
+}
+
 /** One line that says when a layer runs, for the out-of-range note. Monthly products in months. */
 export function spanLabel(layer) {
   const fmt = (d) => (layer.monthly ? shortDate(d).replace(/^\d+ /, "") : shortDate(d));
@@ -137,11 +156,13 @@ export function spanLabel(layer) {
 /**
  * The day a Plotly point stands for, or null when the x value is not a date
  * (a month name, a return period, a year as a number). Plotly hands back
- * "2021-07-14", "2021-07-14 06:00" or a Date, depending on the trace.
+ * "2021-07-14", "2021-07-14 06:00", a pandas isoformat with an offset or a
+ * Date, depending on the trace.
  */
 export function chartDate(x) {
   if (x instanceof Date) return Number.isFinite(x.getTime()) ? iso(x) : null;
-  const m = /^(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z?)?$/.exec(String(x ?? "").trim());
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/
+    .exec(String(x ?? "").trim());
   return m && isIsoDate(m[1]) ? m[1] : null;
 }
 

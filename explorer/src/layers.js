@@ -114,6 +114,34 @@ export const TERRAIN_DEM = {
   licence: "Open data, per-source attribution (tilezen/joerd)",
 };
 
+// The GRACE images GIBS holds, as start/end/period from its WMTS capabilities
+// (2026-10-08). The months are irregular: some images start mid-month, some
+// months have two and some none, so the first of the month is not always a day
+// GIBS has an image for. Kept equal to GRACE_PERIODS in aquascope/map_time.py.
+export const GRACE_PERIODS = [
+  "2002-04-04/2002-04-04/P28D", "2002-05-02/2002-05-02/P17D", "2002-08-01/2003-04-01/P1M",
+  "2003-05-01/2003-05-01/P21D", "2003-07-01/2003-12-01/P1M", "2004-01-01/2004-01-01/P13D",
+  "2004-02-04/2004-02-04/P26D", "2004-03-01/2010-11-01/P1M", "2010-12-01/2010-12-01/P27D",
+  "2011-02-08/2011-02-08/P21D", "2011-03-01/2011-04-01/P1M", "2011-05-01/2011-05-01/P31D",
+  "2011-07-05/2011-07-05/P27D", "2011-08-01/2011-09-01/P1M", "2011-10-01/2011-10-01/P16D",
+  "2011-10-17/2011-10-17/P31D", "2011-12-17/2011-12-17/P15D", "2012-01-01/2012-02-01/P1M",
+  "2012-03-01/2012-03-01/P19D", "2012-03-20/2012-03-20/P31D", "2012-06-01/2012-08-01/P1M",
+  "2012-09-01/2012-09-01/P24D", "2012-11-06/2012-11-06/P25D", "2012-12-01/2013-01-01/P1M",
+  "2013-02-01/2013-02-01/P26D", "2013-04-11/2013-04-11/P20D", "2013-05-01/2013-06-01/P1M",
+  "2013-07-01/2013-07-01/P31D", "2013-10-01/2013-12-01/P1M", "2014-01-01/2014-01-01/P17D",
+  "2014-03-01/2014-05-01/P1M", "2014-06-01/2014-06-01/P24D", "2014-08-01/2014-10-01/P1M",
+  "2014-11-01/2014-11-01/P32D", "2015-01-13/2015-01-13/P19D", "2015-02-01/2015-03-01/P1M",
+  "2015-04-01/2015-04-01/P11D", "2015-04-12/2015-04-12/P30D", "2015-06-29/2015-06-29/P33D",
+  "2015-08-01/2015-08-01/P1M", "2015-09-01/2015-09-01/P27D", "2015-12-12/2015-12-12/P23D",
+  "2016-01-04/2016-01-04/P25D", "2016-01-29/2016-01-29/P32D", "2016-03-01/2016-03-01/P31D",
+  "2016-05-08/2016-05-08/P24D", "2016-06-01/2016-06-01/P1M", "2016-07-01/2016-07-01/P29D",
+  "2016-08-08/2016-08-08/P27D", "2016-11-14/2016-12-11/P27D", "2017-01-07/2017-01-07/P28D",
+  "2017-03-17/2017-03-17/P24D", "2017-04-10/2017-04-10/P22D", "2017-05-02/2017-05-02/P21D",
+  "2017-05-23/2017-05-23/P38D", "2018-06-01/2018-06-01/P1M", "2018-07-01/2018-07-01/P18D",
+  "2018-10-22/2018-10-22/P10D", "2018-11-01/2018-12-01/P1M", "2019-01-01/2019-01-01/P25D",
+  "2019-01-26/2019-01-26/P34D", "2019-03-01/2022-12-01/P1M", "2020-02-01/2022-07-01/P1M",
+];
+
 // Raster overlays. `time: true` means the URL carries {date} and the shared
 // date control drives it. Legends are the GIBS colour maps, which are SVG.
 // `since` and `until` are the first and last day GIBS has (an open `until` runs
@@ -185,6 +213,7 @@ export const OVERLAYS = [
     monthly: true,
     since: "2002-04-04",
     until: "2022-07-01",
+    periods: GRACE_PERIODS,
     opacity: 0.75,
     legend: `${GIBS_LEGENDS}/GRACE_Tellus_Liquid_Water_Equivalent_Thickness_Mascon_CRI_H.svg`,
     attribution: "GRACE/GRACE-FO Tellus mascon liquid water equivalent thickness, NASA GIBS (ESDIS)",
@@ -212,16 +241,83 @@ export const OVERLAY_GROUPS = ["Water and climate", "Land"];
 export const basemapById = (id) => BASEMAPS.find((b) => b.id === id) || BASEMAPS.find((b) => b.default);
 export const overlayById = (id) => OVERLAYS.find((o) => o.id === id);
 
-// GIBS wants a plain YYYY-MM-DD, and monthly products want the first of the
-// month. Data lands a few days late, so the default date is a week back.
+// GIBS wants a plain YYYY-MM-DD, and monthly products want a day inside one of
+// their images. Data lands a few days late, so the default date is a week back.
 export function defaultDate(today = new Date()) {
   const d = new Date(today.getTime() - 7 * 86400000);
   return d.toISOString().slice(0, 10);
 }
 
+const isoDay = (d) => d.toISOString().slice(0, 10);
+const utcDay = (s) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));
+function addMonths(s, n) {
+  const d = utcDay(s);
+  const total = d.getUTCFullYear() * 12 + d.getUTCMonth() + n;
+  const y = Math.floor(total / 12), m0 = total - y * 12;
+  const last = new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+  return isoDay(new Date(Date.UTC(y, m0, Math.min(d.getUTCDate(), last))));
+}
+
+// The images a `periods` list stands for: [{ start, end }] with `end` the day
+// after the image stops covering, sorted, none after the layer's `until`.
+const imageCache = new WeakMap();
+export function layerImages(layer) {
+  if (!layer || !layer.periods) return [];
+  if (imageCache.has(layer)) return imageCache.get(layer);
+  const spans = new Map();
+  for (const value of layer.periods) {
+    const [a, b, period] = value.split("/");
+    const m = /^P(\d+)([DM])$/.exec(period || "");
+    if (!m || b < a) continue;
+    const n = +m[1];
+    for (let i = 0; ; i++) {
+      let start, end;
+      if (m[2] === "D") {
+        const d = utcDay(a);
+        d.setUTCDate(d.getUTCDate() + n * i);
+        start = isoDay(d);
+        d.setUTCDate(d.getUTCDate() + n);
+        end = isoDay(d);
+      } else {
+        start = addMonths(a, n * i);
+        end = addMonths(start, n);
+      }
+      if (start > b || (layer.until && start > layer.until)) break;
+      const prev = spans.get(start);
+      spans.set(start, prev && prev > end ? prev : end);
+    }
+  }
+  const out = [...spans.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([start, end]) => ({ start, end }));
+  imageCache.set(layer, out);
+  return out;
+}
+
+// The image a layer with `periods` shows for a date: the latest one covering
+// it, else one starting in the same calendar month, else null (a gap). The same
+// rule as image_for in aquascope/map_time.py.
+export function imageFor(layer, date) {
+  const images = layerImages(layer);
+  let hit = null;
+  let same = null;
+  for (const img of images) {
+    if (img.start > date) {
+      if (!same && img.start.slice(0, 7) === date.slice(0, 7)) same = img.start;
+      if (img.start.slice(0, 7) > date.slice(0, 7)) break;
+      continue;
+    }
+    if (date < img.end) hit = img.start;
+    if (img.start.slice(0, 7) === date.slice(0, 7)) same = img.start;
+  }
+  return hit || same;
+}
+
 export function layerDate(layer, date) {
   if (!date) return date;
   if (!layer || !layer.monthly) return date;
+  if (layer.periods) {
+    const img = imageFor(layer, date);
+    if (img) return img;
+  }
   // The first of the month, or the layer's first day when that is later
   // (GIBS answers a date inside a period with that period's image).
   const first = `${date.slice(0, 7)}-01`;

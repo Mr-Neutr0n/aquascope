@@ -14,7 +14,7 @@ import { writeUrl } from "./url.js?v=__BUILD__";
 import { initCompare, syncCompare } from "./compare-map.js?v=__BUILD__";
 import {
   GIF_FRAMES, MAX_FRAMES, addStep, clampDate, defaultRange, frameDates, isIsoDate, layersMissing,
-  nextFrame, normaliseRange, shortDate, spanLabel, todayIso,
+  missingNote, nextFrame, normaliseRange, shortDate, todayIso,
 } from "./timeline.js?v=__BUILD__";
 
 // null follows the layers (shown while a dated layer is on); true or false is
@@ -63,7 +63,7 @@ function renderNote() {
       }
     } else {
       const missing = layersMissing(dated, state.date);
-      if (missing.length) text = `${missing[0].label}: ${spanLabel(missing[0])} only.`;
+      if (missing.length) text = missingNote(missing[0], state.date);
     }
   }
   if (text) box.prepend(document.createTextNode(text));
@@ -279,7 +279,11 @@ export function initTimeBar() {
       userOpen = true;
       // Something on the map has to change with the date, or the jump is invisible.
       if (!datedOn().length) actions.setOverlay("precip", true);
-      showNote(`Map set to ${shortDate(t.date)}.`);
+      // A hydrograph runs back further than the satellites: say so when nothing on the map has that day.
+      const dated = datedOn();
+      const missing = layersMissing(dated, t.date);
+      const why = dated.length && missing.length === dated.length ? ` ${missingNote(missing[0], t.date)}` : "";
+      showNote(`Map set to ${shortDate(t.date)}.${why}`, why ? 8000 : 5000);
     }
     syncTimeBar();
     if (t.source !== "play" && t.source !== "gif") writeUrl();

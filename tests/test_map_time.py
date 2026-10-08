@@ -74,6 +74,21 @@ def test_monthly_layers_ask_for_the_first_of_the_month_or_their_own_first_day():
     assert mt.in_range(mt._layer("precip"), "2024-01-01", today=date(2026, 10, 8))
 
 
+def test_grace_asks_for_a_day_gibs_has_an_image_for():
+    # Checked against GIBS tiles on 2026-10-08: the first of the month is a 404 for these months.
+    storage = mt._layer("storage")
+    assert mt.layer_date(storage, "2004-02-15") == "2004-02-04"
+    assert mt.layer_date(storage, "2004-02-01") == "2004-02-04"
+    assert mt.layer_date(storage, "2011-02-20") == "2011-02-08"
+    assert mt.layer_date(storage, "2004-01-20") == "2004-01-01"
+    assert mt.layer_date(storage, "2016-01-30") == "2016-01-29"
+    assert mt.image_for(storage, "2002-06-15") is None
+    assert mt.image_for(storage, "2017-09-01") is None
+    assert mt.image_for(storage, "2022-08-01") is None, "the capabilities run to 2022-12, the tiles do not"
+    assert not mt.in_range(storage, "2017-09-01") and mt.in_range(storage, "2004-02-01")
+    assert all(not p.startswith("2020-01-20") for p in mt.GRACE_PERIODS), "the inverted interval is left out"
+
+
 # ── the catalogue ───────────────────────────────────────────────────────────
 
 
@@ -152,12 +167,31 @@ def test_monthly_frames_are_one_per_month_and_stop_at_the_last_month():
     assert empty["frames"] == [] and "no data" in empty["note"]
 
 
+def test_monthly_frames_skip_the_gaps_inside_the_range():
+    out = mt.layer_frames("storage", "2002-04-15", "2002-09-15", step="month")
+    assert [f["layer_date"] for f in out["frames"]] == ["2002-04-04", "2002-05-02", "2002-08-01", "2002-09-01"]
+    assert out["skipped"] == 2   # 15 June and 15 July 2002 have no image
+
+
+def test_a_range_from_long_before_the_layer_still_finds_its_frames():
+    out = mt.layer_frames("precip", "1900-01-01", "2000-06-03")
+    assert [f["date"] for f in out["frames"]] == ["2000-06-01", "2000-06-02", "2000-06-03"]
+    assert out["skipped"] == (date(2000, 6, 1) - date(1900, 1, 1)).days
+    weekly = mt.layer_frames("soil", "2015-03-01", "2015-04-20", step="week")
+    assert [f["date"] for f in weekly["frames"]] == ["2015-04-05", "2015-04-12", "2015-04-19"]
+    assert weekly["skipped"] == 5
+    monthly = mt.layer_frames("soil", "2014-01-31", "2015-05-31", step="month")
+    assert [f["date"] for f in monthly["frames"]] == ["2015-03-31", "2015-04-30", "2015-05-31"]
+    assert monthly["skipped"] == 14
+
+
 def test_frames_are_capped_and_bad_input_is_an_error_not_a_crash():
     out = mt.layer_frames("precip", "2001-01-01", "2010-01-01", max_frames=500)
     assert len(out["frames"]) == 60 and out["truncated"] is True
     assert "unknown layer" in mt.layer_frames("rain", "2020-01-01", "2020-02-01")["error"]
     assert "step" in mt.layer_frames("precip", "2020-01-01", "2020-02-01", step="hour")["error"]
     assert "YYYY-MM-DD" in mt.layer_frames("precip", "yesterday", "2020-02-01")["error"]
+    assert "whole number" in mt.layer_frames("precip", "2020-01-01", "2020-02-01", max_frames="many")["error"]
 
 
 # ── the faces ───────────────────────────────────────────────────────────────
@@ -209,7 +243,7 @@ def test_the_explorer_carries_the_same_dated_layers_and_ranges():
     const m = await import({json.dumps(LAYERS_JS.as_uri())});
     const dated = [...m.BASEMAPS, ...m.OVERLAYS].filter((l) => l.time)
       .map((l) => ({{ id: l.id, since: l.since || null, until: l.until || null, monthly: Boolean(l.monthly),
-                      tile: l.tiles[0] }}));
+                      tile: l.tiles[0], periods: l.periods || null }}));
     console.log(JSON.stringify(dated));
     """
     out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
@@ -221,3 +255,24 @@ def test_the_explorer_carries_the_same_dated_layers_and_ranges():
         assert js[lid]["until"] == lay["until"], lid
         assert js[lid]["monthly"] == (lay["cadence"] == "month"), lid
         assert lay["gibs_layer"] in js[lid]["tile"] and lay["matrix"] in js[lid]["tile"], lid
+        assert js[lid]["periods"] == (list(lay["periods"]) if lay.get("periods") else None), lid
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_explorer_picks_the_same_grace_image_for_every_day():
+    script = f"""
+    const m = await import({json.dumps(LAYERS_JS.as_uri())});
+    const s = m.overlayById("storage");
+    const out = {{}};
+    const stop = new Date(Date.UTC(2023, 0, 1));
+    for (let d = new Date(Date.UTC(2002, 0, 1)); d < stop; d.setUTCDate(d.getUTCDate() + 1)) {{
+      const iso = d.toISOString().slice(0, 10);
+      out[iso] = m.imageFor(s, iso);
+    }}
+    console.log(JSON.stringify(out));
+    """
+    out = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True)
+    js = json.loads(out.stdout)
+    storage = mt._layer("storage")
+    differ = [d for d, v in js.items() if v != (lambda img: img.isoformat() if img else None)(mt.image_for(storage, d))]
+    assert len(js) > 7000 and differ == []
