@@ -292,6 +292,7 @@
           <button role="tab" data-tab="flows" aria-controls="tab-flows" aria-selected="false" tabindex="-1" id="t-flows">Flows</button>
           <button role="tab" data-tab="model" aria-controls="tab-model" aria-selected="false" tabindex="-1" id="t-model">Model</button>
           <button role="tab" data-tab="river" aria-controls="tab-river" aria-selected="false" tabindex="-1" id="t-river">River</button>
+          <button role="tab" data-tab="context" aria-controls="tab-context" aria-selected="false" tabindex="-1" id="t-context">Context</button>
           <button role="tab" data-tab="evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1" id="t-evidence">Evidence</button>
           <button role="tab" data-tab="catchment" aria-controls="tab-catchment" aria-selected="false" tabindex="-1" id="t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="tab-similar" aria-selected="false" tabindex="-1" id="t-similar">Similar<span class="tab-badge" hidden></span></button>
@@ -389,6 +390,20 @@
 
           <section id="tab-river" role="tabpanel" aria-labelledby="t-river" tabindex="0" hidden>
             <div id="st-river" class="river"></div>
+          </section>
+
+          <section id="tab-context" role="tabpanel" aria-labelledby="t-context" tabindex="0" hidden>
+            <div id="st-context" class="card ctx" hidden>
+              <div class="card-title"><h3>What this place has seen</h3></div>
+              <div class="card-body">
+                <ul id="st-context-lines" class="ctx-lines" aria-live="polite"></ul>
+                <div id="st-context-chart" hidden>
+                  <h4 id="st-context-chart-title"></h4>
+                  <div id="plot-st-context" class="plot small"></div>
+                </div>
+                <div id="st-context-credits" class="ctx-credits muted"></div>
+              </div>
+            </div>
           </section>
 
           <section id="tab-evidence" role="tabpanel" aria-labelledby="t-evidence" tabindex="0" hidden>

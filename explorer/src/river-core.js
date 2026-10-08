@@ -34,17 +34,39 @@ function distanceText(m) {
   return n < 1000 ? `${Math.round(n)} m` : `${Number((n / 1000).toFixed(1))} km`;
 }
 
-// One plain sentence for the snap, whichever way it went.
+// The bigger river beyond the tolerance the snap named (aquascope.rivers: a braided river's water can be
+// kilometres from its mapped centreline), as a clause; the page offers it with a button.
+function largerText(snap) {
+  const l = snap && snap.larger;
+  return l ? ` A larger river (order ${l.strahler_order}) is ${distanceText(l.distance_m)} away.` : "";
+}
+
+// One plain sentence for the snap, whichever way it went. Python chose the reach (the main channel within
+// the tolerance, or for a gauge the reach whose upstream area matches its catchment); this says which.
 export function snapLine(snap, { gauge = false } = {}) {
   if (!snap) return "";
   if (snap.snapped) {
     const order = snap.strahler_order ? `, stream order ${snap.strahler_order}` : "";
-    return gauge
-      ? `This gauge is ${distanceText(snap.distance_m)} from river reach ${snap.river_id}${order}.`
-      : `Snapped ${distanceText(snap.distance_m)} to river reach ${snap.river_id}${order}.`;
+    const d = distanceText(snap.distance_m);
+    const nearer = snap.nearer ? distanceText(snap.nearer.distance_m) : "";
+    let line;
+    if (snap.choice === "main_channel") {
+      line = `${gauge ? `This gauge is ${d} from` : `Snapped ${d} to`} the main channel (order ${snap.strahler_order}); ` +
+        `a smaller stream is ${nearer} away.`;
+    } else if (snap.choice === "area") {
+      line = `${gauge ? `This gauge is ${d} from` : `Snapped ${d} to`} river reach ${snap.river_id}${order}, the one ` +
+        `whose upstream area matches the catchment${nearer ? ` (the nearest line is ${nearer} away)` : ""}.`;
+    } else {
+      line = gauge
+        ? `This gauge is ${d} from river reach ${snap.river_id}${order}.`
+        : `Snapped ${d} to river reach ${snap.river_id}${order}.`;
+    }
+    return line + largerText(snap);
   }
   const tol = distanceText(snap.max_distance_m);
-  if (snap.nearest) return `No stream within ${tol}. The nearest mapped reach is ${distanceText(snap.nearest.distance_m)} away.`;
+  if (snap.nearest) {
+    return `No stream within ${tol}. The nearest mapped reach is ${distanceText(snap.nearest.distance_m)} away.` + largerText(snap);
+  }
   return `No stream within ${distanceText(snap.searched_m || snap.max_distance_m)} of this point.`;
 }
 

@@ -24,6 +24,7 @@ import { catalogOnly, observationMetadata } from "./availability.js?v=__BUILD__"
 import { base64ToBytes, exportOptions, exportSummary } from "./export-menu.js?v=__BUILD__";
 import { annualMaxPoints } from "./timeline.js?v=__BUILD__";
 import { resetEvidence, showSkillBadge, startEvidence } from "./evidence.js?v=__BUILD__";
+import { loadPlaceContext, resetPlaceContext } from "./context.js?v=__BUILD__";
 
 let analysisRun = 0;
 let gr4jRun = 0;
@@ -104,6 +105,10 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
     setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
   }
   resetNow("st", "Loading the record…");
+  // The place's context (#520) at the gauge: it needs only the position, not the record.
+  resetPlaceContext("st");
+  const placed = Number.isFinite(r.lat) && Number.isFinite(r.lon);
+  setTab(root(), "context", placed ? { enabled: true } : { enabled: false, reason: "The catalog has no position for this gauge." });
   setTab(root(), "overview", { enabled: true });
   setTab(root(), "methods", { enabled: true });
   // Record the selection before the tab is applied: the tab change only ever
@@ -116,8 +121,18 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   requestAnalysis(r, my);
   requestCatchment({ station: r, target: "st" });
   requestBasin(r.lat, r.lon, "st");
-  stationSnap = startRiver("st", r.lat, r.lon, { gauge: true });
+  // The gauge's reach: the one whose upstream area matches its catchment when the area is known (#518's
+  // rule, aquascope.rivers.match_by_area), else the nearest line, since a gauge sits on its own river.
+  stationSnap = startRiver("st", r.lat, r.lon, { gauge: true, area: stationArea(key) });
   requestAssess({ lat: r.lat, lon: r.lon, target: "st", key });
+}
+
+// Context is fetched when its tab is opened (selecting a gauge on that tab opens it too), as for a point.
+function loadStationContext() {
+  const r = state.selected;
+  if (!r || !Number.isFinite(r.lat) || !Number.isFinite(r.lon)) return;
+  const key = stationKey(r);
+  void loadPlaceContext("st", r.lat, r.lon, () => Boolean(state.selected && stationKey(state.selected) === key));
 }
 
 // The analysis period (#270): the full record by default, or the last 40 or 20 years. A full USGS record
@@ -597,8 +612,9 @@ export function initStationPanel() {
     state.activeTab = e.detail.tab;
     writeUrl();
     if (e.detail.tab === "evidence" && state.selected && state.result) void startEvidence(state.selected);
+    if (e.detail.tab === "context") loadStationContext();
     // Plotly needs a nudge when a figure becomes visible for the first time.
-    for (const id of ["plot-hydro", "plot-ffa", "plot-fdc", "plot-gr4j", "plot-evidence"]) {
+    for (const id of ["plot-hydro", "plot-ffa", "plot-fdc", "plot-gr4j", "plot-evidence", "plot-st-context"]) {
       const el = $(id);
       if (el && el.offsetParent !== null && el.data) Plotly.Plots.resize(el);
     }

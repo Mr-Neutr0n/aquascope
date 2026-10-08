@@ -1,21 +1,41 @@
-// Place context (#520): the Context tab of a clicked point and the Context
-// lines of a drawn box. The engine is aquascope.context in the worker, asked
-// one layer at a time so the card fills line by line; this module only lays
-// the answers out, draws one small chart and puts flood events on the map.
+// Place context (#520): the Context tab of a clicked point or a gauge, and the
+// Context lines of a drawn box. The engine is aquascope.context, one layer per
+// call on the light workers (worker-client.js), several at once; the card
+// fills line by line as each lands. This module only lays the answers out,
+// draws one small chart and puts flood events on the map.
 
 import { $, EMPTY_FC, escapeHtml, state } from "./core.js?v=__BUILD__";
 import { plot } from "./charts.js?v=__BUILD__";
 import { map } from "./map.js?v=__BUILD__";
 import { setCard } from "./shell.js?v=__BUILD__";
-import { call } from "./worker-client.js?v=__BUILD__";
+import { Cancelled, callLightCancelable, lightPoolSize } from "./worker-client.js?v=__BUILD__";
 import {
-  CONTEXT_LAYERS, boxProblem, contextLine, credits, floodPoints, normaliseBox, pickChart,
+  CONTEXT_LAYERS, boxProblem, contextLine, credits, fetchOrder, floodPoints, normaliseBox, pickChart,
 } from "./context-view.js?v=__BUILD__";
 
 const SOURCE = "context-floods";
 const LAYER = "context-floods";
-let pointKey = null;   // the point whose context is loaded (or loading)
 let areaRun = 0;
+let areaCalls = [];
+
+// The Context card of a point ("pt") and of a gauge ("st"): the same card, the same calls, at the place.
+const CARDS = {
+  pt: { card: "pt-context", lines: "pt-context-lines", credits: "pt-context-credits", chart: "pt-context-chart",
+    chartTitle: "pt-context-chart-title", plot: "plot-context" },
+  st: { card: "st-context", lines: "st-context-lines", credits: "st-context-credits", chart: "st-context-chart",
+    chartTitle: "st-context-chart-title", plot: "plot-st-context" },
+};
+const loaded = { pt: null, st: null };      // the place whose context is loaded (or loading), per card
+const inFlight = { pt: [], st: [] };        // its calls, cancelled when the reader moves on
+
+// Layers already answered this session, by place: going back to a place does not read them again.
+const answered = new Map();
+const ANSWERED_MAX = 140;
+function remember(key, res) {
+  answered.delete(key);
+  answered.set(key, res);
+  while (answered.size > ANSWERED_MAX) answered.delete(answered.keys().next().value);
+}
 
 // ── flood events on the map ─────────────────────────────────────────────────
 
@@ -71,38 +91,59 @@ function creditHtml(results) {
   return `Data: ${names}<details class="ctx-attrib"><summary>Attribution</summary><ul>${full}</ul></details>`;
 }
 
-// Ask for every layer in turn and redraw after each. `stillWanted()` false
-// means the reader moved on: stop asking and drop what arrives.
-async function fill(results, ask, render, stillWanted) {
-  for (const { id } of CONTEXT_LAYERS) {
-    if (!stillWanted()) return;
-    try {
-      results[id] = await ask(id);
-    } catch (err) {
-      results[id] = { error: err && err.message ? err.message : String(err) };
+// Ask for every layer at once (the light workers take them as they come free, quickest first) and redraw
+// as each lands. `stillWanted()` false means the reader moved on: what arrives is dropped. `ask(id)` returns
+// { promise, cancel }; the cancels go into `calls` so a place the reader has left stops holding a worker.
+async function fill(results, ask, render, stillWanted, calls = [], cacheKey = null) {
+  const jobs = fetchOrder(lightPoolSize()).map(async (id) => {
+    const key = cacheKey ? `${cacheKey}|${id}` : null;
+    if (key && answered.has(key)) {
+      results[id] = answered.get(key);
+    } else {
+      if (!stillWanted()) return;
+      const job = ask(id);
+      calls.push(job.cancel);
+      try {
+        results[id] = await job.promise;
+        if (key && results[id] && !results[id].error && results[id].ok !== false) remember(key, results[id]);
+      } catch (err) {
+        if (err instanceof Cancelled) return;
+        results[id] = { error: err && err.message ? err.message : String(err) };
+      }
     }
-    if (!stillWanted()) return;
-    render();
-  }
+    if (stillWanted()) render();
+  });
+  await Promise.all(jobs);
 }
 
-// ── the point's Context tab ─────────────────────────────────────────────────
+// ── the Context card of a point or a gauge ──────────────────────────────────
 
-export function resetPointContext() {
-  pointKey = null;
-  const card = $("pt-context");
+function cancelCalls(t) {
+  for (const cancel of inFlight[t].splice(0)) { try { cancel(); } catch { /* answered already */ } }
+}
+
+export function resetPlaceContext(t) {
+  loaded[t] = null;
+  cancelCalls(t);
+  const card = $(CARDS[t].card);
   if (card) card.hidden = true;
   clearContextFloods();
 }
 
-export async function loadPointContext(lat, lon) {
+export const resetPointContext = () => resetPlaceContext("pt");
+
+// `isCurrent()` says whether the place is still the one on screen (the point, or the selected gauge).
+export async function loadPlaceContext(t, lat, lon, isCurrent) {
+  const ids = CARDS[t];
   const key = `${lat},${lon}`;
-  if (pointKey === key) return;
-  pointKey = key;
-  const card = $("pt-context");
-  const list = $("pt-context-lines");
-  const foot = $("pt-context-credits");
-  const chartWrap = $("pt-context-chart");
+  if (loaded[t] === key) return;
+  cancelCalls(t);
+  loaded[t] = key;
+  const card = $(ids.card);
+  const list = $(ids.lines);
+  const foot = $(ids.credits);
+  const chartWrap = $(ids.chart);
+  if (!card || !list) return;
   const results = {};
   const render = () => {
     list.innerHTML = CONTEXT_LAYERS.map(({ id }) => lineHtml(contextLine(id, results[id]))).join("");
@@ -110,8 +151,8 @@ export async function loadPointContext(lat, lon) {
     const chart = pickChart(results);
     chartWrap.hidden = !chart;
     if (chart) {
-      $("pt-context-chart-title").textContent = chart.what[0].toUpperCase() + chart.what.slice(1);
-      plot("plot-context", [{ x: chart.x, y: chart.y, type: "bar", name: chart.unit, marker: { color: "#1565c0" } }],
+      $(ids.chartTitle).textContent = chart.what[0].toUpperCase() + chart.what.slice(1);
+      plot(ids.plot, [{ x: chart.x, y: chart.y, type: "bar", name: chart.unit, marker: { color: "#1565c0" } }],
         { height: 150, margin: { l: 36, r: 8, t: 4, b: 28 }, yaxis: { title: { text: chart.unit } }, bargap: 0.25 },
         `context-${lat}-${lon}`);
     }
@@ -119,14 +160,23 @@ export async function loadPointContext(lat, lon) {
   };
   setCard(card, "ready");
   render();
-  await fill(results, (id) => call("context", { op: "point", name: id, lat, lon }), render,
-    () => pointKey === key && state.point && state.point.lat === lat && state.point.lon === lon);
+  await fill(results, (id) => callLightCancelable("context", { op: "point", name: id, lat, lon }), render,
+    () => loaded[t] === key && isCurrent(), inFlight[t], `pt:${key}`);
+}
+
+export function loadPointContext(lat, lon) {
+  return loadPlaceContext("pt", lat, lon, () => Boolean(state.point && state.point.lat === lat && state.point.lon === lon));
 }
 
 // ── a drawn box ─────────────────────────────────────────────────────────────
 
+function cancelAreaCalls() {
+  for (const cancel of areaCalls.splice(0)) { try { cancel(); } catch { /* answered already */ } }
+}
+
 export async function openAreaContext(drawn, host) {
   const my = ++areaRun;
+  cancelAreaCalls();
   const bbox = normaliseBox(drawn);
   const box = document.createElement("div");
   box.className = "area-context";
@@ -145,11 +195,12 @@ export async function openAreaContext(drawn, host) {
   };
   render();
   const b = [bbox.west, bbox.south, bbox.east, bbox.north];
-  await fill(results, (id) => call("context", { op: "area", name: id, bbox: b }), render,
-    () => my === areaRun && box.isConnected);
+  await fill(results, (id) => callLightCancelable("context", { op: "area", name: id, bbox: b }), render,
+    () => my === areaRun && box.isConnected, areaCalls);
 }
 
 export function cancelAreaContext() {
   areaRun++;
+  cancelAreaCalls();
   clearContextFloods();
 }

@@ -14,7 +14,7 @@ import {
 } from "./river-core.js?v=__BUILD__";
 import { setCard, setTab } from "./shell.js?v=__BUILD__";
 import { annualMaxPoints } from "./timeline.js?v=__BUILD__";
-import { call, ensureCatalogInWorker } from "./worker-client.js?v=__BUILD__";
+import { call, callLight, ensureCatalogInWorker } from "./worker-client.js?v=__BUILD__";
 
 const TARGETS = {
   pt: { panel: "panel-point", methods: "pt-methods" },
@@ -61,8 +61,10 @@ function skeleton(t) {
 }
 
 // Snap the place (a click, or a gauge's position) to its reach. Returns the snap promise, which the
-// catchment card waits on so a hillside is not described as the river below it.
-export function startRiver(t, lat, lon, { gauge = false } = {}) {
+// catchment card waits on so a hillside is not described as the river below it. A click takes the main
+// channel within the tolerance; a gauge sits on its own river, so it takes the nearest line, or with
+// `area` (a promise of its catchment area in km², or null) the reach whose upstream area matches it.
+export function startRiver(t, lat, lon, { gauge = false, area = null } = {}) {
   const r = runs[t];
   const my = ++r.run;
   Object.assign(r, { lat, lon, gauge, snap: null, reach: null, record: null, recordFor: null });
@@ -73,7 +75,16 @@ export function startRiver(t, lat, lon, { gauge = false } = {}) {
   const head = t === "pt" ? $("pt-snap") : null;
   if (head) { head.hidden = true; head.textContent = ""; }
   setTab(panel(t), "river", { enabled: false, reason: "Finding the river…" });
-  const promise = call("river", { op: "snap", args: { lat, lon } }).then((snap) => {
+  // The snap reads a few stream tiles and goes to a light worker, ahead of everything else. When the reaches
+  // in reach differ in size and the gauge's area is known, the area decides; that match reads the unit's
+  // routing tables with pandas, which only the main worker has, so it is asked there and only then.
+  const args = { lat, lon, prefer: gauge ? "nearest" : "main" };
+  const promise = callLight("river", { op: "snap", args }, { priority: 2 }).then(async (snap) => {
+    if (!gauge || !snap || !snap.mixed_orders) return snap;
+    const a = await Promise.resolve(area).catch(() => null);
+    if (!a || !(Number(a.area) > 0) || my !== r.run) return snap;
+    return call("river", { op: "snap", args: { ...args, area_km2: Number(a.area) } }).catch(() => snap);
+  }).then((snap) => {
     if (my !== r.run) return snap;
     r.snap = snap;
     const line = snapLine(snap, { gauge });
@@ -83,17 +94,11 @@ export function startRiver(t, lat, lon, { gauge = false } = {}) {
     if (head) { head.textContent = line; head.hidden = !line; }
     if (snap.snapped) {
       useReach(t, { river_id: snap.river_id, lat: snap.snap_lat, lon: snap.snap_lon });
-    } else if (snap.nearest && p) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "btn small";
-      b.textContent = "Use the nearest reach";
-      b.addEventListener("click", () => {
-        b.remove();
-        useReach(t, { river_id: snap.nearest.river_id, lat: snap.nearest.lat, lon: snap.nearest.lon, chosen: true });
-      });
-      p.append(" ", b);
+    } else if (snap.nearest) {
+      offerReach(t, snap.nearest, "Use the nearest reach", "the nearest one mapped");
     }
+    // A bigger river beyond the tolerance (a braided river's water is far from its centreline): offered, not taken.
+    if (snap.larger) offerReach(t, snap.larger, "Use the larger river", `the larger river (order ${snap.larger.strahler_order})`);
     setTab(panel(t), "river", { enabled: true });
     return snap;
   }).catch((err) => {
@@ -112,6 +117,24 @@ function announceReach(t, reach) {
   if (el) el.dispatchEvent(new CustomEvent("reachchange", { detail: reach ? { ...reach } : null }));
 }
 
+// A button after the snap sentence that switches to another reach the snap named: under a point's title
+// when the sentence is there, else in the River tab.
+function offerReach(t, reach, label, said) {
+  const head = t === "pt" ? $("pt-snap") : null;
+  const p = part(t, "river-snap");
+  const where = head && !head.hidden && head.textContent ? head : p;
+  if (!where) return;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn small";
+  b.textContent = label;
+  b.addEventListener("click", () => {
+    where.querySelectorAll("button").forEach((x) => x.remove());
+    useReach(t, { river_id: reach.river_id, lat: reach.lat, lon: reach.lon, chosen: true, said });
+  });
+  where.append(" ", b);
+}
+
 function useReach(t, reach) {
   const r = runs[t];
   r.reach = reach;
@@ -119,7 +142,7 @@ function useReach(t, reach) {
   // The marker moves to the river it now stands for; the address keeps the click.
   if (t === "pt" && Number.isFinite(reach.lat) && Number.isFinite(reach.lon)) setPointMarker(reach.lat, reach.lon);
   if (reach.chosen) {
-    const line = `Using river reach ${reach.river_id}, the nearest one mapped.`;
+    const line = `Using river reach ${reach.river_id}, ${reach.said || "the nearest one mapped"}.`;
     const p = part(t, "river-snap");
     if (p) p.textContent = line;
     // The line under the point's title said there was no stream here; it now names the reach in use.
