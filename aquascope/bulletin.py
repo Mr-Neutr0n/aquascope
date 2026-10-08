@@ -107,8 +107,8 @@ METHOD = {
     f"10), below (10 to 24), normal (25 to 75), above (76 to 90), much above (over 90). A gauge needs at least "
     f"{MIN_YEARS} such other years. A new record is a monthly mean above (or below) every other year's. Basins are "
     "BasinATLAS river basins (the level-12 sub-basin at the outlet). The furthest from normal are ranked by the "
-    f"month's mean as a share of the usual (median) one, among gauges whose usual flow is at least {MIN_USUAL_CMS:g} "
-    "m³/s.",
+    "month's mean as a share of the usual (median) one, among gauges classed above (or below) normal whose usual flow "
+    f"is at least {MIN_USUAL_CMS:g} m³/s; new records at such gauges are named first.",
     "citation": "WMO (2022). Hydrological Status and Outlook System (HydroSOS) implementation plan; USGS National "
     "Water Dashboard, streamflow percentile classes.",
 }
@@ -332,13 +332,22 @@ def _notable(rows: list[dict[str, Any]], n: int = NOTABLE_N) -> dict[str, Any]:
     def named(r: dict[str, Any]) -> bool:
         return (r.get("value") or 0.0) >= 0 and (r.get("previous") or 0.0) >= 0
 
+    # A trickle's record (0 m3/s against 0.001 before) is a record, and counted, but it is named after the
+    # records of gauges whose usual flow is at least MIN_USUAL_CMS.
+    def small(r: dict[str, Any]) -> bool:
+        return (r.get("median") or 0.0) < MIN_USUAL_CMS
+
     all_highs = [r for r in rows if r.get("record") == "high"]
     all_lows = [r for r in rows if r.get("record") == "low"]
-    highs = sorted((r for r in all_highs if named(r)), key=lambda r: -(r.get("ratio") or 0.0))
-    lows = sorted((r for r in all_lows if named(r)), key=lambda r: r.get("ratio") or 0.0)
-    big = [r for r in rows if r.get("ratio") is not None and (r.get("median") or 0.0) >= MIN_USUAL_CMS]
-    above = sorted((r for r in big if r["ratio"] > 1), key=lambda r: -r["ratio"])[:n]
-    below = sorted((r for r in big if r["ratio"] < 1), key=lambda r: r["ratio"])[:n]
+    highs = sorted((r for r in all_highs if named(r)), key=lambda r: (small(r), -(r.get("ratio") or 0.0)))
+    lows = sorted((r for r in all_lows if named(r)), key=lambda r: (small(r), r.get("ratio") or 0.0))
+    # The furthest above (below) normal are among the gauges classed above (below) normal, so a skewed record
+    # whose month is far above its median but still in the normal band is not listed as an anomaly.
+    big = [r for r in rows if r.get("ratio") is not None and not small(r)]
+    above = sorted((r for r in big if r["ratio"] > 1 and r.get("class") in ("above", "much_above")),
+                   key=lambda r: -r["ratio"])[:n]
+    below = sorted((r for r in big if r["ratio"] < 1 and r.get("class") in ("below", "much_below")),
+                   key=lambda r: r["ratio"])[:n]
     keep = ("source", "station_id", "name", "river", "country", "value", "median", "ratio", "percentile", "class",
             "label", "n_years", "record", "previous", "previous_year")
 
@@ -625,7 +634,10 @@ def _top_up(means: Any, last: Any, year: int, month: int, *, limit: int, workers
         have = ns[ys.index(year)] if year in ys else 0
         others = sum(1 for y, n in zip(ys, ns) if y != year and n >= MIN_MONTH_DAYS)
         ld = lastd.get((src, sid))
-        if have < MIN_MONTH_DAYS and others >= MIN_YEARS and ld is not None and ld < end:
+        # A gauge whose record stops more than a year before the month has most likely closed: asking for it
+        # would only spend the time budget.
+        if (have < MIN_MONTH_DAYS and others >= MIN_YEARS and ld is not None and ld < end
+                and (end - ld).days <= 366):
             cands.append((src, sid, ld, have))
     cands.sort(key=lambda c: (-c[3], c[0], c[1]))
     if len(cands) > limit:
@@ -778,7 +790,8 @@ def read_published(month: Any = None, repo_id: str = DEFAULT_REPO) -> dict[str, 
 
 def status_bulletin(month: Any = None, sources: list[str] | None = None, *, archive: str | Path | None = None,
                     rebuild: bool = False, top_up: int = 0, workers: int = 4, today: Any = None) -> dict[str, Any]:
-    """The state of the rivers for ``month`` (``YYYY-MM``; default the last full month), HydroSOS style.
+    """The state of the rivers for ``month`` (``YYYY-MM``; default the latest published bulletin, else the last
+    full month), HydroSOS style.
 
     Every Archive gauge with a mirrored discharge record covering the month: the monthly mean's percentile against
     the same month in its other years (25 days a month, 10 years, else left out and counted), the five classes, the
@@ -1009,7 +1022,8 @@ def bulletin_document(b: dict[str, Any], *, figure: bytes | None = None, outside
                         _share(r["ratio"]), r["label"] + (f", record {r['record']}" if r.get("record") else "")]
                        for r in far],
                       f"Furthest above and below normal: the month's mean as a share of the usual (median) {mon}, "
-                      f"among gauges whose usual flow is at least {MIN_USUAL_CMS:g} m³/s.",
+                      f"among gauges classed above or below normal whose usual flow is at least "
+                      f"{MIN_USUAL_CMS:g} m³/s.",
                       align=["l", "l", "r", "r", "r", "l"]))
     doc.add(Heading("Coverage"))
     ex = cov["excluded"]
@@ -1026,7 +1040,8 @@ def bulletin_document(b: dict[str, Any], *, figure: bytes | None = None, outside
         lines.append(f"{_plural(int(k), 'gauge')} of {_source_label(s)} left out for the licence (see Data and "
                      "licences).")
     doc.add(Bullets(lines))
-    rows = [[_source_label(s), v["considered"], v["classed"]] for s, v in sorted(cov["by_source"].items())]
+    rows = [[_source_label(s), f"{int(v['considered']):,}", f"{int(v['classed']):,}"]
+            for s, v in sorted(cov["by_source"].items())]
     if rows:
         doc.add(Table("sources", ["Source", "Looked at", "Classed"], rows, "Gauges per source.",
                       align=["l", "r", "r"], compact=True))

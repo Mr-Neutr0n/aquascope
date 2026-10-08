@@ -3901,7 +3901,7 @@ def main() -> None:
     # ── basins ───────────────────────────────────────────────────────
     p_bul = sub.add_parser("bulletin", help="The month's state of the rivers: every Archive gauge against normal, "
                            "HydroSOS classes")
-    p_bul.add_argument("month", nargs="?", default=None, help="YYYY-MM (default: the last full month)")
+    p_bul.add_argument("month", nargs="?", default=None, help="YYYY-MM (default: the latest published, else the last full month)")
     p_bul.add_argument("--sources", nargs="+", default=None, help="Only these sources (usgs, uk_ea, ...)")
     p_bul.add_argument("--archive", default=None, help="A local copy of the Archive dataset instead of the Hub")
     p_bul.add_argument("--rebuild", action="store_true", help="Build it even when a bulletin is published")

@@ -26,9 +26,10 @@ says how many gauges the bulletin rests on.
 The bulletin then rolls the gauges up **per country** (the catalogue's country) and
 **per river basin** (BasinATLAS river basins, the level-12 sub-basin at the river's
 outlet, with at least 3 classed gauges, named after their largest gauge), names the
-**notable gauges** (new monthly highs and lows; the furthest above and below their usual
-flow for the month, among gauges whose usual flow is at least 1 m³/s) and writes a
-summary paragraph from those numbers by rules. No language model writes any of it.
+**notable gauges** (new monthly highs and lows, those of gauges with a usual flow of at
+least 1 m³/s named first; the furthest above and below their usual flow for the month,
+among gauges classed above or below normal with a usual flow of at least 1 m³/s) and
+writes a summary paragraph from those numbers by rules. No language model writes any of it.
 
 It renders through the Studio's document composer, so it reads like a report: the
 same print-ready HTML (Print or save as PDF from the browser) and Markdown, with one
@@ -42,7 +43,8 @@ aquascope bulletin 2026-09 --out bulletin   # bulletins/2026-09/bulletin.html, .
 aquascope bulletin 2026-09 --json           # everything but the per-gauge list (add --gauges for it)
 ```
 
-Without a month it is last month. The published bulletin is read when there is one;
+Without a month it is the latest published bulletin (last month when none is published
+yet). The published bulletin is read when there is one;
 `--rebuild` (or `--sources`, or `--archive DIR` for a local copy of the dataset) builds
 it from the Archive's discharge records instead, which downloads a few hundred MB the
 first time. `--top-up N` asks the agencies for up to N gauges' days the weekly mirror

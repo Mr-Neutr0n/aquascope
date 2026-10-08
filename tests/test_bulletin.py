@@ -431,3 +431,48 @@ def test_the_monthly_workflow_runs_on_the_third_and_a_smoke_run_never_publishes(
     build = next(s for s in steps if s.get("name") == "Build the bulletin")
     assert "${{" not in build["run"]            # dispatch inputs reach the shell as environment variables
     assert wf["jobs"]["bulletin"]["env"]["HF_TOKEN"] == "${{ secrets.HF_TOKEN }}"
+
+
+def test_notable_lists_name_sizeable_gauges_and_keep_anomalies_to_their_class():
+    # A trickle that dried up (0 against 0.001) is a record and counted, but a river's record is named first.
+    trickle = {y: 0.001 + 0.0001 * (y - 2000) for y in range(2000, 2015)}
+    trickle[2015] = 0.0
+    river = {y: 20.0 + (y - 2000) for y in range(2000, 2015)}
+    river[2015] = 15.0
+    # A skewed record: the month is seven times its median yet in the normal band (a few huge years above it).
+    skewed = {y: 1.0 for y in range(2000, 2008)}
+    skewed.update({y: 50.0 + y - 2008 for y in range(2008, 2015)})
+    skewed[2015] = 7.0
+    means = _means([("uk_ea", "T", trickle), ("uk_ea", "R", river), ("usgs", "S", skewed)])
+    b = bulletin.compute_bulletin(means, "2015-09", made="2015-10-03T07:00:00Z")
+    nt = b["notable"]
+    assert nt["n_record_low"] == 2
+    assert [r["station_id"] for r in nt["record_low"]] == ["R", "T"]
+    s = next(g for g in b["gauges"] if g["station_id"] == "S")
+    assert s["class"] == "normal" and s["ratio"] > 1
+    assert all(r["station_id"] != "S" for r in nt["furthest_above"])
+    assert [r["station_id"] for r in nt["furthest_below"]] == ["R"]
+
+
+def test_the_top_up_skips_a_gauge_whose_record_stopped_long_before_the_month(tmp_path, monkeypatch):
+    pytest.importorskip("pyarrow")
+    from aquascope import explore
+
+    hist = {y: 10.0 + (y - 2010) for y in range(2010, 2024)}
+    a = pd.concat([
+        frame("usgs", "OLD", daily(2010, 2023, 9, hist)),                                  # closed in 2023
+        frame("usgs", "NEW", daily(2010, 2026, 9, {**hist, 2024: 9.0, 2025: 9.5, 2026: 12.0}, last_days=10)),
+    ])
+    _bundle(tmp_path / "obs" / "discharge" / "usgs.parquet", a.drop(columns=["source"]))
+    monkeypatch.setattr(bulletin, "_catalog_rows", lambda root: [])
+    monkeypatch.setattr(bulletin, "_basin_ids", lambda root: ({}, {}))
+    asked = []
+
+    def fake_fetch(source, station_id, **kw):
+        asked.append(station_id)
+        idx = pd.date_range("2026-09-01", "2026-09-30", freq="D")
+        return {"series": pd.Series(np.full(len(idx), 12.0), index=idx), "variable": "discharge"}
+
+    monkeypatch.setattr(explore, "fetch_series", fake_fetch)
+    bulletin.build_bulletin("2026-09", archive=tmp_path, top_up=5, workers=1, today=date(2026, 10, 3))
+    assert asked == ["NEW"]

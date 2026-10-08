@@ -459,9 +459,9 @@ def status_bulletin(month: str | None = None, sources: list[str] | None = None,
     against the same month in its other years (25 days a month, 10 years, else left out and counted) in the five
     classes (much below normal to much above normal), rolled up per country and per BasinATLAS river basin, with
     the new monthly records, the gauges furthest from normal, the coverage and a summary paragraph written by rules.
-    month is YYYY-MM (default the last full month); the published bulletin is read when there is one, else it is
-    built from the Archive's discharge records (slow the first time). country (ISO3, e.g. GBR) lists that country's
-    classed gauges. Quote the summary; it says how many gauges it rests on."""
+    month is YYYY-MM (default the latest published bulletin, else the last full month); the published bulletin is
+    read when there is one, else it is built from the Archive's discharge records (slow the first time). country
+    (ISO3, e.g. GBR) lists that country's classed gauges. Quote the summary; it says how many gauges it rests on."""
     from aquascope import bulletin
 
     try:
