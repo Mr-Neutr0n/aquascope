@@ -19,6 +19,7 @@ import { openAreaStudy } from "./area-study.js?v=__BUILD__";
 import { cancelAreaContext, openAreaContext } from "./context.js?v=__BUILD__";
 import { loadSkillGrades, skillLegendHtml } from "./evidence.js?v=__BUILD__";
 import { ensureNowStatus, nowLegendHtml } from "./now-map.js?v=__BUILD__";
+import { areaWatchButton } from "./watch.js?v=__BUILD__";
 
 // A tiny swatch standing in for each basemap, so eight radio rows become two
 // columns of chips you can pick from at a glance.
@@ -256,6 +257,8 @@ function showSelection(bbox) {
   ctx.title = "Flood history, surface water, flood depth, dams, rain gauges, evaporation and soil in this box";
   ctx.addEventListener("click", () => { void openAreaContext(bbox, box); });
   box.appendChild(ctx);
+  // Watch (#521): new flood events and gauges above normal here, on the next visit.
+  box.appendChild(areaWatchButton(bbox));
   const clear = document.createElement("button");
   clear.className = "btn tiny";
   clear.textContent = "Clear";
@@ -264,6 +267,7 @@ function showSelection(bbox) {
 }
 
 function buildAreaSelect() {
+  actions.showArea = showSelection;  // a watched area, opened from the Watched list (watch.js)
   const btn = $("btn-area");
   btn.addEventListener("click", () => {
     if (areaSelectActive()) return;

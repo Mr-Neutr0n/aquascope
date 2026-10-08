@@ -8,7 +8,8 @@ import { syncMapPadding } from "./map.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
 
 const SURFACES = ["panel-empty", "panel-station", "panel-point", "panel-workbench",
-  "panel-places"];  // My places + Compare (places.js)
+  "panel-places",   // My places + Compare (places.js)
+  "panel-watch"];   // Watch: since you were here (watch.js)
 
 export function showSurface(id) {
   for (const s of SURFACES) { const el = $(s); if (el) el.hidden = s !== id; }

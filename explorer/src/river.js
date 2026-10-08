@@ -65,6 +65,7 @@ export function startRiver(t, lat, lon, { gauge = false } = {}) {
   const r = runs[t];
   const my = ++r.run;
   Object.assign(r, { lat, lon, gauge, snap: null, reach: null, record: null, recordFor: null });
+  announceReach(t, null);
   if (!keepTrace) clearRiverTrace();
   keepTrace = false;
   skeleton(t);
@@ -103,9 +104,17 @@ export function startRiver(t, lat, lon, { gauge = false } = {}) {
   return promise;
 }
 
+// The reach in use, as an event on the panel ("reachchange", detail { river_id, lat, lon } or null): Watch
+// (#521) keeps a reach's id with a watched point or gauge without importing this module.
+function announceReach(t, reach) {
+  const el = panel(t);
+  if (el) el.dispatchEvent(new CustomEvent("reachchange", { detail: reach ? { ...reach } : null }));
+}
+
 function useReach(t, reach) {
   const r = runs[t];
   r.reach = reach;
+  announceReach(t, reach);
   // The marker moves to the river it now stands for; the address keeps the click.
   if (t === "pt" && Number.isFinite(reach.lat) && Number.isFinite(reach.lon)) setPointMarker(reach.lat, reach.lon);
   if (reach.chosen) {

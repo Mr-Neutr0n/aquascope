@@ -1166,6 +1166,26 @@ body.workbench-mode .drawer { right: auto; left: 50%; transform: translateX(-50%
 .cmp-swatch { display: inline-block; width: .7rem; height: .7rem; border-radius: 2px; margin-right: .35rem; vertical-align: middle; }
 #panel-places .card-body p.muted { font-size: .78rem; margin: 0 0 .4rem; }
 
+/* Watch (#521): the star, the threshold row, and "Since you were here" (watch.js) */
+#btn-watch-st[aria-pressed="true"], #btn-watch-pt[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); }
+.watch-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: .45rem 0 0; font-size: .8rem; color: var(--ink-2); }
+.watch-row[hidden] { display: none; }
+.watch-row select, .watch-row input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-xs); padding: .15rem .3rem; max-width: 100%; }
+.watch-row input { width: 7rem; }
+.watch-list { list-style: none; margin: .4rem 0; padding: 0; }
+.watch-item { padding: .45rem 0; border-bottom: 1px solid var(--line); }
+.watch-head { display: flex; align-items: center; gap: .4rem; }
+.watch-head .watch-open { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: var(--ink);
+  cursor: pointer; font: inherit; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-head .watch-open:hover { text-decoration: underline; }
+.watch-kind { font-size: .72rem; }
+.watch-line { margin: .2rem 0 0; font-size: .8rem; line-height: 1.45; }
+.watch-item.changed .watch-line { color: var(--ink); }
+.watch-item.has-alert .watch-head .watch-open::before { content: ""; display: inline-block; width: .5rem; height: .5rem;
+  border-radius: 50%; background: var(--warn-ink); margin-right: .4rem; vertical-align: middle; }
+.watch-foot { font-size: .74rem; margin-top: .6rem; }
+
 /* Rivers as objects (#516): the snap line, the River tab, the trace */
 .pt-snap { color: var(--ink-2, inherit); }
 .river-snap { margin: 2px 0 12px; }

@@ -50,6 +50,7 @@
       <button id="btn-open-study" class="btn">Open saved study</button>
       <input id="open-study-file" type="file" accept=".json" hidden />
       <button id="btn-places" class="btn" title="Gauges you saved in this browser; compare two to five of them">My places<span id="places-count" class="tab-badge" hidden></span></button>
+      <button id="btn-watched" class="btn" title="What changed at the gauges, reaches and areas you watch">Watched<span id="watched-count" class="tab-badge" hidden></span></button>
       <button id="btn-usage" class="btn">Optional usage log</button>
       <button id="btn-cite-top" class="btn" title="How to cite AquaScope and the data">Cite</button>
       <button id="btn-ask" class="btn ask-toggle" aria-expanded="false" aria-controls="drawer"
@@ -254,6 +255,7 @@
           <div class="st-actions">
             <button id="btn-study-st" class="btn" title="A complete study at this gauge, planned and checked, with a report">Study this place</button>
             <button id="btn-place" class="btn" aria-pressed="false" title="Add this gauge to My places">☆ Save</button>
+            <button id="btn-watch-st" class="btn" aria-pressed="false" title="Watch this gauge: what changed shows the next time you open the Explorer">☆ Watch</button>
             <button id="btn-csv" class="btn" disabled title="Download the observed record as CSV">Download CSV</button>
             <select id="st-export" class="btn export-select" hidden aria-label="Export the record for an engineering tool" title="Inputs for HEC-HMS, HEC-RAS, HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven, as a zip"></select>
             <button id="btn-unit" class="btn" hidden title="Switch the displayed discharge unit. Analyses and CSV downloads stay in m³/s.">Show ft³/s</button>
@@ -261,11 +263,18 @@
               <summary class="btn" title="More actions" aria-label="More actions">···</summary>
               <div class="more-menu">
                 <a id="st-agency" href="#" target="_blank" rel="noopener" title="Open this gauge on the agency’s own site">Agency page ↗</a>
+                <a id="st-feed" href="#" target="_blank" rel="noopener" hidden title="An Atom feed of this gauge's status changes and forecast alerts, for a feed reader">Follow (Atom) ↗</a>
                 <button id="btn-share" title="Copy a link to exactly this view">Copy link</button>
                 <button id="btn-to-workbench" title="Analyse this record with the workbench tools">Send to workbench</button>
                 <button id="btn-cite" title="How to cite this">Cite</button>
               </div>
             </details>
+          </div>
+          <div id="st-watch-row" class="watch-row" hidden>
+            <label for="st-watch-threshold">Watching. Flag the forecast above</label>
+            <select id="st-watch-threshold"></select>
+            <input id="st-watch-value" type="number" step="any" inputmode="decimal" aria-label="Threshold value" hidden />
+            <span id="st-watch-unit" class="muted"></span>
           </div>
           <p id="st-export-help" class="muted" hidden>Useful in your work? <a href="https://github.com/Rekin226/aquascope" target="_blank" rel="noopener">Star AquaScope on GitHub</a> or <a href="https://github.com/Rekin226/aquascope/issues" target="_blank" rel="noopener">report a problem</a>.</p>
           <div id="status" class="status" hidden></div>
@@ -431,6 +440,7 @@
           <div id="pt-snap" class="st-meta pt-snap" role="status" hidden></div>
           <div class="st-actions">
             <button id="btn-study-pt" class="btn" title="A complete study at this point, planned and checked, with a report">Study this place</button>
+            <button id="btn-watch-pt" class="btn" aria-pressed="false" hidden title="Watch this river reach">☆ Watch</button>
             <button id="btn-share-pt" class="btn" title="Copy a link to exactly this view">Copy link</button>
             <button id="btn-cite-pt" class="btn" title="How to cite this">Cite</button>
           </div>
@@ -538,6 +548,25 @@
       </div>
 
       <!-- my places and compare (places.js, compare.js) -->
+      <!-- Watch (#521): what changed at the watched gauges, reaches and areas (watch.js) -->
+      <div id="panel-watch" hidden>
+        <div class="head">
+          <h2 id="watch-title">Since you were here</h2>
+          <div id="watch-summary" class="st-meta" aria-live="polite"></div>
+          <div class="st-actions">
+            <button id="watch-refresh" class="btn" type="button">Check again</button>
+            <button id="watch-close" class="btn" type="button">Dismiss</button>
+          </div>
+          <div id="watch-status" class="status" hidden></div>
+        </div>
+        <div class="panes">
+          <p id="watch-empty" class="muted" hidden>Nothing watched yet. Press ☆ Watch on a gauge, a river reach or a drawn area.</p>
+          <ul id="watch-list" class="watch-list"></ul>
+          <p class="muted watch-foot">Kept in this browser only, no account. Forecasts are model output (GEOGLOWS v2, CC BY 4.0).
+            Flood events in the news: Google Groundsource (CC BY 4.0).</p>
+        </div>
+      </div>
+
       <div id="panel-places" hidden>
         <div class="head">
           <h2>My places</h2>

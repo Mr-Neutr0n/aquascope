@@ -1035,6 +1035,41 @@ json.dumps(_out, default=str)
   }
 }
 
+// ── Watch (#521): aquascope.watch, the same function as `aquascope watch` and the MCP tool. op "digest"
+// checks the items it is given (the page sends one at a time, so the panel fills line by line) with the
+// Archive's daily status snapshot and newest forecast issue the page read with DuckDB; the records, the
+// top-up, a forecast the archive does not cover and the flood events are read here. op "summary" says the
+// whole digest in one line.
+async function watchDigest({ id, op, items, last_seen, snapshot, issued, today }) {
+  self.__aqWatch = JSON.stringify({
+    op: op || "digest", items: items || [], last_seen: last_seen || {}, snapshot: snapshot || [],
+    issued: issued || [], today: today || null,
+  });
+  const code = `
+import json
+from js import __aqWatch
+from aquascope import watch as _watch
+_a = json.loads(__aqWatch)
+try:
+    if _a["op"] == "digest":
+        _out = _watch.watch_digest(_a["items"], _a["last_seen"], today=_a["today"], snapshot=_a["snapshot"],
+                                   issued=_a["issued"], archive=False)
+    elif _a["op"] == "summary":
+        _out = {"summary": _watch.digest_summary(_a["items"], today=_a["today"])}
+    else:
+        _out = {"error": "unknown op"}
+except ValueError as exc:
+    _out = {"error": str(exc)}
+json.dumps(_out, default=str)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqWatch = null;
+  }
+}
+
 self.onmessage = async (e) => {
   const m = e.data;
   try {
@@ -1063,6 +1098,7 @@ self.onmessage = async (e) => {
     if (m.type === "frame_from_station") return await frameFromStation(m);
     if (m.type === "area_study") return await areaStudy(m);
     if (m.type === "context") return await placeContext(m);
+    if (m.type === "watch") return await watchDigest(m);
   } catch (err) {
     // Pyodide raises PythonError with the full traceback in .message; keep the
     // exception line (last non-empty) and log the whole thing for debugging.

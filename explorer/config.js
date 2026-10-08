@@ -7,6 +7,8 @@ export const CONFIG = {
   basinsBase: "https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/basins/",
   // Now and next (#517): the daily status snapshot written by forecast-archive.yml.
   forecastsBase: "https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/forecasts/",
+  // Watch (#521): the per-gauge Atom feeds and their index, written by the same daily workflow.
+  feedsBase: "https://huggingface.co/datasets/Rekin226/aquascope-gauges/resolve/main/feeds/",
   // DuckDB-WASM reads the parquet in place (HF serves range requests with CORS).
   duckdbModule: "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/+esm",
   // Pyodide runtime for the analysis worker.
