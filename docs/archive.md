@@ -195,6 +195,25 @@ three agencies at the first run; NSE in log space 0.3 to 0.5 for the flow
 magnitudes, lower for the shape signatures). This closes the loop opened
 in #53.
 
+## Place context mirrors (`context/`)
+
+The flood history, dams and rain-gauge index of the [place-context layers](explorer.md#context-of-a-place)
+(#520) live under `context/`. Only datasets whose licence allows redistribution are mirrored.
+
+| path | what | licence |
+| --- | --- | --- |
+| `context/floods/groundsource.parquet` | Google Groundsource flood events from news: dates, the centre and box of the affected area | CC BY 4.0 (Zenodo 18647054) |
+| `context/floods/microsoft.parquet` | Microsoft AI for Good Sentinel-1 floods, 2014-2024, as filtered monthly detection counts on a 0.05 degree grid (the dataset card's own false-positive filters) | MIT |
+| `context/dams/gdw_barriers.parquet` | Global Dam Watch v1.0 barriers: name, river, year, height, storage, main use | CC BY 4.0 (figshare 25988293) |
+| `context/ghcn/prcp_stations.csv.gz` | the NOAA GHCN-Daily stations that record precipitation, with their first and last year | CC0 |
+| `context/manifest.json` | what is published, row counts, licences, and the cells present | |
+
+Each Parquet is sorted by 2-degree cell, so DuckDB (in the browser too) or a range reader fetches a box
+without the whole file, and each dataset also has one small gzipped CSV per cell (`.../cells/n50_e006.csv.gz`)
+for the Explorer's Python worker, which has no Parquet reader. The manual `mirror-context` workflow builds and
+publishes them; each step is also `python -m aquascope.archive.context_mirror <step>`. Global Water Watch is
+not mirrored: its data licence is not confirmed.
+
 ## Caravan-format export
 
 `aquascope caravan export --source uk_ea --out caravan_gb` turns the archive
