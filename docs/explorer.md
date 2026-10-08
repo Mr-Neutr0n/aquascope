@@ -242,13 +242,70 @@ river outranks it. The record comes from the GEOGLOWS REST API, under CC BY 4.0.
 **Trace to the sea** follows the reach downstream to its outlet with the
 model's own routing tables, draws the path on the map, and lists the gauges
 within 2 km of it in the order the water reaches them, with the length and the
-area that drains to the starting reach. The **Rivers (GEOGLOWS)** layer in the
+area that drains to the starting reach. Dams within 2 km of the path show as
+squares on the line and in a list with their storage, main use and the km where
+the water meets them (Global Dam Watch v1.0, CC BY 4.0, from the Archive's
+mirror). One line names the countries the river crosses (Natural Earth 1:50m,
+public domain) and another says whether dams upstream regulate the starting
+reach. Until the dam mirror is published the card says so and the rest of the
+trace stands. The **Rivers (GEOGLOWS)** layer in the
 rail draws the whole network by stream order, read in place from the 2.4 GB
 `streams.pmtiles` in the GEOGLOWS bucket. The network geometry is CC BY-SA 4.0:
-shown here, never republished. Dams on the path are not there yet.
+shown here, never republished.
 
-The same functions are `aquascope river snap|record|area|trace` and the MCP
-tools `snap_to_river`, `reach_record`, `upstream_area` and `trace_downstream`.
+The same functions are `aquascope river snap|record|area|trace|dams` and the MCP
+tools `snap_to_river`, `reach_record`, `upstream_area`, `trace_downstream` and
+`upstream_dams`.
+
+## Evidence: the models against the gauge
+
+On a gauge with three or more years of daily discharge, the **Evidence** tab
+sets the record beside the global models on the same river: the gauge drawn
+bold, GEOGLOWS v2 and GloFAS thin, on one plot. A table scores each model (KGE
+with r, alpha and beta, NSE, bias, and the error at the 2-, 10- and 100-year
+flows) and grades it A to D, and one sentence says which fits best and where
+they disagree. GEOGLOWS and GloFAS are computed in the page for that gauge (about
+half a minute); NWM v3 (US) and Google GRRR come from the table the monthly CI
+run publishes. The best grade also shows as a small badge next to the gauge's
+dates, and **Best model skill** in the rail's gauge colouring paints every gauge
+by it, with a legend. Until the first monthly run publishes the table, that
+colouring is grey and the legend says why. How the grades work:
+[evidence.md](evidence.md).
+## Now and next
+
+The **Now** tab on a gauge says, in one sentence, where today's flow sits against
+normal for the date: its percentile against the values 7 days either side of the
+same date in every other year of the record, and one of the five classes the USGS
+National Water Dashboard and WMO HydroSOS use (much below normal, below, normal,
+above, much above). It needs 10 years in that window and says so when there are
+fewer. An Archive copy is first topped up with the agency's newest days.
+
+Under it, the next 15 days: the GEOGLOWS v2 ensemble for the gauge's river reach
+(the middle half and the full range shaded, the mean as a line), GloFAS v4 through
+Open-Meteo as a dotted line, the last 30 observed days and the return-period lines.
+On a discharge gauge the GEOGLOWS forecast is corrected to the gauge's own record
+by flow-duration quantile mapping (one curve per calendar month), and a line under
+the plot gives the skill of that correction, fitted on the first 60 % of the years
+the model and the gauge share and scored on the rest ("Corrected forecast: KGE 0.47
+on the 1992-2026 hindcast, raw 0.21."), then the bias and the days above the
+gauge's 2-year flow it caught, raw against corrected. When the reach's simulated
+mean flow is more than twice or under half the gauge's, a line says the gauge may
+be on another river than that reach. That is the skill of the simulation, not of
+the forecast at each lead time: the daily `forecast-archive` workflow keeps every
+forecast as issued so that skill can be measured as it builds up
+([details](archive.md#issued-forecasts-and-todays-status-forecasts)).
+
+On a clicked point the tab shows the reach's simulated status (against its own
+86 years) and the raw forecast. The map date moves a dotted marker across the plot.
+
+**Today vs normal** in the gauge colouring of the layers panel colours the gauges
+from the daily status snapshot, with a legend that names the sources it covers and
+when it was made; gauges without a fresh record are grey. Until the first snapshot
+is published the gauges keep their agency colours and the legend says so.
+
+Both forecasts are model output under CC BY 4.0 (GEOGLOWS v2; Open-Meteo, free for
+non-commercial use). The same functions are `aquascope now` and the MCP tools
+`flow_status`, `flow_forecast` and `correct_to_gauge`.
 
 ## Ask ✨: the Analyst in the page
 

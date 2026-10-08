@@ -95,13 +95,11 @@ def _pmtiles(tiles: dict[tuple[int, int, int], bytes]) -> bytes:
 
 @pytest.fixture(autouse=True)
 def _fresh_caches():
-    rivers._ARCHIVE.clear()
-    rivers._TILES.clear()
-    rivers._NETWORKS.clear()
+    for cache in (rivers._ARCHIVE, rivers._TILES, rivers._NETWORKS, rivers._UPSTREAM):
+        cache.clear()
     yield
-    rivers._ARCHIVE.clear()
-    rivers._TILES.clear()
-    rivers._NETWORKS.clear()
+    for cache in (rivers._ARCHIVE, rivers._TILES, rivers._NETWORKS, rivers._UPSTREAM):
+        cache.clear()
 
 
 LAT, LON = 46.948, 7.452
@@ -168,6 +166,27 @@ def test_snap_to_river_with_no_tile_at_all(monkeypatch, one_river):
     res = rivers.snap_to_river(-30.0, -20.0)  # mid-Atlantic: not in the archive
     assert res["snapped"] is False and res["nearest"] is None
     assert "No stream within 3 km" in res["message"]
+
+
+@pytest.fixture
+def two_rivers(monkeypatch):
+    """Reach 230260670 about 16 m south of (LAT, LON) and reach 230260671 about 160 m north."""
+    z = rivers.SNAP_ZOOM
+    gx, gy = rivers._world(LON, LAT, z)
+    tx, ty = int(gx // 4096), int(gy // 4096)
+    px, py = int(gx - tx * 4096), int(gy - ty * 4096)
+    tile = _mvt([(230260670, 3, [(px + 100, py + 10), (px - 100, py + 10)]),
+                 (230260671, 7, [(px + 100, py - 100), (px - 100, py - 100)])])
+    archive = _pmtiles({(z, tx, ty): tile})
+    monkeypatch.setattr(rivers, "_fetch_range", lambda url, start, length: archive[start:start + length])
+
+
+def test_reaches_near_lists_every_reach_within_the_distance_nearest_first(two_rivers):
+    out = rivers.reaches_near(LAT, LON, max_distance_m=500)
+    assert [r["river_id"] for r in out] == [230260670, 230260671]
+    assert out[0]["distance_m"] < out[1]["distance_m"] < 500 and out[1]["strahler_order"] == 7
+    assert [r["river_id"] for r in rivers.reaches_near(LAT, LON, max_distance_m=50)] == [230260670]
+    assert len(rivers.reaches_near(LAT, LON, max_distance_m=500, limit=1)) == 1
 
 
 def test_snap_rejects_a_point_off_the_earth():

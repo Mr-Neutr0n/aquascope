@@ -34,22 +34,27 @@ def _dbf(fields: list[tuple[str, str, int]], records: list[list[str]]) -> bytes:
 GDW_DBF_FIELDS = [("GDW_ID", "N", 8), ("DAM_NAME", "C", 30), ("RES_NAME", "C", 30), ("RIVER", "C", 20),
                   ("COUNTRY", "C", 20), ("YEAR_DAM", "N", 6), ("DAM_HGT_M", "N", 8), ("CAP_MCM", "N", 10),
                   ("AREA_SKM", "N", 8), ("MAIN_USE", "C", 20), ("DOR_PC", "N", 8), ("CATCH_SKM", "N", 10),
-                  ("LAT_DAM", "N", 12), ("LONG_DAM", "N", 12), ("GRAND_ID", "N", 8)]
+                  ("LAT_RIV", "N", 12), ("LONG_RIV", "N", 12), ("LAT_DAM", "N", 12), ("LONG_DAM", "N", 12),
+                  ("GRAND_ID", "N", 8)]
 
 
 def test_read_dbf_and_dam_rows_clean_the_missing_codes():
     data = _dbf(GDW_DBF_FIELDS, [
         ["1", "Hoover", "Lake Mead", "Colorado", "United States", "1936", "221", "34852", "640", "Irrigation",
-         "", "", "36.0161", "-114.7377", "597"],
-        ["2", "Nameless", "", "", "Peru", "-99", "-99", "-99", "", "", "", "", "-12.5", "-75.1", "-99"],
-        ["3", "Off the map", "", "", "", "", "", "", "", "", "", "", "123.0", "0.0", ""],
+         "", "", "36.0161", "-114.7377", "0", "0", "597"],
+        ["2", "Nameless", "", "", "Peru", "-99", "-99", "-99", "", "", "", "", "-12.5", "-75.1", "-12.49", "-75.11",
+         "-99"],
+        ["3", "Off the map", "", "", "", "", "", "", "", "", "", "", "123.0", "0.0", "", "", ""],
+        ["4", "Nowhere", "", "", "", "", "", "", "", "", "", "", "0", "0", "", "", ""],
     ])
     recs = list(cm.read_dbf(data))
     assert recs[0]["DAM_NAME"] == "Hoover" and recs[0]["CAP_MCM"] == 34852.0
     rows = cm.dam_rows(recs)
-    assert len(rows) == 2  # the latitude-123 row is dropped
+    assert len(rows) == 2  # the latitude-123 row and the 0, 0 row are dropped
     hoover, nameless = rows
     assert hoover["gdw_id"] == 1 and hoover["year"] == 1936 and hoover["grand_id"] == 597
+    # placed at the river point (LAT_RIV/LONG_RIV), which GDW fills even where the surveyed LAT_DAM is 0
+    assert (hoover["lat"], hoover["lon"]) == (36.0161, -114.7377) and nameless["lat"] == -12.5
     assert hoover["cell"] == cell_key(36.0161, -114.7377)
     assert nameless["year"] is None and nameless["capacity_mcm"] is None and nameless["grand_id"] is None
 
@@ -59,8 +64,8 @@ def test_build_dams_writes_sorted_parquet_and_cells(tmp_path):
     zpath = tmp_path / "GDW_v1_0_shp.zip"
     with zipfile.ZipFile(zpath, "w") as zf:
         zf.writestr("GDW_v1_0_shp/GDW_barriers_v1_0.dbf", _dbf(GDW_DBF_FIELDS, [
-            ["2", "B", "", "", "", "2000", "", "", "", "", "", "", "45.5", "5.5", ""],
-            ["1", "A", "", "", "", "1950", "", "", "", "", "", "", "-33.0", "151.0", ""],
+            ["2", "B", "", "", "", "2000", "", "", "", "", "", "", "45.5", "5.5", "", "", ""],
+            ["1", "A", "", "", "", "1950", "", "", "", "", "", "", "-33.0", "151.0", "", "", ""],
         ]))
     info = cm.build_dams(tmp_path, source=zpath)
     assert info["rows"] == 2 and sorted(info["cells"]) == sorted([cell_key(45.5, 5.5), cell_key(-33.0, 151.0)])

@@ -1,5 +1,5 @@
 // The station inspector: pick a gauge, run aquascope on it in the worker, and
-// fill the tabs (Overview, Floods, Flows, Model, Catchment, Similar, Methods).
+// fill the tabs (Overview, Floods, Flows, Model, River, Evidence, Catchment, Similar, Methods).
 // The science is unchanged; what is new is that each tab reports its own state
 // and can be cancelled, and that the record and every table export.
 
@@ -9,6 +9,7 @@ import {
 import { addTableDownload, emphasisColor, plot, surfaceColor } from "./charts.js?v=__BUILD__";
 import { requestAssess } from "./assess.js?v=__BUILD__";
 import { startRiver } from "./river.js?v=__BUILD__";
+import { resetNow, startNow } from "./now.js?v=__BUILD__";
 import { clearCatchment, requestBasin, requestCatchment, stationArea } from "./basins.js?v=__BUILD__";
 import { flyToStation, highlightStation, clearPointMarker } from "./map.js?v=__BUILD__";
 import { GR4J_METHODS, addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./methods.js?v=__BUILD__";
@@ -20,6 +21,7 @@ import { syncPlaceButton } from "./places.js?v=__BUILD__";  // My places: the �
 import { metrics } from "./metrics.js?v=__BUILD__";
 import { catalogOnly, observationMetadata } from "./availability.js?v=__BUILD__";
 import { base64ToBytes, exportOptions, exportSummary } from "./export-menu.js?v=__BUILD__";
+import { resetEvidence, showSkillBadge, startEvidence } from "./evidence.js?v=__BUILD__";
 
 let analysisRun = 0;
 let gr4jRun = 0;
@@ -41,6 +43,9 @@ const cfsOn = (rawUnit) => unitPref === "cfs" && isCms(rawUnit);
 const dUnit = (rawUnit) => (cfsOn(rawUnit) ? "ft³/s" : rawUnit);
 const dVal = (x, rawUnit) => (cfsOn(rawUnit) && x !== null && x !== undefined ? x * CFS_PER_CMS : x);
 const dArr = (a, rawUnit) => (cfsOn(rawUnit) ? Array.from(a, (v) => (v === null || v === undefined ? v : v * CFS_PER_CMS)) : a);
+
+// The selected gauge's river snap (river.js), which the Now tab's forecast waits on for the reach.
+let stationSnap = null;
 
 export function selectStation(key, { fly = false, tab = null, push = true } = {}) {
   const r = state.byKey.get(key);
@@ -89,10 +94,13 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   renderMethodList("methods", []);
   $("attribution").textContent = "";
   resetGr4j();
+  resetEvidence();
+  void showSkillBadge(r);
   clearCatchment();
-  for (const name of ["floods", "flows", "model", "river", "catchment", "similar"]) {
+  for (const name of ["floods", "flows", "model", "river", "evidence", "catchment", "similar"]) {
     setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
   }
+  resetNow("st", "Loading the record…");
   setTab(root(), "overview", { enabled: true });
   setTab(root(), "methods", { enabled: true });
   // Record the selection before the tab is applied: the tab change only ever
@@ -105,7 +113,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   requestAnalysis(r, my);
   requestCatchment({ station: r, target: "st" });
   requestBasin(r.lat, r.lon, "st");
-  startRiver("st", r.lat, r.lon, { gauge: true });
+  stationSnap = startRiver("st", r.lat, r.lon, { gauge: true });
   requestAssess({ lat: r.lat, lon: r.lon, target: "st", key });
 }
 
@@ -142,9 +150,11 @@ export function reanalyze() {
     hideCard($(id));
   }
   resetGr4j();
-  for (const name of ["floods", "flows", "model"]) {
+  resetEvidence();
+  for (const name of ["floods", "flows", "model", "evidence"]) {
     setTab(root(), name, { enabled: false, reason: "Loading the record…", count: null });
   }
+  resetNow("st", "Loading the record…");
   setCard($("st-kpis-card"), "loading", { message: fetchingMessage() });
   requestAnalysis(r, my);
 }
@@ -163,6 +173,7 @@ async function requestAnalysis(r, my) {
   setStatus("");
   $("st-period-pick").hidden = catalogOnly(r.source);
   if (catalogOnly(r.source)) {
+    resetNow("st", "No record here to compare with.");
     setCard($("st-kpis-card"), "empty", { message: "Catalog-only station: Explorer has no observation retrieval path for this source yet. Open the agency page, or import your own downloaded table." });
     return;
   }
@@ -173,8 +184,10 @@ async function requestAnalysis(r, my) {
     if (my !== analysisRun || !state.selected || stationKey(state.selected) !== key) return; // user moved on
     state.result = result;
     render(result, r);
+    startNow("st", { station: r, result, snap: stationSnap });
   } catch (err) {
     if (my !== analysisRun) return;
+    resetNow("st", "The record did not load.");
     const msg = String((err && err.message) || err);
     // A refused cross-origin call reaches here as a bare NetworkError from the
     // worker's XHR. Say what it means rather than echo it (#408).
@@ -340,6 +353,13 @@ function render(res, r) {
     ? { enabled: true }
     : { enabled: false, reason: "GR4J needs four or more years of daily discharge in m³/s." });
   if (modelOk) setCard($("st-gr4j-card"), "ready");
+
+  // Evidence (#518): the global models scored against this record, computed when the tab is opened.
+  const evidenceOk = res.variable === "discharge" && isCms(rawUnit) && res.series && res.series.t.length > 365 * 3;
+  setTab(root(), "evidence", evidenceOk
+    ? { enabled: true }
+    : { enabled: false, reason: "Model skill needs three or more years of daily discharge in m³/s." });
+  if (evidenceOk && state.activeTab === "evidence") void startEvidence(r);
 
   renderNotes(res);
   renderMethods(res);
@@ -569,8 +589,9 @@ export function initStationPanel() {
   r.addEventListener("tabchange", (e) => {
     state.activeTab = e.detail.tab;
     writeUrl();
+    if (e.detail.tab === "evidence" && state.selected && state.result) void startEvidence(state.selected);
     // Plotly needs a nudge when a figure becomes visible for the first time.
-    for (const id of ["plot-hydro", "plot-ffa", "plot-fdc", "plot-gr4j"]) {
+    for (const id of ["plot-hydro", "plot-ffa", "plot-fdc", "plot-gr4j", "plot-evidence"]) {
       const el = $(id);
       if (el && el.offsetParent !== null && el.data) Plotly.Plots.resize(el);
     }

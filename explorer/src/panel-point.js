@@ -12,6 +12,7 @@ import { addMethodOnce, methodsOnPage, openCite, renderMethodList } from "./meth
 import { hideCard, selectTab, setCard, setTab, showSurface } from "./shell.js?v=__BUILD__";
 import { call } from "./worker-client.js?v=__BUILD__";
 import { startRiver } from "./river.js?v=__BUILD__";
+import { resetNow, startNow } from "./now.js?v=__BUILD__";
 import { loadPointContext, resetPointContext } from "./context.js?v=__BUILD__";
 import { groupStationSites } from "./sites.js?v=__BUILD__";
 import { canonicalUrl, writeUrl } from "./url.js?v=__BUILD__";
@@ -102,6 +103,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true, fly = fal
   for (const name of ["river", "modelled", "catchment", "similar"]) {
     setTab(root(), name, { enabled: false, reason: "Looking this point up…", count: null });
   }
+  resetNow("pt", "Looking this point up…");
   setTab(root(), "overview", { enabled: true });
   setTab(root(), "context", { enabled: true });
   setTab(root(), "methods", { enabled: true });
@@ -115,6 +117,7 @@ export async function selectPoint(lat, lon, { tab = null, push = true, fly = fal
   // The river first: the catchment card waits on the snap, so a click on a hillside is not described as
   // the whole river basin below it (#516).
   const snap = startRiver("pt", lat, lon);
+  startNow("pt", { lat, lon, snap });
   requestCatchment({ point: { lat, lon }, target: "pt" });
   requestBasin(lat, lon, "pt", { snap });
   requestAssess({ lat, lon, target: "pt" });
