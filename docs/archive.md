@@ -225,7 +225,7 @@ days old. It writes only under `forecasts/`; the catalogue and the observations 
 | `forecasts/status/latest.parquet` | each live gauge's flow today against normal: `source`, `station_id`, `value_date`, `value`, `percentile`, `class`, `n_years` (the Explorer's "Today vs normal" colouring) | derived from the mirrored observations |
 | `forecasts/status/latest.json` | when the snapshot was made, the sources it covers, the count per class | |
 | `forecasts/status/<date>.parquet` | the same snapshot, kept by date | |
-| `forecasts/issued/<date>.parquet` | for up to 250 of those gauges with a snapped GEOGLOWS reach: the GEOGLOWS and GloFAS forecasts as issued that day, one row per gauge, model and valid day, the ensemble statistics raw and (GEOGLOWS) corrected to the gauge, the lead day and the correction's hindcast KGE | GEOGLOWS v2 and Open-Meteo (GloFAS v4) output, both CC BY 4.0 |
+| `forecasts/issued/<date>.parquet` | for up to 250 of those gauges with a snapped GEOGLOWS reach: the GEOGLOWS and GloFAS forecasts as issued that day, one row per gauge, model and valid day, the ensemble statistics raw and (GEOGLOWS) corrected to the gauge, the GEOGLOWS run's start date (`init_date`) and the lead day from it, the correction's hindcast KGE and the reach-to-gauge mean-flow ratio | GEOGLOWS v2 and Open-Meteo (GloFAS v4) output, both CC BY 4.0 |
 | `forecasts/reaches.parquet` | each gauge's GEOGLOWS `river_id`, the snap distance and the GloFAS cell used; IDs only, no geometry | |
 | `forecasts/manifest.json` | every issue date, how many gauges, and how many were dropped and why (the daily cap, the time budget, no fresh value, no river reach) | |
 

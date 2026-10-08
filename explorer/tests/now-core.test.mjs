@@ -76,4 +76,6 @@ test("skillText quotes the skill line, or says why there is no correction", () =
   assert.equal(skillText({ correction: { error: "too short" } }), "Not corrected to the gauge: too short");
   assert.equal(skillText({ correction: { skill_line: "Corrected forecast: KGE 0.71 on the 2008-2022 hindcast, raw 0.38.",
     skill: {} } }), "Corrected forecast: KGE 0.71 on the 2008-2022 hindcast, raw 0.38.");
+  assert.equal(skillText({ correction: { skill_line: "KGE.", skill_detail: "Bias +2 %.", skill: { note: "Worse." } },
+    reach_check: { note: "Far." } }), "KGE. Bias +2 %. Worse. Far.");
 });

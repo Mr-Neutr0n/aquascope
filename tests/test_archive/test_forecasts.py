@@ -78,7 +78,9 @@ def test_snap_reaches_snaps_once_and_retries_a_miss_later():
 
 def _fake_forecast(**kw):
     return {"river_id": kw["river_id"],
-            "geoglows": {"date": ["2026-10-07", "2026-10-08"], "mean": [1.0, 2.0], "generated": "2026-10-08T08:00Z"},
+            "geoglows": {"date": ["2026-10-07", "2026-10-08"], "mean": [1.0, 2.0], "generated": "2026-10-08T08:00Z",
+                         "initialized": "2026-10-07T00:00Z"},
+            "reach_check": {"ratio": 0.9, "matches": True},
             "glofas": {"date": ["2026-10-08"], "mean": [3.0]},
             "correction": {"forecast": {"date": ["2026-10-07", "2026-10-08"], "mean": [0.5, 1.0]},
                            "skill": {"by": "month", "raw": {"kge": 0.2}, "corrected": {"kge": 0.6}}}}
@@ -101,9 +103,11 @@ def test_issue_one_writes_raw_and_corrected_rows_and_picks_the_glofas_cell_once(
     rows, new = fa.issue_one({"source": "usgs", "station_id": "1"}, _series(), reach, today=TODAY)
     assert seen["glofas_at"] == (40.05, -75.0) and new["glofas_lat"] == 40.05
     geo = [r for r in rows if r["model"] == "geoglows"]
-    assert [r["lead_day"] for r in geo] == [-1, 0] and [r["mean_c"] for r in geo] == [0.5, 1.0]
+    assert [r["lead_day"] for r in geo] == [0, 1] and [r["mean_c"] for r in geo] == [0.5, 1.0]  # from the run's start
+    assert {r["init_date"] for r in geo} == {"2026-10-07"} and geo[0]["reach_mean_ratio"] == 0.9
     glo = [r for r in rows if r["model"] == "glofas"]
     assert glo[0]["mean"] == 3.0 and glo[0]["mean_c"] is None and glo[0]["kge_corrected"] == 0.6
+    assert glo[0]["init_date"] is None and glo[0]["lead_day"] == 0  # Open-Meteo does not say when GloFAS ran
 
 
 def test_run_writes_the_snapshot_the_issue_and_the_manifest(monkeypatch, tmp_path):
@@ -136,6 +140,14 @@ def test_run_writes_the_snapshot_the_issue_and_the_manifest(monkeypatch, tmp_pat
     assert man["issues"][-1]["dropped"] == {"daily cap": 1, "no fresh value": 1}
     assert man["status"]["file"] == "forecasts/status/latest.parquet" and "CC BY 4.0" in man["about"]
     assert info["n_gauges"] == 1 and info["status_gauges"] == 2
+
+
+def test_run_stops_reading_records_at_half_the_time_budget(monkeypatch, tmp_path):
+    monkeypatch.setattr(fa, "read_published_json", lambda path, repo_id=fa.DEFAULT_REPO: {})
+    monkeypatch.setattr(fa, "read_published_rows", lambda path, repo_id=fa.DEFAULT_REPO: [])
+    monkeypatch.setattr(fa, "gauge_record", lambda *a, **k: pytest.fail("no record past the budget"))
+    info = fa.run(tmp_path, manifest=MANIFEST, catalog=[], today=TODAY, workers=1, time_budget_s=0)
+    assert info["dropped"] == {"time budget (records)": 3} and info["status_gauges"] == 0
 
 
 def test_publish_uploads_only_the_forecasts_folder(monkeypatch, tmp_path):

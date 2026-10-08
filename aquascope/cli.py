@@ -1242,8 +1242,12 @@ def cmd_now(args: argparse.Namespace) -> None:
     corr = fc.get("correction") or {}
     if corr.get("skill_line"):
         print(f"  {corr['skill_line']}")
+        if corr.get("skill_detail"):
+            print(f"    {corr['skill_detail']}")
     elif corr.get("error"):
         print(f"  No correction: {corr['error']}")
+    if (fc.get("reach_check") or {}).get("note"):
+        print(f"  {fc['reach_check']['note']}")
     for g in ("geoglows", "glofas"):
         if (fc.get(g) or {}).get("error"):
             print(f"  {g}: {fc[g]['error']}")

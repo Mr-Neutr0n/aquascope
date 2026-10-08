@@ -63,11 +63,15 @@ ABOUT = ("Issued forecasts and the daily status snapshot for AquaScope's Archive
 LICENCE = {"geoglows": "CC BY 4.0", "glofas": "CC BY 4.0 (Open-Meteo API data; GloFAS by Copernicus EMS)"}
 COLUMNS = {
     "issue_date": "the day the job ran (UTC)", "model": "geoglows or glofas", "valid_date": "the day forecast",
-    "lead_day": "valid_date minus issue_date, in days", "mean/median/p25/p75/min/max": "ensemble statistics, m3/s",
+    "init_date": "the day the model run started (GEOGLOWS; GloFAS via Open-Meteo does not say, so empty)",
+    "lead_day": "valid_date minus init_date (or issue_date when init_date is empty), in days",
+    "mean/median/p25/p75/min/max": "ensemble statistics, m3/s",
     "high_res": "GEOGLOWS high-resolution run, m3/s", "*_c": "the same, corrected to the gauge (GEOGLOWS only)",
     "kge_raw/kge_corrected": "the correction's hindcast skill at this gauge",
     "by": "month or year flow-duration curves",
-    "generated": "when the model issued the forecast",
+    "generated": "when the GEOGLOWS API answered (not when the run started; see init_date)",
+    "reach_mean_ratio": "the reach's simulated mean flow over the gauge's, on the days they share (far from 1: "
+    "the gauge may be on another river than its snapped reach)",
 }
 
 
@@ -251,14 +255,16 @@ def issue_one(gauge: dict[str, Any], series: Any, reach: dict[str, Any], *, toda
     common = {"issue_date": today.isoformat(), "source": gauge["source"], "station_id": gauge["station_id"],
               "river_id": int(reach["river_id"]), "by": skill.get("by"),
               "kge_raw": (skill.get("raw") or {}).get("kge"),
-              "kge_corrected": (skill.get("corrected") or {}).get("kge")}
+              "kge_corrected": (skill.get("corrected") or {}).get("kge"),
+              "reach_mean_ratio": (fc.get("reach_check") or {}).get("ratio")}
     rows: list[dict[str, Any]] = []
     corrected = (fc.get("correction") or {}).get("forecast") or {}
     for model in ("geoglows", "glofas"):
         part = fc.get(model) or {}
+        init = _d(part.get("initialized"))
         for i, day in enumerate(part.get("date") or []):
-            row = {**common, "model": model, "valid_date": day, "lead_day": (date.fromisoformat(day) - today).days,
-                   "generated": part.get("generated")}
+            row = {**common, "model": model, "init_date": init.isoformat() if init else None, "valid_date": day,
+                   "lead_day": (date.fromisoformat(day) - (init or today)).days, "generated": part.get("generated")}
             for k in STAT_KEYS:
                 vals = part.get(k)
                 row[k] = vals[i] if isinstance(vals, list) and i < len(vals) else None
@@ -314,6 +320,9 @@ def run(out: str | Path, *, repo_id: str = DEFAULT_REPO, max_gauges: int = DEFAU
     logger.info("%d candidate gauges", len(cands))
 
     def record(g: dict[str, Any]) -> tuple[tuple[str, str], Any, str]:
+        # Half the budget at most for reading records, so a slow agency leaves time for the forecasts.
+        if time.monotonic() - started > time_budget_s / 2:
+            return (g["source"], g["station_id"]), None, "time budget"
         try:
             s, note = gauge_record(g["source"], g["station_id"], today=today)
         except Exception as exc:  # noqa: BLE001
@@ -322,7 +331,8 @@ def run(out: str | Path, *, repo_id: str = DEFAULT_REPO, max_gauges: int = DEFAU
 
     got = _parallel(record, cands, workers)
     records = {key: s for key, s, _ in got if s is not None}
-    dropped["no mirrored series"] += sum(1 for _, s, _ in got if s is None)
+    dropped["time budget (records)"] += sum(1 for _, s, why in got if s is None and why == "time budget")
+    dropped["no mirrored series"] += sum(1 for _, s, why in got if s is None and why != "time budget")
 
     rows, meta = status_rows(records, today=today)
     _write_rows(rows, root / "status" / "latest.parquet")

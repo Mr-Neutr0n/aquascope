@@ -394,6 +394,9 @@ def _daily_geoglows(stats: dict[str, Any], days: int) -> dict[str, Any]:
         return {"date": []}
     frame = pd.DataFrame(cols).dropna(how="all").sort_index().iloc[: int(days)]
     out: dict[str, Any] = {"date": [d.strftime("%Y-%m-%d") for d in frame.index]}
+    if len(idx):
+        # The run's start: GEOGLOWS's newest run is often the previous day's 00 UTC one.
+        out["initialized"] = idx.min().strftime("%Y-%m-%dT%H:%MZ")
     for name in frame.columns:
         out[name] = [_num(v) for v in frame[name].to_numpy(dtype=float)]
     return out
@@ -441,6 +444,32 @@ def _thresholds(series: Any, return_periods: list[float] | None = None) -> dict[
             "n_years": int(len(am)), "first_year": int(am.index.min().year), "last_year": int(am.index.max().year)}
 
 
+#: A reach whose simulated mean flow is within this factor of the gauge's is taken to be the gauge's river (the
+#: same factor :func:`aquascope.explore.snap_glofas_cell` uses for a GloFAS cell).
+REACH_MATCH_FACTOR = 2.0
+
+
+def _reach_check(reach_series: Any, obs: Any) -> dict[str, Any]:
+    """The reach's simulated mean flow against the gauge's over the days they share.
+
+    The snap takes the nearest reach, and beside a confluence that can be a small stream next to the gauge's
+    river. Quantile mapping still stretches it onto the gauge, but its days follow the wrong river, so a ratio
+    outside :data:`REACH_MATCH_FACTOR` is said, not hidden."""
+    frame = _paired(reach_series, obs)
+    if frame.empty or float(frame["obs"].mean()) <= 0:
+        return {"matches": None, "note": None}
+    reach_mean, gauge_mean = float(frame["sim"].mean()), float(frame["obs"].mean())
+    ratio = reach_mean / gauge_mean
+    ok = (1.0 / REACH_MATCH_FACTOR) <= ratio <= REACH_MATCH_FACTOR
+    out = {"reach_mean": _num(reach_mean), "gauge_mean": _num(gauge_mean), "ratio": _num(ratio, 3),
+           "factor": REACH_MATCH_FACTOR, "matches": ok, "note": None}
+    if not ok:
+        out["note"] = (f"The reach's simulated mean flow ({_fmt_q(reach_mean)} m³/s) is far from the gauge's "
+                       f"({_fmt_q(gauge_mean)} m³/s), so the gauge may be on another river than this reach; "
+                       "read the corrected forecast with care.")
+    return out
+
+
 def _peak_sentence(series: dict[str, Any], thresholds: dict[str, Any] | None, *, what: str, unit: str = "m³/s"
                    ) -> str:
     vals = series.get("mean") or []
@@ -483,7 +512,7 @@ def forecast(lat: float | None = None, lon: float | None = None, *, river_id: in
     snap: a place with no river gets GloFAS only). Returns:
 
     * ``geoglows``: daily ``date``, ``mean``, ``median``, ``p25``, ``p75``, ``min``, ``max`` and ``high_res``
-      (m3/s), with ``generated`` (when GEOGLOWS issued it);
+      (m3/s), with ``initialized`` (the start of the ensemble run, UTC) and ``generated`` (when the API answered);
     * ``glofas``: daily ``date`` and the ensemble ``mean``, ``median``, ``p25``, ``p75``, ``min``, ``max`` for the
       cell at ``glofas_at``, else the cell nearest the reach (or the point). With ``match_mean_flow`` (a gauge's
       mean flow) the cell is picked from the 5 x 5 around it by flow magnitude
@@ -491,7 +520,10 @@ def forecast(lat: float | None = None, lon: float | None = None, *, river_id: in
     * ``thresholds``: the reach's 2- to 100-year flows from its simulated annual maxima since 1940, and
       ``status``: where the reach's flow on the first forecast day sits against its simulated record;
     * with ``obs`` (a gauge's daily discharge): ``correction`` from :func:`correct_to_gauge` (the corrected
-      forecast and its hindcast skill) and ``gauge_thresholds`` from the gauge's own annual maxima;
+      forecast and its hindcast skill), ``gauge_thresholds`` from the gauge's own annual maxima, and
+      ``reach_check``: the reach's simulated mean flow against the gauge's over the days they share. Outside a
+      factor of 2 the gauge may sit on another river than the reach it snapped to, and ``reach_check["note"]``
+      says so;
     * ``sentence``: the peak against the thresholds, and ``notes``, ``methods``, ``attribution``.
 
     ``store`` (a dict) receives the reach's daily simulated series under ``"reach_series"``.
@@ -580,6 +612,7 @@ def forecast(lat: float | None = None, lon: float | None = None, *, river_id: in
             out["glofas"] = {"error": f"GloFAS did not answer ({exc})."}
 
     if obs is not None and reach_series is not None and (out.get("geoglows") or {}).get("date"):
+        out["reach_check"] = _reach_check(reach_series, obs)
         corr = correct_to_gauge(reach_series, obs, out["geoglows"], by=by)
         out["correction"] = corr
         out["gauge_thresholds"] = {**_thresholds(obs, return_periods), "source": "the gauge's observed record"}
@@ -682,6 +715,20 @@ def _scores(obs: Any, sim: Any, threshold: float | None) -> dict[str, Any]:
     return res
 
 
+def _skill_detail(raw: dict[str, Any], cor: dict[str, Any]) -> str:
+    """Bias and the days above the 2-year flow, raw against corrected, in one short sentence."""
+    bits = []
+    if cor.get("pbias") is not None and raw.get("pbias") is not None:
+        bits.append(f"Bias {cor['pbias']:+.0f} % (raw {raw['pbias']:+.0f} %).")
+    n = cor.get("days_above")
+    if n:
+        bits.append(f"Days above the 2-year flow caught: {cor.get('hits', 0)} of {n} (raw {raw.get('hits', 0)}), "
+                    f"with {cor.get('false_alarms', 0)} false alarms (raw {raw.get('false_alarms', 0)}).")
+    elif n == 0:
+        bits.append("The gauge did not pass its 2-year flow in the scored years.")
+    return " ".join(bits)
+
+
 def _span(index: Any) -> dict[str, Any]:
     return {"start": index.min().strftime("%Y-%m-%d"), "end": index.max().strftime("%Y-%m-%d")}
 
@@ -724,6 +771,7 @@ def hindcast_skill(model_hist: Any, obs: Any, *, by: str = "month", split: float
     if kr is not None and kc is not None:
         y0, y1 = score_span["start"][:4], score_span["end"][:4]
         out["skill_line"] = (f"Corrected forecast: KGE {kc:.2f} on the {y0}-{y1} hindcast, raw {kr:.2f}.")
+        out["skill_detail"] = _skill_detail(raw_s, cor_s)
         if kc < kr:
             out["note"] = "The correction scored worse than the raw model here; read the raw forecast."
     return out
@@ -751,7 +799,7 @@ def correct_to_gauge(model_hist: Any, obs: Any, model_fcst: Any = None, *, by: s
     frame = _paired(model_hist, obs)
     mapping = _fit_mapping(frame, by)
     out.update({"by": mapping["by"], "overlap": _span(frame.index), "n_overlap_days": int(len(frame)),
-                "skill_line": skill.get("skill_line")})
+                "skill_line": skill.get("skill_line"), "skill_detail": skill.get("skill_detail")})
     if mapping["by"] != by:
         out["note"] = "Some calendar months have too few shared days, so one flow-duration curve covers the year."
     if model_fcst is None:

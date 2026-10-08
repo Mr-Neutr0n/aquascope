@@ -11,7 +11,9 @@ name: Forecast archive
 
 on:
   schedule:
-    - cron: "41 6 * * *"  # daily 06:41 UTC, after GEOGLOWS issues the day's forecast
+    # Daily 06:41 UTC. GEOGLOWS's newest run is then usually the previous day's 00 UTC one (checked 2026-10-08:
+    # at 11:00 UTC the newest started at 00 UTC the day before); each row keeps the run's own init_date.
+    - cron: "41 6 * * *"
   workflow_dispatch:
     inputs:
       publish:
@@ -55,9 +57,13 @@ jobs:
       - name: Status snapshot and today's forecast issue
         env:
           HF_HUB_DISABLE_PROGRESS_BARS: "1"
+          MAX_ITEMS: ${{ inputs.max_items }}
         run: |
           ARGS="--out build --max-gauges 250 --workers 4 --time-budget-min 75"
-          if [ -n "${{ inputs.max_items }}" ]; then ARGS="$ARGS --max-items ${{ inputs.max_items }}"; fi
+          if [ -n "$MAX_ITEMS" ]; then
+            case "$MAX_ITEMS" in *[!0-9]*) echo "::error::max_items must be a whole number"; exit 1;; esac
+            ARGS="$ARGS --max-items $MAX_ITEMS"
+          fi
           python -m aquascope.archive.forecasts run $ARGS
 
       - name: Summary

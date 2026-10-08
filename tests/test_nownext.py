@@ -237,6 +237,16 @@ def test_forecast_snaps_a_point_and_survives_a_failed_model(models, monkeypatch)
 def test_daily_geoglows_caps_the_days():
     d = nownext._daily_geoglows(_stats(), 1)
     assert d["date"] == ["2026-10-07"] and d["p25"] == [90.0]
+    assert d["initialized"] == "2026-10-07T00:00Z"  # the run's start, not when the API answered
+
+
+def test_forecast_says_when_the_reach_is_far_from_the_gauges_river(models):
+    fc = nownext.forecast(river_id=RID, obs=models["hist"] * 10.0, glofas_at=(1.0, 2.0))
+    chk = fc["reach_check"]
+    assert chk["matches"] is False and chk["ratio"] == pytest.approx(0.1, rel=1e-3)
+    assert "may be on another river than this reach" in chk["note"]
+    near = nownext.forecast(river_id=RID, obs=models["hist"] * 1.5, glofas_at=(1.0, 2.0))["reach_check"]
+    assert near["matches"] is True and near["note"] is None
 
 
 # ── corrected to the gauge ──────────────────────────────────────────────────
@@ -266,6 +276,8 @@ def test_skill_counts_hits_and_false_alarms_above_the_two_year_flow():
     assert raw["hit_rate"] == 1.0 and raw["false_alarms"] > 0  # the raw model, twice as high, always says "above"
     assert cor["hit_rate"] > 0.8 and cor["false_alarm_ratio"] < raw["false_alarm_ratio"]
     assert 0 <= raw["false_alarm_rate"] <= 1
+    assert sk["skill_detail"].startswith(f"Bias {cor['pbias']:+.0f} % (raw +100 %). Days above the 2-year flow "
+                                         f"caught: {cor['hits']} of {cor['days_above']} (raw {raw['hits']})")
 
 
 def test_correction_needs_enough_shared_years():

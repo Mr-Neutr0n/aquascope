@@ -141,12 +141,15 @@ export function forecastTraces(fc, { recent = null, ink = "#33475a" } = {}) {
   return traces;
 }
 
-// The one sentence under the plot that says how far to trust the correction.
+// The few sentences under the plot that say how far to trust the correction:
+// its KGE, then bias and the days above the 2-year flow, and a warning when the
+// reach's mean flow is far from the gauge's (all worded in Python).
 export function skillText(fc) {
   const c = fc && fc.correction;
   if (!c) return "";
+  const reach = fc.reach_check && fc.reach_check.note ? ` ${fc.reach_check.note}` : "";
   if (c.error) return `Not corrected to the gauge: ${c.error}`;
   const s = c.skill || {};
-  const note = s.note ? ` ${s.note}` : "";
-  return (c.skill_line || "") + note;
+  const bits = [c.skill_line, c.skill_detail, s.note].filter(Boolean).join(" ");
+  return bits + reach;
 }

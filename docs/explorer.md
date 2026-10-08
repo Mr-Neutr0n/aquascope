@@ -266,7 +266,10 @@ On a discharge gauge the GEOGLOWS forecast is corrected to the gauge's own recor
 by flow-duration quantile mapping (one curve per calendar month), and a line under
 the plot gives the skill of that correction, fitted on the first 60 % of the years
 the model and the gauge share and scored on the rest ("Corrected forecast: KGE 0.47
-on the 1992-2026 hindcast, raw 0.21."). That is the skill of the simulation, not of
+on the 1992-2026 hindcast, raw 0.21."), then the bias and the days above the
+gauge's 2-year flow it caught, raw against corrected. When the reach's simulated
+mean flow is more than twice or under half the gauge's, a line says the gauge may
+be on another river than that reach. That is the skill of the simulation, not of
 the forecast at each lead time: the daily `forecast-archive` workflow keeps every
 forecast as issued so that skill can be measured as it builds up
 ([details](archive.md#issued-forecasts-and-todays-status-forecasts)).
