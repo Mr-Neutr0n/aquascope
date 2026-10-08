@@ -318,6 +318,28 @@ gauges it did not class are light grey. Before the first bulletin is published, 
 say so and the gauges keep their agency colours. The numbers come from
 `aquascope.bulletin` ([details](bulletin.md)); the page only shows them.
 
+## Watch: since you were here
+
+**☆ Watch** on a gauge, on a clicked point's river reach and on a drawn area keeps it
+in a watch list in this browser (no account; the page still works when storage is
+blocked, it just forgets on reload). On a watched gauge one line asks where to flag
+the forecast: the 2-year flow by default, the 5- to 100-year flow from the gauge's own
+record, or a value.
+
+The next time the Explorer opens without a link to something else, a **Since you
+were here** panel checks each watched place in turn and says, in one line each, what
+changed since the last visit: new days of data and the latest value, today's class
+against normal and the one before, the forecast peak in the next 15 days against the
+threshold (from the daily forecast archive, else GEOGLOWS asked there and then;
+modelled), and flood events in the news nearby that started since. An area says how
+many of its gauges are above normal today. **Dismiss** closes it; **Watched** in the
+Tools menu opens it again, and each name jumps to the place.
+
+Every line comes from `aquascope.watch.watch_digest` in the worker, the same function
+as `aquascope watch ID... --since DATE` and the MCP tool `watch_digest`. A gauge with a
+live record also has **Follow (Atom)** in its ··· menu: a feed of its status changes
+and forecast alerts, written daily ([feeds](archive.md#per-gauge-feeds-feeds)).
+
 ## Ask ✨: the Analyst in the page
 
 The **Ask** button (top right) opens the [Analyst](analyst.md) inside the

@@ -225,7 +225,7 @@ days old. It writes only under `forecasts/`; the catalogue and the observations 
 | `forecasts/status/latest.parquet` | each live gauge's flow today against normal: `source`, `station_id`, `value_date`, `value`, `percentile`, `class`, `n_years` (the Explorer's "Today vs normal" colouring) | derived from the mirrored observations |
 | `forecasts/status/latest.json` | when the snapshot was made, the sources it covers, the count per class | |
 | `forecasts/status/<date>.parquet` | the same snapshot, kept by date | |
-| `forecasts/issued/<date>.parquet` | for up to 250 of those gauges with a snapped GEOGLOWS reach: the GEOGLOWS and GloFAS forecasts as issued that day, one row per gauge, model and valid day, the ensemble statistics raw and (GEOGLOWS) corrected to the gauge, the GEOGLOWS run's start date (`init_date`) and the lead day from it, the correction's hindcast KGE and the reach-to-gauge mean-flow ratio | GEOGLOWS v2 and Open-Meteo (GloFAS v4) output, both CC BY 4.0 |
+| `forecasts/issued/<date>.parquet` | for up to 250 of those gauges with a snapped GEOGLOWS reach: the GEOGLOWS and GloFAS forecasts as issued that day, one row per gauge, model and valid day, the ensemble statistics raw and (GEOGLOWS) corrected to the gauge, the GEOGLOWS run's start date (`init_date`) and the lead day from it, the correction's hindcast KGE, the reach-to-gauge mean-flow ratio, and the gauge's own 2- to 100-year flows (`gauge_q2` to `gauge_q100`) | GEOGLOWS v2 and Open-Meteo (GloFAS v4) output, both CC BY 4.0 |
 | `forecasts/reaches.parquet` | each gauge's GEOGLOWS `river_id`, the snap distance and the GloFAS cell used; IDs only, no geometry | |
 | `forecasts/manifest.json` | every issue date, how many gauges, and how many were dropped and why (the daily cap, the time budget, no fresh value, no river reach) | |
 
@@ -249,6 +249,21 @@ HydroSOS classes, rolled up per country and per river basin. It writes only unde
 | `bulletins/index.json` | every month published, newest first | |
 
 Share-alike sources are left out of it. See [the bulletin](bulletin.md) for the method.
+
+## Per-gauge feeds (`feeds/`)
+
+After the forecasts, the same daily workflow (#521) keeps an Atom feed for every gauge in the status snapshot,
+so a feed reader can follow a river. It reads the files the forecast step just wrote and writes only under
+`feeds/`.
+
+| path | what |
+| --- | --- |
+| `feeds/<source>/<station_id>.xml` | an Atom 1.0 feed: an entry when the gauge's class against normal changes, and one when the GEOGLOWS forecast corrected to the gauge passes the gauge's own 2-year flow (or a rarer one) in the next 15 days, at most once in 3 days unless a rarer flow is passed; the newest 20 entries. Characters other than letters, digits, `.`, `_` and `-` in the station id become `_` |
+| `feeds/index.json` | every gauge with a feed and its path, when the feeds were made, how many entries were new |
+| `feeds/state.parquet` | the entries kept per gauge, which the next run continues |
+
+Forecast entries are model output (GEOGLOWS v2, CC BY 4.0) and say they are not flood warnings. Every step is
+also `python -m aquascope.archive.feeds run|publish --out build`.
 
 ## Caravan-format export
 

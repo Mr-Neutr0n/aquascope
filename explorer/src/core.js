@@ -125,6 +125,7 @@ export const actions = {
   refreshMapData: () => {},
   setOverlay: () => {},       // layer-ui.js: turn an overlay on or off as if from the rail
   setBasemap: () => {},       // layer-ui.js: switch the basemap as if from the rail
+  showArea: () => {},         // layer-ui.js: show a box's result in the rail, as if just drawn
 };
 
 export function escapeHtml(s) {

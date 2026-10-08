@@ -72,7 +72,11 @@ COLUMNS = {
     "generated": "when the GEOGLOWS API answered (not when the run started; see init_date)",
     "reach_mean_ratio": "the reach's simulated mean flow over the gauge's, on the days they share (far from 1: "
     "the gauge may be on another river than its snapped reach)",
+    "gauge_q2/gauge_q5/gauge_q10/gauge_q25/gauge_q50/gauge_q100": "the gauge's 2- to 100-year flows from its own "
+    "annual maxima (m3/s), which the corrected values are compared with (the watch digest and the feeds, #521)",
 }
+#: The return periods whose gauge flows each issued row carries (``gauge_q<T>``).
+GAUGE_RETURN_PERIODS = (2, 5, 10, 25, 50, 100)
 
 
 # ── reading what is published ───────────────────────────────────────────────
@@ -257,6 +261,10 @@ def issue_one(gauge: dict[str, Any], series: Any, reach: dict[str, Any], *, toda
               "kge_raw": (skill.get("raw") or {}).get("kge"),
               "kge_corrected": (skill.get("corrected") or {}).get("kge"),
               "reach_mean_ratio": (fc.get("reach_check") or {}).get("ratio")}
+    gthr = fc.get("gauge_thresholds") or {}
+    gq = {float(t): q for t, q in zip(gthr.get("return_periods") or [], gthr.get("q") or [])}
+    for t in GAUGE_RETURN_PERIODS:
+        common[f"gauge_q{t}"] = gq.get(float(t))
     rows: list[dict[str, Any]] = []
     corrected = (fc.get("correction") or {}).get("forecast") or {}
     for model in ("geoglows", "glofas"):

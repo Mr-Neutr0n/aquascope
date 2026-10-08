@@ -6,8 +6,12 @@ name: Forecast archive
 #   forecasts/issued/<date>.parquet   the GEOGLOWS and GloFAS forecasts as issued, raw and corrected to the gauge
 #   forecasts/reaches.parquet         each gauge's reach, snapped once
 #   forecasts/manifest.json           every issue, and what was dropped and why
-# It writes ONLY under forecasts/ in the Archive dataset; the catalogue and the observations are never touched.
-# Same HF_TOKEN secret as the harvest. Locally: python -m aquascope.archive.forecasts run --out build
+# Then, from those files, the per-gauge Atom feeds (#521):
+#   feeds/<source>/<station_id>.xml   one feed per gauge in the status snapshot (status changes, forecast alerts)
+#   feeds/index.json, feeds/state.parquet
+# It writes ONLY under forecasts/ and feeds/ in the Archive dataset; the catalogue and the observations are never
+# touched. Same HF_TOKEN secret as the harvest. Locally: python -m aquascope.archive.forecasts run --out build,
+# then python -m aquascope.archive.feeds run --out build
 
 on:
   schedule:
@@ -89,6 +93,17 @@ jobs:
       - name: Publish forecasts/ to Hugging Face
         if: env.HF_TOKEN != '' && inputs.max_items == '' && (github.event_name == 'schedule' || inputs.publish == true)
         run: python -m aquascope.archive.forecasts publish --out build
+
+      # Feeds read the snapshot and the issue the step above wrote, and the entries already published.
+      - name: Per-gauge Atom feeds
+        if: hashFiles('build/forecasts/status/latest.parquet') != ''
+        env:
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: python -m aquascope.archive.feeds run --out build
+
+      - name: Publish feeds/ to Hugging Face
+        if: env.HF_TOKEN != '' && inputs.max_items == '' && (github.event_name == 'schedule' || inputs.publish == true) && hashFiles('build/feeds/index.json') != ''
+        run: python -m aquascope.archive.feeds publish --out build
 
       - name: Say why a smoke run was not published
         if: inputs.max_items != ''

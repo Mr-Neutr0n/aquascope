@@ -83,7 +83,8 @@ def _fake_forecast(**kw):
             "reach_check": {"ratio": 0.9, "matches": True},
             "glofas": {"date": ["2026-10-08"], "mean": [3.0]},
             "correction": {"forecast": {"date": ["2026-10-07", "2026-10-08"], "mean": [0.5, 1.0]},
-                           "skill": {"by": "month", "raw": {"kge": 0.2}, "corrected": {"kge": 0.6}}}}
+                           "skill": {"by": "month", "raw": {"kge": 0.2}, "corrected": {"kge": 0.6}}},
+            "gauge_thresholds": {"return_periods": [2, 5, 10, 25, 50, 100], "q": [9.0, 12.0, 15.0, 18.0, None, 22.0]}}
 
 
 def test_issue_one_writes_raw_and_corrected_rows_and_picks_the_glofas_cell_once(monkeypatch):
@@ -108,6 +109,9 @@ def test_issue_one_writes_raw_and_corrected_rows_and_picks_the_glofas_cell_once(
     glo = [r for r in rows if r["model"] == "glofas"]
     assert glo[0]["mean"] == 3.0 and glo[0]["mean_c"] is None and glo[0]["kge_corrected"] == 0.6
     assert glo[0]["init_date"] is None and glo[0]["lead_day"] == 0  # Open-Meteo does not say when GloFAS ran
+    # the gauge's own flows travel with every row, for the watch digest and the feeds (#521)
+    got = (geo[0]["gauge_q2"], geo[0]["gauge_q10"], geo[0]["gauge_q50"], glo[0]["gauge_q100"])
+    assert got == (9.0, 15.0, None, 22.0)
 
 
 def test_run_writes_the_snapshot_the_issue_and_the_manifest(monkeypatch, tmp_path):
