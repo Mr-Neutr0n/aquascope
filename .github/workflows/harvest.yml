@@ -50,8 +50,8 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       HF_DATASET: Rekin226/aquascope-gauges
-      # Optional: a free USGS API key lifts the shared demo-key throttling on
-      # the national catalog walk (https://api.waterdata.usgs.gov/signup/).
+      # Optional: a free USGS API key raises the keyless rate limit of the
+      # Water Data API on the national catalog walk (https://api.waterdata.usgs.gov/signup/).
       USGS_API_KEY: ${{ secrets.USGS_API_KEY }}
     steps:
       - uses: actions/checkout@v4

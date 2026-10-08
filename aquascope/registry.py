@@ -88,7 +88,7 @@ def _s(**kwargs) -> SourceMeta:
 SOURCES: dict[str, SourceMeta] = {
     # ── Americas ────────────────────────────────────────────────────────
     "usgs": _s(
-        key="usgs", label="USGS Water Services", region="United States",
+        key="usgs", label="USGS Water Data", region="United States",
         description="Daily and instantaneous discharge, gauge height, temperature and water quality from US gauges",
         agency="U.S. Geological Survey", country="USA",
         homepage="https://waterdata.usgs.gov/",

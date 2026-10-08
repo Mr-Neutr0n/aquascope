@@ -288,6 +288,8 @@ def _records_to_series(records: list, prefer: str | None = None) -> tuple[pd.Ser
 
 # Which agency parameter serves which archive variable.
 _USGS_CODES = {"discharge": "00060", "water_level": "00065"}
+# The fields the collector's normalise reads from a daily feature; the rest of the record stays on the server.
+_USGS_SERIES_PROPERTIES = ("monitoring_location_id", "parameter_code", "time", "value", "approval_status", "qualifier")
 _BOM_PARAMETERS = {
     "discharge": "Water Course Discharge",
     "water_level": "Water Course Level",
@@ -522,7 +524,7 @@ def fetch_series(
 
     if source == "usgs":
         # Pass the catalog id as-is ("USGS-01646500" or another agency's "CA574-09527500");
-        # the collector maps it onto NWIS (number + agencyCd) or the OGC monitoring_location_id.
+        # the collector maps it onto the OGC monitoring_location_id.
         c = build_collector("usgs")
         # The series drops the drainage area, so skip its one-request-per-station lookup (a harvest of
         # 150 gauges spent 150 of its 1,000 hourly requests on it).
@@ -533,11 +535,14 @@ def fetch_series(
             code = _USGS_CODES.get(want or "")
             if code is None:
                 continue
-            recs = c.collect(station_id=station_id, days=span, collection="daily", parameter=code, max_items=None)
+            # The daily mean (statistic 00003) only, as one slim page: USGS advises one page per query, and a
+            # century of daily values is ~37,000 rows, under the API's 50,000-row page.
+            recs = c.collect(station_id=station_id, days=span, collection="daily", parameter=code, statCd="00003",
+                             limit=50_000, skip_geometry=True, properties=_USGS_SERIES_PROPERTIES, max_items=None)
             s, var, unit = _records_to_series(recs)
             if s is not None:
                 break
-        note = f"USGS daily values (NWIS); {asked}."
+        note = f"USGS daily values (Water Data API, daily mean); {asked}."
     elif source == "uk_ea":
         c = build_collector("uk_ea")
         measure, measure_var = _uk_ea_pick_measure(c, station_id, variable=variable)
@@ -1134,7 +1139,7 @@ def water_quality_samples(
         c = build_collector("usgs")
         recs = c.collect(station_id=station_id, days=(end - start).days, collection="daily",
                          parameter=",".join(sorted(set(codes))), statCd="00003", max_items=None)
-        note = (f"USGS daily mean values (NWIS, statistic 00003) for parameter codes "
+        note = (f"USGS daily mean values (Water Data API, statistic 00003) for parameter codes "
                 f"{', '.join(sorted(set(codes)))}; {asked}.")
     elif source == "wqp":
         names = list(parameters) if parameters else list(WQP_CHARACTERISTICS[use_key])
