@@ -160,7 +160,7 @@ function render(res, r) {
     `${r.source}-${r.station_id}-models`);
 
   const rows = skillTableRows(res.models);
-  const head = "<tr><th>Model</th><th>Grade</th><th>KGE</th><th>r</th><th>α</th><th>β</th><th>NSE</th><th>Bias</th><th>Q2</th><th>Q10</th><th>Q100</th></tr>";
+  const head = "<tr><th>Model</th><th>Grade</th><th>KGE</th><th class='sym'>r</th><th class='sym'>α</th><th class='sym'>β</th><th>NSE</th><th>Bias</th><th>Q2</th><th>Q10</th><th>Q100</th></tr>";
   const body = rows.map((x) => (x.scored
     ? `<tr><td>${escapeHtml(x.label)}${x.published ? ' <span class="muted">(monthly)</span>' : ""}</td>` +
       `<td><span class="grade-chip" style="background:${gradeColor(x.grade)}" title="${escapeHtml(x.why)}">${escapeHtml(x.grade || "–")}</span></td>` +

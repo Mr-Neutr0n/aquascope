@@ -204,6 +204,18 @@ export function initNow() {
   for (const t of Object.keys(TARGETS)) {
     const root = panel(t);
     if (!root) continue;
+    // "Use the nearest reach" on a click away from any river: the forecast is asked again for that reach
+    // (GEOGLOWS and the GloFAS cell on the river), not left as the hillside's GloFAS-only answer.
+    root.addEventListener("reachchange", (e) => {
+      const reach = e.detail;
+      const r = runs[t];
+      if (!reach || !reach.chosen || !r.ctx) return;
+      const snap = { snapped: true, river_id: reach.river_id, snap_lat: reach.lat, snap_lon: reach.lon };
+      r.run++;
+      Object.assign(r, { ctx: { ...r.ctx, snap: Promise.resolve(snap) }, loaded: false, plotted: null, fc: null, recent: null, range: null });
+      skeleton(t);
+      if (isShown(t)) load(t);
+    });
     root.addEventListener("tabchange", (e) => {
       if (e.detail.tab !== "now") return;
       load(t);

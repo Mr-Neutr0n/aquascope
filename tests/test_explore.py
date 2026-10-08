@@ -96,6 +96,17 @@ def test_partial_years_are_dropped_from_annual_maxima():
     assert 1990 not in list(am.index.year)
 
 
+def test_annual_maxima_carry_the_day_of_each_peak():
+    s = _daily_flow(12)
+    s.loc["1995-03-17"] = s.max() * 3  # a flood on a known day
+    out = analysis.analyze_series(s, "discharge", "m3/s")
+    am = out["annual_max"]
+    assert len(am["date"]) == len(am["year"]) == len(am["v"])
+    assert am["date"][am["year"].index(1995)] == "1995-03-17"
+    assert all(d.startswith(str(y)) for y, d in zip(am["year"], am["date"]))
+    json.dumps(out)
+
+
 def test_records_to_series_handles_models():
     now = datetime(2026, 1, 1)
     recs = [

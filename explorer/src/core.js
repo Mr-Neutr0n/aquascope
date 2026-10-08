@@ -29,7 +29,19 @@ export const VAR_LABEL = {
   groundwater_level: "groundwater", climate: "climate", water_quality: "water quality",
 };
 
-export const sourceStyle = (src) => SOURCE_STYLE[src] || { label: src, color: FALLBACK_COLOR, shape: FALLBACK_SHAPE };
+// Names for the catalogue's other sources, in the same "agency (country)" form, so the legend and the panel never
+// show a registry key like "brazil_ana". They keep the neutral colour and the circle; the keys must be in
+// aquascope.registry.SOURCES (tests/test_explorer/test_explorer_assets.py checks).
+export const SOURCE_LABEL = {
+  bom: "BOM (AU)",
+  brazil_ana: "ANA (BR)",
+  greece_hydroscope: "Hydroscope (GR)",
+  greece_openhi: "OpenHi (GR)",
+  poland_imgw: "IMGW-PIB (PL)",
+};
+
+export const sourceStyle = (src) => SOURCE_STYLE[src] ||
+  { label: SOURCE_LABEL[src] || src, color: FALLBACK_COLOR, shape: FALLBACK_SHAPE };
 export const stationKey = (r) => `${r.source}/${r.station_id}`;
 
 // Debug hooks (harmless in production): window.__aq.state, window.__aq.log.

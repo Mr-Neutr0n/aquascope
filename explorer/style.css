@@ -278,6 +278,7 @@ body.workbench-mode .maplibregl-ctrl-top-left { margin-top: 0; }
   border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-2);
   padding: .3rem .35rem; font-size: .78rem; color: var(--ink);
 }
+.timebar:not([hidden]) { display: flex; flex-direction: column; }
 .timebar[hidden] { display: none; }
 .tb-main { display: flex; align-items: center; gap: .2rem; }
 .tb-btn {
@@ -297,7 +298,8 @@ body.workbench-mode .maplibregl-ctrl-top-left { margin-top: 0; }
   border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--bg); color: var(--ink);
 }
 #tb-date { width: 9.6rem; font-variant-numeric: tabular-nums; }
-.tb-note { font-size: .72rem; color: var(--ink-2); padding: .3rem .3rem .1rem; text-align: center; max-width: 22rem; margin: 0 auto; }
+/* Above the controls, so turning a layer on (which clears the note) does not move the play button. */
+.tb-note { order: -1; font-size: .72rem; color: var(--ink-2); padding: .1rem .3rem .3rem; text-align: center; max-width: 22rem; margin: 0 auto; }
 .tb-note[hidden] { display: none; }
 .tb-chip {
   font: inherit; font-size: .7rem; padding: .1rem .5rem; margin-left: .25rem; border-radius: 999px; cursor: pointer;
@@ -471,8 +473,10 @@ body.drawer-open #btn-panel { display: none; }
 
 /* ── panel head ──────────────────────────────────────────────────────────── */
 
+/* The head scrolls with the panel and the tab strip stays: a gauge head with the watch row, the export note and
+   the coverage details open is taller than half a laptop panel, and stuck on top it left the tabs a sliver. */
 .head {
-  padding: .85rem .95rem .5rem; border-bottom: 1px solid var(--line); position: sticky; top: 0;
+  padding: .85rem .95rem .5rem; border-bottom: 1px solid var(--line); position: relative;
   background: var(--surface); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); z-index: 3;
 }
 .badge {
@@ -501,6 +505,10 @@ body.drawer-open #btn-panel { display: none; }
 }
 .more-menu > *:hover { background: var(--bg-soft); }
 .row-actions { margin: .55rem 0; }
+#st-export-help { font-size: .78rem; margin: .45rem 0 0; }
+.record-availability { font-size: .78rem; margin-top: .45rem; }
+.record-availability summary { cursor: pointer; color: var(--ink-2); }
+.record-availability p { margin: .3rem 0 0; line-height: 1.5; }
 
 /* ── tabs ────────────────────────────────────────────────────────────────── */
 
@@ -619,6 +627,8 @@ table.ffa { width: 100%; border-collapse: collapse; font-size: .79rem; }
 table.ffa th, table.ffa td { text-align: right; padding: .32rem .35rem; border-bottom: 1px solid var(--line); }
 table.ffa th { font-weight: 620; color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; }
 table.ffa th:first-child, table.ffa td:first-child { text-align: left; }
+/* r, α and β are symbols: upper-casing turns α into a Latin-looking "A" and β into "B". */
+table.ffa th.sym { text-transform: none; font-size: .78rem; }
 table.ffa tr:last-child td { border-bottom: 0; }
 table.ffa .ci { color: var(--muted); font-size: .72rem; }
 /* the evidence ladder (#518): a grade chip in the table, a small badge in the gauge header */
@@ -1188,17 +1198,18 @@ body.workbench-mode .drawer { right: auto; left: 50%; transform: translateX(-50%
 
 /* Rivers as objects (#516): the snap line, the River tab, the trace */
 .pt-snap { color: var(--ink-2, inherit); }
-.river-snap { margin: 2px 0 12px; }
+.river-snap { margin: 2px 0 12px; font-size: .83rem; }
 .river-snap:empty { display: none; }
 .river-snap .btn { margin-left: 6px; }
-.river-trace-out { margin-top: 10px; }
-.river-trace-out h4 { margin: 12px 0 6px; }
+.river-trace-out { margin-top: 10px; font-size: .83rem; line-height: 1.5; }
+.river-trace-out p { margin: 0 0 .35rem; }
+.river-trace-out h4 { margin: 12px 0 6px; font-size: .83rem; }
 
 /* Now and next (#517): one sentence, a coloured chip for the class, then the forecast. */
 .now-line { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 4px; font-size: .95rem; }
 .now-chip { flex: none; width: 11px; height: 11px; border-radius: 50%; transform: translateY(1px); }
 .now-sub { margin: 0; font-size: .75rem; }
-.now-peak { margin: 0 0 6px; }
+.now-peak { margin: 0 0 6px; font-size: .88rem; }
 .now-skill { margin: 6px 0 0; font-size: .8rem; }
 .now-legend-note { flex-basis: 100%; margin: .2rem 0 0; font-size: .68rem; line-height: 1.35; }
 /* the monthly bulletin (#523): "Read it" under the legend; the reader reuses .study-reader */
