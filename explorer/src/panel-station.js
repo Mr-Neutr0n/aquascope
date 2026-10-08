@@ -18,6 +18,7 @@ import { Cancelled, call, callCancelable } from "./worker-client.js?v=__BUILD__"
 import { canonicalUrl, defaultPeriod, writeUrl } from "./url.js?v=__BUILD__";
 import { siteKey } from "./sites.js?v=__BUILD__";
 import { syncPlaceButton } from "./places.js?v=__BUILD__";  // My places: the ☆ Save button
+import { syncWatchButtons } from "./watch.js?v=__BUILD__";  // Watch (#521): the ☆ Watch button and its threshold
 import { metrics } from "./metrics.js?v=__BUILD__";
 import { catalogOnly, observationMetadata } from "./availability.js?v=__BUILD__";
 import { base64ToBytes, exportOptions, exportSummary } from "./export-menu.js?v=__BUILD__";
@@ -66,6 +67,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   $("st-name").textContent = r.name || r.station_id;
   $("st-id").textContent = r.station_id;
   syncPlaceButton();  // My places
+  syncWatchButtons();  // Watch (#521)
   const members = state.stations.filter((record) => siteKey(record) === siteKey(r));
   const selector = $("st-site-select");
   selector.replaceChildren();
@@ -183,6 +185,7 @@ async function requestAnalysis(r, my) {
     });
     if (my !== analysisRun || !state.selected || stationKey(state.selected) !== key) return; // user moved on
     state.result = result;
+    syncWatchButtons();  // the threshold menu follows the record's variable
     render(result, r);
     startNow("st", { station: r, result, snap: stationSnap });
   } catch (err) {

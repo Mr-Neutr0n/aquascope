@@ -54,6 +54,9 @@ Start with one task:
   or the inputs for HEC-HMS, HEC-RAS, HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven (**Export for…**).
 - **Explore a worked analysis:** open a recorded study, read its limits and reproduce its plan at another gauge.
 - **Analyse my table:** use a sample CSV, check the inferred columns, then replace it with your own data.
+- **Watch a river:** press ☆ Watch on a gauge, a reach or a drawn area. The next visit opens on what changed
+  since: new data, today's status, a forecast above your threshold, new flood events nearby. A gauge with a live
+  record also has an Atom feed. No account; the list stays in your browser.
 - **Follow a river:** click anywhere and the point snaps to its river (or says no stream is near). The River
   tab shows 86 years of simulated daily flow for that reach, its return periods and flow-duration curve, and
   traces it to the sea past the gauges and dams on the way, naming the countries it crosses. Simulated, and
@@ -130,6 +133,7 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 - 🏞️ **Treat rivers as objects**: snap any point to its GEOGLOWS v2 river reach (about 6.8 million worldwide), read that reach's simulated daily flow since 1940 with return periods, flow-duration curve and monthly regime (labelled modelled), and trace it downstream to the sea with the gauges and dams it passes and the countries it crosses, and see whether dams upstream regulate it (Global Dam Watch). `aquascope river snap|record|area|trace|dams`, the MCP tools, the Explorer's River tab, and the Studio's ungauged studies all use the same functions.
 - 🪜 **Grade the global models at a gauge**: GEOGLOWS v2, GloFAS, NWM v3 (US) and Google's Flood Hub reanalysis set against the gauge's own record, with KGE and its parts, bias, the error at the 2-, 10- and 100-year flows, a grade from A to D and one sentence on where they disagree. `aquascope evidence skill`, the MCP tool `model_skill`, the Explorer's Evidence tab and "Best model skill" map colouring, and a monthly CI table in the Archive; the Studio uses it to say which model to lean on near an ungauged site ([how the grades work](docs/evidence.md)).
 - 🔭 **Now and next**: where a gauge's flow sits today against normal for the date (the USGS and WMO HydroSOS classes, at least 10 years behind it), and the next 15 days from GEOGLOWS and GloFAS with return-period thresholds, corrected to the gauge's record by flow-duration quantile mapping with the hindcast skill of that correction. A daily workflow archives the forecasts as issued, so real forecast skill builds up. `aquascope now`, the MCP tools, the Explorer's Now tab and its "Today vs normal" map colouring use the same functions.
+- ⭐ **Watch a river**: star gauges, reaches and areas, and get what changed since you last looked: new data and the latest value, today's status class against the one then, the 15-day forecast against a threshold you set (a value or a return period) and new flood events nearby. `aquascope watch ID... --since DATE`, the MCP tool `watch_digest` and the Explorer's "Since you were here" panel use the same function, and a daily workflow writes an Atom feed per live gauge.
 - 📈 **Run hydrological analyses** — flood frequency (GEV / LP3 / Gumbel / non-stationary GEV, with separate EMA routines), baseflow separation, rating curves, 22 hydrological signatures.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
@@ -347,7 +351,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 39-command CLI (`agri`, `basins`, `caravan`, `eval`, `evidence`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
+AquaScope ships a 40-command CLI (`agri`, `basins`, `caravan`, `eval`, `evidence`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -361,6 +365,7 @@ aquascope river record --at 46.948 7.452          # that reach's simulated daily
 aquascope river trace --at 46.948 7.452           # follow it to the sea: length, path, the gauges, dams and countries it passes
 aquascope river dams --at 46.948 7.452            # the dams upstream of that reach and the degree of regulation
 aquascope now --station usgs/USGS-01350000        # today against normal, and the 15-day forecast corrected to the gauge
+aquascope watch usgs/USGS-01350000 river:230260670 --since 2026-10-01   # what changed since then: data, status, forecast, floods
 aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
 aquascope context 51.86 5.95                      # flood history, surface water, flood depth, dams, rain gauge, ET and soil at a place
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive

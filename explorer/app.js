@@ -34,6 +34,7 @@ import { registerWebMcpTools } from "./src/webmcp.js?v=__BUILD__";
 import { studyUrlParam } from "./src/study-link.js?v=__BUILD__";
 import { initSignatureFilter } from "./src/signature-filter.js?v=__BUILD__";
 import { initPlaces } from "./src/places.js?v=__BUILD__";  // My places + Compare
+import { greetOnLoad, initWatch } from "./src/watch.js?v=__BUILD__";  // Watch: since you were here (#521)
 import { loadAvailability } from "./src/availability.js?v=__BUILD__";
 
 import { initMetrics } from "./src/metrics-ui.js?v=__BUILD__";
@@ -202,6 +203,7 @@ function goHome() {
   initNow();
   initWorkbench();
   initPlaces();  // My places + Compare
+  initWatch();   // Watch (#521)
   initAsk();   // async: fills the provider list from providers.json
   initStudyLoader();
   initSearch();
@@ -279,6 +281,7 @@ function goHome() {
   ensureWorker();  // warm Python in the background so the first click is quicker
 
   applyUrl(url);
+  greetOnLoad({ ...url, study: url.study || Boolean(studyUrlParam(location.search)) });  // Watch (#521): "Since you were here", when something is watched and the link opens nothing else
   const studyUrl = studyUrlParam(location.search);   // ?study_url=<https study.yaml> (study-link.js)
   if (studyUrl && !url.studyLink) actions.openSharedStudy({ studyUrl });
   // Offer the page's tools to an in-browser agent, where the browser has WebMCP.

@@ -487,6 +487,34 @@ def correct_to_gauge(source: str, station_id: str, river_id: int | None = None, 
             "notes": fc.get("notes"), "attribution": fc.get("attribution")}
 
 
+def watch_digest(items: list[Any], since: str | None = None, thresholds: dict[str, Any] | None = None,
+                 forecast: str = "auto") -> dict[str, Any]:
+    """What changed at watched places since a date (#521). items: gauges "source/station_id", river reaches
+    "river:<id>", areas "area:west,south,east,north" (or dicts with kind and those fields). since: YYYY-MM-DD
+    (default a week ago). thresholds: per item id, a value in the record's unit (300) or a return period ("10y");
+    without one, forecasts are checked against the 2-year flow. Per item: new days of data and the latest value,
+    today's status class against the one on the since date, the forecast peak in the next 15 days against the
+    threshold (modelled; corrected to the gauge where possible), and flood events in the news nearby since then;
+    one line each and a summary. forecast: auto, archive, live or off."""
+    from aquascope import watch
+
+    specs = []
+    for it in items or []:
+        spec = dict(it) if isinstance(it, dict) else it
+        try:
+            key = watch.parse_item(spec)["id"]
+        except ValueError:
+            specs.append(spec)
+            continue
+        if thresholds and key in thresholds:
+            spec = {**(spec if isinstance(spec, dict) else {"id": key}), "threshold": thresholds[key]}
+        specs.append(spec)
+    try:
+        return watch.watch_digest(specs, since, forecast=forecast)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
 def describe_methods() -> dict[str, Any]:
     """What each analysis computes and the reference to cite."""
     from aquascope.explore import METHODS, MIN_YEARS_FOR_FFA, RETURN_PERIODS
@@ -1190,6 +1218,7 @@ def build_server():
     server.tool()(flow_status)
     server.tool()(flow_forecast)
     server.tool()(correct_to_gauge)
+    server.tool()(watch_digest)
     server.tool()(place_context)
     server.tool()(area_context)
     server.tool()(similar_basins)

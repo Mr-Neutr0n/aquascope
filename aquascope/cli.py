@@ -1327,6 +1327,50 @@ def cmd_now(args: argparse.Namespace) -> None:
     print("  Data: GEOGLOWS v2 (CC BY 4.0); GloFAS v4 via Open-Meteo (CC BY 4.0).")
 
 
+def cmd_watch(args: argparse.Namespace) -> None:
+    """`aquascope watch ID... --since DATE`: what changed at watched gauges, reaches and areas."""
+    from aquascope import watch
+
+    thresholds: dict[str, str] = {}
+    for spec in args.threshold or []:
+        key, sep, value = spec.rpartition("=")
+        if not sep or not key:
+            print(f"  --threshold takes ID=VALUE or ID=10y, not {spec!r}")
+            sys.exit(2)
+        thresholds[key] = value
+    items = []
+    for ident in args.ids:
+        try:
+            item = watch.parse_item(ident)
+        except ValueError as exc:
+            print(f"  {exc}")
+            sys.exit(2)
+        if item["id"] in thresholds or ident in thresholds:
+            item["threshold"] = thresholds.get(item["id"], thresholds.get(ident))
+        items.append(item)
+    try:
+        res = watch.watch_digest(items, args.since, forecast="off" if args.no_forecast else args.forecast,
+                                 floods=not args.no_floods, refresh=not args.no_refresh)
+    except ValueError as exc:
+        print(f"  {exc}")
+        sys.exit(2)
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False, default=str))
+        return
+    print(f"  {res['summary']}")
+    for item in res["items"]:
+        mark = "*" if item.get("alerts") else ("+" if item.get("changed") else " ")
+        print(f"  {mark} {item.get('name')} ({item['id']})")
+        print(f"      {item.get('line')}")
+        for note in item.get("notes") or []:
+            print(f"      ({note})")
+    for note in res.get("notes") or []:
+        print(f"  {note}")
+    for err in res.get("errors") or []:
+        print(f"  Skipped {err['item']}: {err['error']}")
+    print("  Forecasts are model output (GEOGLOWS v2, CC BY 4.0). Flood events: Groundsource (CC BY 4.0).")
+
+
 def _now_table(fc: dict) -> list[tuple]:
     g, gl = fc.get("geoglows") or {}, fc.get("glofas") or {}
     c = (fc.get("correction") or {}).get("forecast") or {}
@@ -3870,6 +3914,19 @@ def main() -> None:
     p_now.add_argument("--status-only", action="store_true", help="Only today against normal, no forecast")
     p_now.add_argument("--csv", default=None, help="Write the forecast to this CSV")
     p_now.add_argument("--json", action="store_true")
+    p_watch = sub.add_parser("watch", help="What changed at watched gauges, reaches and areas since a date")
+    p_watch.add_argument("ids", nargs="+", metavar="ID",
+                         help="source/station_id, river:<reach id> or area:west,south,east,north")
+    p_watch.add_argument("--since", default=None, help="Last look, YYYY-MM-DD (default: a week ago)")
+    p_watch.add_argument("--threshold", action="append", metavar="ID=VALUE",
+                         help="Per item: a value (usgs/USGS-01646500=300) or a return period (=10y); repeatable. "
+                         "Without one, forecasts are checked against the 2-year flow")
+    p_watch.add_argument("--forecast", choices=["auto", "archive", "live", "off"], default="auto",
+                         help="Where the forecast comes from (auto: the forecast archive, else GEOGLOWS now)")
+    p_watch.add_argument("--no-forecast", action="store_true", help="Skip the forecast")
+    p_watch.add_argument("--no-floods", action="store_true", help="Skip flood events in the news")
+    p_watch.add_argument("--no-refresh", action="store_true", help="Do not ask the agency for its newest days")
+    p_watch.add_argument("--json", action="store_true")
     p_river = sub.add_parser("river", help="River reaches (GEOGLOWS v2): snap a point, the modelled record, the trace")
     river_sub = p_river.add_subparsers(dest="river_cmd", required=True)
     p_rsnap = river_sub.add_parser("snap", help="The river reach nearest a point, or 'no stream within N m'")
@@ -4595,6 +4652,7 @@ def main() -> None:
         "river": cmd_river,
         "evidence": cmd_evidence,
         "now": cmd_now,
+        "watch": cmd_watch,
         "assess": cmd_assess,
         "context": cmd_context,
         "area-study": cmd_area_study,
