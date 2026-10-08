@@ -138,6 +138,14 @@ def test_dams_along_places_each_dam_on_the_path_with_its_facts():
     assert "CC BY 4.0" in res["source"]["attribution"]
 
 
+def test_a_dam_behind_the_start_is_upstream_not_on_the_way():
+    rows = [_row(1, "Behind", 47.0, 7.99, cap="5"), _row(2, "At the start", 47.0001, 8.0, cap="3"),
+            _row(3, "On the way", 47.0003, 8.015, cap="7")]
+    res = river_path.dams_along(PATH, rows=rows)
+    assert [d["name"] for d in res["dams"]] == ["At the start", "On the way"]
+    assert res["behind_the_start"] == 1
+
+
 def test_a_dam_parked_at_0_0_by_an_old_mirror_is_ignored():
     rows = [_row(7, "Parked", 0.0, 0.0, cap="99"), _row(8, "Real", 0.0005, 0.0005, cap="1")]
     res = river_path.dams_along([[0.0, 0.0], [0.001, 0.001]], rows=rows)
@@ -250,6 +258,8 @@ def test_upstream_dams_counts_the_dams_past_the_tile_cap(small_network, monkeypa
     monkeypatch.setattr(river_path, "_dam_rows", lambda keys: [_row(1, "Above", 47.0004, 8.005, cap="6")])
     res = river_path.upstream_dams(230000002, with_flow=False, max_tiles=0)
     assert res["unchecked"] == 1 and res["complete"] is False and "were not checked" in res["summary"]
+    # nothing found among the dams checked is not "unregulated" while one went unchecked
+    assert res["regulated"] is None and "among those checked" in res["summary"]
 
 
 def test_upstream_dams_from_a_hillside(monkeypatch):

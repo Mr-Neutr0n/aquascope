@@ -45,12 +45,14 @@ COUNTRIES_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.js
 MATCH_ZOOM = 8
 #: How far a dam may sit from the line of its reach in the stream tiles and still be matched to it.
 MATCH_M = 1500.0
+#: A dam nearest the first point of the path and further off it than this (km) lies behind the start.
+START_KM = 0.05
 #: Million m3 a year per m3/s of mean flow (365.25 days).
 MCM_PER_CMS_YEAR = 365.25 * 86_400 / 1e6
 
 DAMS_METHOD = ("Global Dam Watch v1.0 dams within the buffer of the drawn path, placed along it by their nearest "
                "point on the line. A dam whose own catchment (GDW) is under half the area draining to the start "
-               "of the path sits on a side stream and is left out.")
+               "of the path sits on a side stream, and one behind the start is upstream of it: both are left out.")
 UPSTREAM_METHOD = ("Global Dam Watch v1.0 dams in the basin's bounding box, each matched to the nearest river reach "
                    f"in the GEOGLOWS v2 stream tiles (within {MATCH_M:,.0f} m), kept when that reach drains to this "
                    "one through the GEOGLOWS routing table. Degree of regulation: the storage upstream as a share of "
@@ -138,8 +140,8 @@ def _label(d: dict[str, Any]) -> str:
 
 
 def _unplaced(d: dict[str, Any]) -> bool:
-    """No position, or 0, 0: a mirror built before the fix that read GDW's LAT_RIV/LONG_RIV parks some 35,000
-    barriers there, and no dam stands at 0, 0."""
+    """No position, or 0, 0: a mirror built from GDW's LAT_DAM/LONG_DAM (before it read LAT_RIV/LONG_RIV) parks
+    some 35,000 barriers there, and no dam stands at 0, 0."""
     return d["lat"] is None or d["lon"] is None or (d["lat"] == 0 and d["lon"] == 0)
 
 
@@ -174,6 +176,7 @@ def dams_along(coords: list[list[float]], *, reach_of_segment: list[int] | None 
     index = rivers.PathIndex(coords, dam_km)
     found: list[dict[str, Any]] = []
     side = 0
+    behind = 0
     seen: set[str] = set()
     for r in rows:
         d = _dam_record(r)
@@ -184,6 +187,10 @@ def dams_along(coords: list[list[float]], *, reach_of_segment: list[int] | None 
             continue
         loc = index.locate(d["lat"], d["lon"])
         if loc is None:
+            continue
+        if loc[1] <= 0.0 and loc[0] > START_KM:
+            # nearest to the very first point and off it: the dam is behind the start (upstream), not on the way
+            behind += 1
             continue
         if (min_catchment_km2 and d.get("catchment_km2") is not None
                 and d["catchment_km2"] < 0.5 * float(min_catchment_km2)):
@@ -198,7 +205,7 @@ def dams_along(coords: list[list[float]], *, reach_of_segment: list[int] | None 
     found.sort(key=lambda d: (d["along_km"], d["distance_km"]))
     total = sum(d.get("capacity_mcm") or 0.0 for d in found)
     out = {**base, "available": True, "dams": found, "n_dams": len(found), "total_capacity_mcm": round(total, 1),
-           "side_streams_left_out": side, "complete": not truncated_cells}
+           "side_streams_left_out": side, "behind_the_start": behind, "complete": not truncated_cells}
     n = len(found)
     if n:
         big = max(found, key=lambda d: d.get("capacity_mcm") or 0.0)
@@ -493,7 +500,8 @@ def upstream_dams(river_id: int | str | None = None, *, lat: float | None = None
     out: dict[str, Any] = {**base, "available": True, "complete": unchecked == 0, "bbox": [round(v, 3) for v in bbox],
                            "n_dams": len(found), "total_capacity_mcm": round(total, 1),
                            "unchecked": unchecked, "dams": found[:max(0, int(limit))],
-                           "regulated": bool(found)}
+                           # none found among the dams checked is not "unregulated" while some went unchecked
+                           "regulated": True if found else (False if unchecked == 0 else None)}
     if with_flow and found and total > 0:
         try:
             q = _mean_flow(rid)
@@ -515,6 +523,8 @@ def upstream_dams(river_id: int | str | None = None, *, lat: float | None = None
         if big.get("capacity_mcm"):
             text += f"; the largest is {_label(big)}"
         out["summary"] = text + "."
+    elif unchecked:
+        out["summary"] = "No dams in Global Dam Watch found upstream of this reach among those checked."
     else:
         out["summary"] = "No dams in Global Dam Watch upstream of this reach."
     if unchecked:
