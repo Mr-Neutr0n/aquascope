@@ -13,6 +13,18 @@ export const CONTEXT_LAYERS = [
   { id: "soil", label: "Soil" },
 ];
 
+// The order the layers are asked for (they are shown in CONTEXT_LAYERS order whatever order they land in).
+// By the requests each makes, one after another in a worker: Dams and the rain gauge a few, Flood history and
+// Evaporation a handful, Flood depth and Surface water about ten, Soil sixteen (its texture and water layers
+// are separate files). Quickest first, so the first lines come within seconds; with more than one light
+// worker Soil goes second, so the longest read starts at once rather than last.
+const QUICKEST_FIRST = ["dams", "rain_gauge", "flood_history", "actual_et", "flood_hazard", "surface_water", "soil"];
+export function fetchOrder(workers = 1) {
+  if (workers <= 1) return QUICKEST_FIRST.slice();
+  const rest = QUICKEST_FIRST.filter((id) => id !== "soil");
+  return [rest[0], "soil", ...rest.slice(1)];
+}
+
 export const layerLabel = (id) => (CONTEXT_LAYERS.find((l) => l.id === id) || { label: id }).label;
 
 // One line of the card: what to say for a layer's result (or its error).

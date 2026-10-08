@@ -18,6 +18,20 @@ test("snapLine says where the click landed, or that no stream is near", () => {
   assert.equal(snapLine(null), "");
 });
 
+test("snapLine says when the main channel won over a nearer stream, and names a larger river further off", () => {
+  const near = { river_id: 9, distance_m: 60, strahler_order: 2 };
+  assert.equal(snapLine({ snapped: true, river_id: 3, distance_m: 380, strahler_order: 9, choice: "main_channel", nearer: near }),
+    "Snapped 380 m to the main channel (order 9); a smaller stream is 60 m away.");
+  assert.equal(snapLine({ snapped: true, river_id: 3, distance_m: 380, strahler_order: 9, choice: "area", nearer: near }, { gauge: true }),
+    "This gauge is 380 m from river reach 3, stream order 9, the one whose upstream area matches the catchment (the nearest line is 60 m away).");
+  assert.equal(snapLine({ snapped: true, river_id: 9, distance_m: 300, strahler_order: 2, choice: "nearest",
+    larger: { river_id: 3, distance_m: 1340, strahler_order: 8 } }),
+  "Snapped 300 m to river reach 9, stream order 2. A larger river (order 8) is 1.3 km away.");
+  assert.equal(snapLine({ snapped: false, max_distance_m: 1000, nearest: { river_id: 2, distance_m: 1432 },
+    larger: { river_id: 3, distance_m: 2100, strahler_order: 8 } }),
+  "No stream within 1 km. The nearest mapped reach is 1.4 km away. A larger river (order 8) is 2.1 km away.");
+});
+
 test("lineUpTo grows the trace by distance, not by vertex", () => {
   const line = [[0, 0], [0, 1], [0, 1.001], [0, 1.002], [0, 2]];
   assert.deepEqual(lineUpTo(line, 0), [[0, 0], [0, 0]]);

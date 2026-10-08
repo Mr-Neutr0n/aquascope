@@ -122,8 +122,8 @@ def test_run_writes_the_snapshot_the_issue_and_the_manifest(monkeypatch, tmp_pat
     monkeypatch.setattr(fa, "read_published_rows", lambda path, repo_id=fa.DEFAULT_REPO: [])
     monkeypatch.setattr(fa, "gauge_record", lambda source, sid, today: (
         (_series(), "") if sid != "a" else (_series(end="2026-09-01"), "")))
-    monkeypatch.setattr("aquascope.rivers.snap_to_river", lambda lat, lon: {"snapped": True, "river_id": 760021611,
-                                                                           "distance_m": 5.0})
+    monkeypatch.setattr("aquascope.rivers.snap_to_river",
+                        lambda lat, lon, **kw: {"snapped": True, "river_id": 760021611, "distance_m": 5.0})
     monkeypatch.setattr("aquascope.explore.snap_glofas_cell", lambda *a, **k: {})
     monkeypatch.setattr(nownext, "forecast", _fake_forecast)
     catalog = [{"source": "usgs", "station_id": "USGS-1", "latitude": 40.0, "longitude": -75.0},

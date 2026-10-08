@@ -1310,7 +1310,7 @@ def cmd_now(args: argparse.Namespace) -> None:
         sys.exit(2)
     try:
         res = nownext.now(lat, lon, station=args.station, river_id=args.river_id, days=args.days, date=args.date,
-                          with_forecast=not args.status_only, correct=not args.raw)
+                          with_forecast=not args.status_only, correct=not args.raw, history=not args.quick)
     except ValueError as exc:
         print(f"  {exc}")
         sys.exit(2)
@@ -1445,7 +1445,8 @@ def cmd_river(args: argparse.Namespace) -> None:
     from aquascope import rivers
 
     if args.river_cmd == "snap":
-        res = rivers.snap_to_river(args.lat, args.lon, max_distance_m=args.max_distance)
+        res = rivers.snap_to_river(args.lat, args.lon, max_distance_m=args.max_distance,
+                                   prefer="nearest" if args.nearest else "main", area_km2=args.area)
         if args.json:
             print(json.dumps(res, indent=2, ensure_ascii=False))
             return
@@ -3964,6 +3965,8 @@ def main() -> None:
     p_now.add_argument("--date", default=None, help="The status on another day (YYYY-MM-DD)")
     p_now.add_argument("--raw", action="store_true", help="Do not correct the forecast to the gauge")
     p_now.add_argument("--status-only", action="store_true", help="Only today against normal, no forecast")
+    p_now.add_argument("--quick", action="store_true",
+                       help="Only the two forecasts: no thresholds or correction (skips the simulated record)")
     p_now.add_argument("--csv", default=None, help="Write the forecast to this CSV")
     p_now.add_argument("--json", action="store_true")
     p_watch = sub.add_parser("watch", help="What changed at watched gauges, reaches and areas since a date")
@@ -3981,10 +3984,15 @@ def main() -> None:
     p_watch.add_argument("--json", action="store_true")
     p_river = sub.add_parser("river", help="River reaches (GEOGLOWS v2): snap a point, the modelled record, the trace")
     river_sub = p_river.add_subparsers(dest="river_cmd", required=True)
-    p_rsnap = river_sub.add_parser("snap", help="The river reach nearest a point, or 'no stream within N m'")
+    p_rsnap = river_sub.add_parser("snap", help="The river reach a point stands for (the main channel within the "
+                                   "tolerance), or 'no stream within N m'")
     p_rsnap.add_argument("lat", type=float)
     p_rsnap.add_argument("lon", type=float)
     p_rsnap.add_argument("--max-distance", type=float, default=1000.0, help="Snap tolerance in metres (1000)")
+    p_rsnap.add_argument("--nearest", action="store_true",
+                         help="Take the nearest line rather than the main channel within the tolerance")
+    p_rsnap.add_argument("--area", type=float, default=None,
+                         help="A gauge's catchment area in km2: take the reach whose upstream area matches it")
     p_rsnap.add_argument("--json", action="store_true")
     for name, helptext in (("record", "86 years of simulated daily flow for a reach, analysed like a gauge"),
                            ("area", "The area draining to a reach"),

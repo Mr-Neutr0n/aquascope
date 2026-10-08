@@ -154,9 +154,11 @@ documentation requires one, so it is out too.
 
 ## Context of a place
 
-Click a point and open the **Context** tab: one line per layer, each read when
-the tab is opened, with the sources and licences at the foot and one small chart
-(flood events per year, or the rain gauge's yearly totals).
+Click a point, or open a gauge, and open the **Context** tab: one line per
+layer at that place, each read when the tab is opened, with the sources and
+licences at the foot and one small chart (flood events per year, or the rain
+gauge's yearly totals). The layers are read side by side in light workers (see
+[Speed](#speed)) and each line appears as it lands.
 
 | line | what it says | data (licence) |
 | --- | --- | --- |
@@ -224,12 +226,20 @@ why BasinATLAS is what we mirror. MERIT-Basins is CC BY-NC.
 
 ## Rivers
 
-A click lands on a river, not just a coordinate. The point is snapped to the
-nearest reach of the GEOGLOWS v2 river network (about 6.8 million reaches,
-TDX-Hydro geometry) within 1 km, the marker moves onto the river, and a line
-under the title says how far it moved and which reach it is. With no stream
-within 1 km it says that instead, and the River tab offers the nearest mapped
-reach. A gauge shows the reach it sits on.
+A click lands on a river, not just a coordinate. The point is snapped to a
+reach of the GEOGLOWS v2 river network (about 6.8 million reaches, TDX-Hydro
+geometry) within 1 km: of the reaches in reach, the main channel (the highest
+stream order, the nearer on a tie), since a click beside a big river is often
+nearer a small stream than the river's mapped centreline. The marker moves onto
+the river, and a line under the title says how far it moved, which reach it is,
+and when a smaller stream was nearer (on the Jamuna: "Snapped 959 m to the main
+channel (order 8); a smaller stream is 925 m away."). With no stream within 1 km it says that
+instead and offers the nearest mapped reach, and when a river at least two
+orders bigger lies a little further off (a braided river's water can be
+kilometres from its centreline) it offers that too. A gauge takes the nearest
+line, since it sits on its own river; where the reaches near it differ in size
+and its catchment area is known, the reach whose upstream area matches it
+(the evidence ladder's rule).
 
 The **River** tab shows that reach's simulated daily discharge from 1940 to the
 latest weekly update, analysed the way a gauge is: the hydrograph with the
@@ -297,6 +307,22 @@ forecast as issued so that skill can be measured as it builds up
 
 On a clicked point the tab shows the reach's simulated status (against its own
 86 years) and the raw forecast. The map date moves a dotted marker across the plot.
+
+The forecast arrives in two steps: the GEOGLOWS ensemble and its sentence first,
+then (with a line saying what is still coming) GloFAS, the thresholds and the
+status, which need the reach's simulated record since 1940, and on a gauge the
+correction.
+
+### Speed
+
+Python in the browser reads one URL at a time, so a worker answers one call
+after another. Besides the main worker, the Explorer starts up to three light
+workers (one on a phone) without pandas or scipy, which boot in seconds and take
+the calls that only read the network: the river snap of a click, the quick
+forecast and the Context layers, quickest first. They run side by side and
+beside the main worker, and a browser that cannot start them sends those calls
+to the main worker as before. Forecasts and Context lines already read are kept
+for the session.
 
 **Today vs normal** in the gauge colouring of the layers panel colours the gauges
 from the daily status snapshot, with a legend that names the sources it covers and

@@ -9,7 +9,7 @@ import { emphasisColor, plot } from "./charts.js?v=__BUILD__";
 import { addMethodOnce } from "./methods.js?v=__BUILD__";
 import { FORECAST_CREDIT, forecastTraces, markerShapes, plotRange, skillText, statusClass } from "./now-core.js?v=__BUILD__";
 import { setCard, setTab } from "./shell.js?v=__BUILD__";
-import { call } from "./worker-client.js?v=__BUILD__";
+import { call, callLight } from "./worker-client.js?v=__BUILD__";
 
 const TARGETS = {
   st: { panel: "panel-station", methods: "methods" },
@@ -37,6 +37,7 @@ function skeleton(t) {
       <div class="card-title"><h3>Next 15 days <span class="muted">modelled</span></h3></div>
       <div class="card-body">
         <p class="now-peak"></p>
+        <p class="muted now-pending" role="status" hidden></p>
         <div id="plot-${t}-now" class="plot"></div>
         <p class="muted now-skill"></p>
         <p class="basin-foot muted now-foot"></p>
@@ -121,10 +122,24 @@ async function loadStatus(t, my) {
   }
 }
 
+// Full forecasts already answered this session, by what was asked: going back to a place is instant.
+const answered = new Map();
+const ANSWERED_MAX = 24;
+function remember(key, fc) {
+  answered.delete(key);
+  answered.set(key, fc);
+  while (answered.size > ANSWERED_MAX) answered.delete(answered.keys().next().value);
+}
+
+// The forecast in two steps. A light worker reads the next 15 days of GEOGLOWS at once (the quick forecast:
+// no simulated record, so no thresholds), and the plot and its sentence go up as soon as it lands. The main
+// worker then adds what needs the reach's simulated record since 1940 (the thresholds, the status of a
+// click's river) and, for a gauge, its record (GloFAS's cell picked by flow, the correction), reusing the
+// GEOGLOWS part rather than reading it again.
 async function loadForecast(t, my) {
   const r = runs[t];
   const card = part(t, "now-forecast");
-  setCard(card, "loading", { message: "Asking GEOGLOWS and GloFAS for the next 15 days (GEOGLOWS takes 10 to 20 s)…" });
+  setCard(card, "loading", { message: "Asking GEOGLOWS for the next 15 days…" });
   try {
     const snap = await (r.ctx.snap || Promise.resolve(null));
     if (my !== r.run) return;
@@ -144,17 +159,56 @@ async function loadForecast(t, my) {
       // A click's GloFAS cell is read where the river is, not on the hillside beside it.
       if (t === "pt") Object.assign(args, { lat: snap.snap_lat, lon: snap.snap_lon });
     }
-    const fc = await call("now", { op: "forecast", args });
+    // A gauge's corrected forecast depends on the record loaded (its period), so only the rest are kept.
+    const key = args.use_gauge ? null : JSON.stringify(args);
+    if (key && answered.has(key)) { showForecast(t, answered.get(key), { done: true }); return; }
+    // Without a reach there is only GloFAS, and the quick answer is the whole answer. A gauge's GloFAS cell is
+    // picked by its mean flow (aquascope.explore, which needs pandas), so that one goes to the main worker.
+    if (!args.river_id) {
+      const fc = args.match_mean_flow != null
+        ? await call("now", { op: "forecast", args })
+        : await callLight("now", { op: "forecast", args }, { priority: 1 });
+      if (my !== r.run) return;
+      if (key) remember(key, fc);
+      showForecast(t, fc, { done: true });
+      return;
+    }
+    let quick = null;
+    try {
+      quick = await callLight("now", { op: "forecast", args: { ...args, history: false, glofas: false } }, { priority: 1 });
+    } catch (err) {
+      console.info("quick forecast:", err && err.message);
+    }
     if (my !== r.run) return;
-    r.fc = fc;
-    if (t === "pt") renderStatus(t, fc.status, { modelled: true });
-    drawForecast(t);
-    for (const m of fc.methods || []) if (m && m.name) addMethodOnce(TARGETS[t].methods, m);
+    if (quick && quick.geoglows && !quick.geoglows.error) showForecast(t, quick, { done: false });
+    const full = await call("now", { op: "forecast", args: { ...args, known_geoglows: quick && !(quick.geoglows || {}).error ? quick.geoglows : null } });
+    if (my !== r.run) return;
+    if (key) remember(key, full);
+    showForecast(t, full, { done: true });
   } catch (err) {
     if (my !== r.run) return;
+    if (r.fc) { pending(t, ""); return; }   // the quick forecast is up; the rest did not come
     setCard(card, "error", { message: "The forecast services did not answer this time; GEOGLOWS is slow now and then.",
       retry: () => loadForecast(t, my) });
   }
+}
+
+function pending(t, text) {
+  const el = part(t, "now-pending");
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function showForecast(t, fc, { done }) {
+  const r = runs[t];
+  r.fc = fc;
+  if (t === "pt" && done) renderStatus(t, fc.status, { modelled: true });
+  drawForecast(t);
+  pending(t, done ? "" : (t === "st"
+    ? "Adding GloFAS, the correction to this gauge and the flood thresholds (they need the reach's simulated record since 1940)…"
+    : "Adding GloFAS and the flood thresholds (they need the reach's simulated record since 1940)…"));
+  if (done) for (const m of fc.methods || []) if (m && m.name) addMethodOnce(TARGETS[t].methods, m);
 }
 
 function layoutFor(t) {

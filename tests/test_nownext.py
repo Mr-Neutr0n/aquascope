@@ -221,7 +221,7 @@ def test_forecast_where_there_is_no_river_is_glofas_only(models, monkeypatch):
 
 
 def test_forecast_snaps_a_point_and_survives_a_failed_model(models, monkeypatch):
-    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: {
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0, **kw: {
         "snapped": True, "river_id": RID, "snap_lat": 46.95, "snap_lon": 7.45, "message": "Snapped."})
 
     def boom(rid):
@@ -232,6 +232,32 @@ def test_forecast_snaps_a_point_and_survives_a_failed_model(models, monkeypatch)
     assert fc["river_id"] == RID and "did not answer" in fc["geoglows"]["error"] and fc["glofas"]["mean"]
     with pytest.raises(ValueError):
         nownext.forecast()
+
+
+def test_a_quick_forecast_skips_the_simulated_record(models, monkeypatch):
+    monkeypatch.setattr(nownext, "_reach_history", lambda rid: pytest.fail("the quick forecast reads no history"))
+    fc = nownext.forecast(46.95, 7.45, river_id=RID, history=False, glofas=False)
+    assert fc["history"] is False and fc["geoglows"]["mean"] == [100.0, 200.0] and "glofas" not in fc
+    assert "thresholds" not in fc and "status" not in fc
+    assert fc["sentence"] == "The GEOGLOWS ensemble mean peaks at 200 m³/s on 8 October."
+
+
+def test_a_full_forecast_reuses_the_geoglows_part_it_is_given(models, monkeypatch):
+    quick = nownext.forecast(46.95, 7.45, river_id=RID, history=False, glofas=False)
+    monkeypatch.setattr(rivers, "forecast_stats", lambda rid: pytest.fail("GEOGLOWS was read again"))
+    fc = nownext.forecast(46.95, 7.45, river_id=RID, known_geoglows=quick["geoglows"])
+    assert fc["history"] is True and fc["geoglows"]["mean"] == [100.0, 200.0] and fc["thresholds"]["q"]
+
+
+def test_daily_geoglows_needs_no_pandas_and_matches_the_hourly_means():
+    stats = {"datetime": ["2026-10-07T21:00:00Z", "2026-10-07T22:00:00+00:00", "2026-10-08T02:00:00+03:00",
+                          "not a time"],
+             "flow_avg": [1.0, None, 5.0, 9.0], "flow_med": [None, None, 2.0, 3.0], "flow_max": [1.0]}
+    d = nownext._daily_geoglows(stats, 15)
+    # 02:00 at +03:00 is 23:00 UTC on the 7th, so every readable hour falls on one day
+    assert d["date"] == ["2026-10-07"] and d["mean"] == [3.0] and d["median"] == [2.0] and "max" not in d
+    assert d["initialized"] == "2026-10-07T21:00Z"
+    assert nownext._daily_geoglows({"datetime": []}, 15) == {"date": []}
 
 
 def test_daily_geoglows_caps_the_days():
@@ -310,8 +336,13 @@ def test_now_for_a_station_gives_status_and_the_corrected_forecast(models, monke
     gauge = models["hist"]["1980":] / 2.0
     monkeypatch.setattr(explore, "fetch_series", lambda source, sid, **kw: {
         "series": gauge, "variable": "discharge", "unit": "m3/s", "note": "archive"})
-    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: {
-        "snapped": True, "river_id": RID, "snap_lat": lat, "snap_lon": lon, "message": "Snapped 20 m."})
+    prefs = []
+
+    def snap(lat, lon, max_distance_m=1000.0, prefer="main"):
+        prefs.append(prefer)
+        return {"snapped": True, "river_id": RID, "snap_lat": lat, "snap_lon": lon, "message": "Snapped 20 m."}
+
+    monkeypatch.setattr(rivers, "snap_to_river", snap)
     catalog.set_catalog([{"source": "usgs", "station_id": "USGS-1", "latitude": 40.0, "longitude": -75.0,
                           "name": "A RIVER"}])
     try:
@@ -322,6 +353,7 @@ def test_now_for_a_station_gives_status_and_the_corrected_forecast(models, monke
     assert "recent" not in res["status"]
     assert res["forecast"]["river_id"] == RID and res["forecast"]["correction"]["skill"]["corrected"]["kge"] is not None
     assert res["sentence"].startswith(res["status"]["sentence"])
+    assert prefs == ["nearest"]  # a gauge's position is on its own river
 
 
 def test_now_needs_a_proper_station():

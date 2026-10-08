@@ -65,6 +65,10 @@ def test_now_at_a_point_and_as_json(monkeypatch, capsys):
     _run(monkeypatch, "46.948", "7.452", "--days", "10", "--raw", "--json")
     assert json.loads(capsys.readouterr().out)["sentence"] == "s"
     assert (seen["lat"], seen["lon"], seen["days"], seen["correct"]) == (46.948, 7.452, 10, False)
+    assert seen["history"] is True
+    _run(monkeypatch, "46.948", "7.452", "--quick", "--json")
+    capsys.readouterr()
+    assert seen["history"] is False
 
 
 def test_now_without_a_place_says_what_to_give(monkeypatch, capsys):
@@ -85,6 +89,9 @@ def test_the_mcp_tools_are_registered_and_dispatch(monkeypatch):
     calls = []
     monkeypatch.setattr(nownext, "now", lambda lat=None, lon=None, **kw: calls.append((lat, lon, kw)) or NOW)
     assert mcp_server.flow_forecast(46.9, 7.4, days=7)["forecast"] is FC
+    assert calls[-1][2]["history"] is True
+    mcp_server.flow_forecast(46.9, 7.4, quick=True)
+    assert calls[-1][2]["history"] is False
     corr = mcp_server.correct_to_gauge("usgs", "USGS-1")
     assert calls[-1][2]["station"] == "usgs/USGS-1"
     assert corr["correction"]["skill_line"].startswith("Corrected forecast: KGE 0.47")

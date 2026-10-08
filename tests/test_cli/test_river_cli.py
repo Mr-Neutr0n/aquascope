@@ -31,7 +31,7 @@ def _run(monkeypatch, *argv):
 
 
 def test_river_snap_prints_the_reach(monkeypatch, capsys):
-    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: SNAP)
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0, **kw: SNAP)
     _run(monkeypatch, "snap", "46.948", "7.452")
     out = capsys.readouterr().out
     assert "Snapped 200 m to river reach 230260670" in out and "46.94980" in out
@@ -40,13 +40,16 @@ def test_river_snap_prints_the_reach(monkeypatch, capsys):
 def test_river_snap_json_on_a_hillside(monkeypatch, capsys):
     seen = {}
 
-    def fake(lat, lon, max_distance_m=1000.0):
-        seen["max"] = max_distance_m
+    def fake(lat, lon, max_distance_m=1000.0, prefer="main", area_km2=None):
+        seen.update(max=max_distance_m, prefer=prefer, area=area_km2)
         return HILLSIDE
 
     monkeypatch.setattr(rivers, "snap_to_river", fake)
     _run(monkeypatch, "snap", "46.6", "7.9", "--max-distance", "200", "--json")
     assert json.loads(capsys.readouterr().out)["snapped"] is False and seen["max"] == 200.0
+    assert seen["prefer"] == "main" and seen["area"] is None
+    _run(monkeypatch, "snap", "46.6", "7.9", "--nearest", "--area", "2941")
+    assert seen["prefer"] == "nearest" and seen["area"] == 2941.0
 
 
 def test_river_record_prints_the_modelled_table_and_writes_the_csv(monkeypatch, capsys, tmp_path):
@@ -151,7 +154,7 @@ def test_river_needs_a_reach_or_a_point(monkeypatch, capsys):
 def test_mcp_tools_wrap_the_engine(monkeypatch):
     from aquascope import mcp_server as m
 
-    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: SNAP)
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0, **kw: SNAP)
     assert m.snap_to_river(46.948, 7.452)["river_id"] == 230260670
     full = {**RECORD, "fdc": {"q95": 1, "q50": 2, "q10": 3, "exceedance": [1], "q": [1]}}
     monkeypatch.setattr(rivers, "reach_record", lambda *a, **k: json.loads(json.dumps(full)))

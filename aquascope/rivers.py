@@ -5,8 +5,10 @@ The unit is a GEOGLOWS v2 river reach (about 6.8 million of them, keyed by a
 the Explorer, the MCP server and the CLI:
 
 * :func:`snap_to_river` reads the global stream network (``streams.pmtiles``,
-  2.4 GB, read in place by byte ranges) around a point and returns the nearest
-  reach and how far it is, or says there is no stream within the tolerance.
+  2.4 GB, read in place by byte ranges) around a point and returns the reach it
+  stands for (the main channel among the reaches within the tolerance, or the
+  one whose upstream area matches a gauge's catchment) and how far it is, or
+  says there is no stream within the tolerance.
 * :func:`reach_record` fetches the reach's simulated daily discharge since 1940
   from the GEOGLOWS REST API and runs the same analysis a gauge gets
   (:func:`aquascope.explore.analyze_series`): annual maxima, return periods with
@@ -51,6 +53,8 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ATTRIBUTION",
     "forecast_stats",
+    "main_channel",
+    "match_by_area",
     "reach_record",
     "reach_summary",
     "reaches_near",
@@ -69,6 +73,9 @@ ROUTING_CONFIG = BUCKET + "/routing-configs/vpu={vpu}/{name}"
 #: deepest level, where nothing is dropped as too dense).
 SNAP_ZOOM = 12
 DEFAULT_MAX_DISTANCE_M = 1000.0
+#: How many Strahler orders bigger a river beyond the snap tolerance must be than the reach chosen before the snap
+#: names it (``larger``): a different size of river, not a neighbouring stream of the same size.
+LARGER_ORDER_GAP = 2
 RETRO_START = "1940-01-01"
 
 ATTRIBUTION = ("GEOGLOWS v2, the GEOGloWS ECMWF Streamflow Service: simulated discharge, CC BY 4.0. River network: "
@@ -153,7 +160,7 @@ _CLIENTS: dict[str, Any] = {}
 def _client(kind: str) -> Any:
     """One :class:`~aquascope.utils.http_client.CachedHTTPClient` per host role, made on first use."""
     if kind not in _CLIENTS:
-        from aquascope.archive.catalog import cache_dir
+        from aquascope.utils.cache import cache_dir
         from aquascope.utils.http_client import CachedHTTPClient
 
         where = cache_dir() / "geoglows"
@@ -576,87 +583,194 @@ def _check_point(lat: Any, lon: Any) -> tuple[float, float]:
     return lat_f, lon_f
 
 
-def snap_to_river(lat: float, lon: float, *, max_distance_m: float = DEFAULT_MAX_DISTANCE_M) -> dict[str, Any]:
-    """The GEOGLOWS v2 river reach nearest a point, and how far it is.
+_Candidate = tuple[float, Any, float, float]  # distance (zoom-12 units), Strahler order, nearest gx, gy
 
-    Reads the stream network tiles (zoom 12, where every reach is present) around the point and measures the
-    distance to each reach's line. Within ``max_distance_m`` the point snaps: ``snapped`` is True and
-    ``river_id``, ``strahler_order``, ``distance_m`` and the snapped position (``snap_lat``, ``snap_lon``)
-    describe the reach. Beyond it the answer says there is no stream within that distance, and ``nearest``
-    still names the closest reach found (searched out to three times the tolerance, at least 3 km), so a
-    caller can offer it rather than treat a hillside as a river.
 
-    Returns plain JSON, with ``message`` a sentence that says what happened.
-    """
-    lat, lon = _check_point(lat, lon)
-    max_d = max(1.0, float(max_distance_m))
-    search_m = max(3.0 * max_d, 3000.0)
+def _candidates(lat: float, lon: float, radius_m: float) -> tuple[dict[int, _Candidate], float]:
+    """Every reach with a line within ``radius_m`` of the point: ``river_id -> (distance in zoom-12 units, Strahler
+    order, nearest gx, nearest gy)``, and the metres per unit at this latitude."""
     z = SNAP_ZOOM
     gx, gy = _world(lon, lat, z)
     mpu = _metres_per_unit(lat, z)
-    best: tuple[float, int, int | None, float, float] | None = None
-    tiles = _tiles_around(gx, gy, search_m / mpu, z)
-    for tx, ty in tiles:
+    best: dict[int, _Candidate] = {}
+    for tx, ty in _tiles_around(gx, gy, radius_m / mpu, z):
         for rid, reach in _tile_reaches(z, tx, ty).items():
             for line in reach["lines"]:
                 for a, b in zip(line, line[1:]):
                     d, _t, qx, qy = _segment_distance(gx, gy, a[0], a[1], b[0], b[1])
-                    if best is None or d < best[0]:
-                        best = (d, rid, reach.get("order"), qx, qy)
+                    if d * mpu <= radius_m and (rid not in best or d < best[rid][0]):
+                        best[rid] = (d, reach.get("order"), qx, qy)
+    return best, mpu
+
+
+def _as_reach(rid: int, item: _Candidate, mpu: float) -> dict[str, Any]:
+    d, order, qx, qy = item
+    qlon, qlat = _lonlat(qx, qy, SNAP_ZOOM)
+    return {"river_id": rid, "strahler_order": order, "distance_m": round(d * mpu, 1),
+            "lat": round(qlat, 6), "lon": round(qlon, 6)}
+
+
+def main_channel(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The main stem among candidate reaches: the highest Strahler order, the nearer one on a tie.
+
+    A click beside a big river is often nearer a small tributary than the river's mapped centreline (a braided
+    river like the Jamuna is kilometres wide), and the nearest line then stands for a stream of a few m3/s.
+    Stream order is the one size the tile archive carries, so it ranks; distance breaks ties."""
+    if not candidates:
+        return None
+    return min(candidates, key=lambda r: (-(r.get("strahler_order") or 0), float(r.get("distance_m") or 0.0)))
+
+
+def match_by_area(candidates: list[dict[str, Any]], area_km2: float | None) -> dict[str, Any] | None:
+    """The candidate reach whose upstream area is closest (on a log scale) to a gauge's catchment area.
+
+    Each reach's area is summed from its processing unit's routing tables (:func:`upstream_area`); a reach whose
+    unit cannot be read is skipped. Returns ``{"reach", "upstream_area_km2", "area_ratio"}``, or None without an
+    area or when no candidate's area could be read. The evidence ladder (:mod:`aquascope.evidence`) and a gauge's
+    snap both use it, so a main-stem gauge gets the main stem."""
+    try:
+        target = float(area_km2) if area_km2 is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    if not target > 0 or not candidates:
+        return None
+    scored = []
+    for r in candidates:
+        try:
+            up = upstream_area(r["river_id"], lat=r.get("lat"), lon=r.get("lon"))["upstream_area_km2"]
+        except Exception as exc:  # noqa: BLE001 - one reach whose unit cannot be read does not stop the others
+            logger.info("upstream area unavailable for reach %s: %s", r["river_id"], exc)
+            continue
+        if up and float(up) > 0:
+            scored.append((abs(math.log(float(up) / target)), float(r.get("distance_m") or 0.0), r, float(up)))
+    if not scored:
+        return None
+    _gap, _d, r, up = min(scored, key=lambda x: (x[0], x[1]))
+    return {"reach": r, "upstream_area_km2": round(up, 1), "area_ratio": round(up / target, 3)}
+
+
+def snap_to_river(lat: float, lon: float, *, max_distance_m: float = DEFAULT_MAX_DISTANCE_M,
+                  prefer: str = "main", area_km2: float | None = None) -> dict[str, Any]:
+    """The GEOGLOWS v2 river reach a point stands for, and how far it is.
+
+    Reads the stream network tiles (zoom 12, where every reach is present) around the point and measures the
+    distance to each reach's line. Every reach within ``max_distance_m`` is a candidate, and the main channel
+    wins (``prefer="main"``, :func:`main_channel`): the highest Strahler order, the nearer on a tie. When a
+    smaller stream was nearer, ``nearer`` names it and ``message`` says so, and ``prefer="nearest"`` takes it
+    instead. With ``area_km2`` (a gauge's catchment area) the candidate whose upstream area matches it wins
+    (:func:`match_by_area`), and ``choice`` is ``"area"``; the match is made only when the reaches in reach
+    differ in stream order, since one river's neighbouring reaches need no telling apart.
+
+    ``snapped`` is True and ``river_id``, ``strahler_order``, ``distance_m`` and the snapped position
+    (``snap_lat``, ``snap_lon``) describe the chosen reach; ``choice`` says how it was chosen (``"nearest"``,
+    ``"main_channel"`` or ``"area"``), ``n_candidates`` how many reaches were in reach and ``mixed_orders``
+    whether they differ in stream order (where a gauge's area would decide). Beyond the tolerance
+    the answer says there is no stream within that distance, and ``nearest`` still names the closest reach found
+    (searched out to three times the tolerance, at least 3 km), so a caller can offer it rather than treat a
+    hillside as a river.
+
+    A braided river can be kilometres wide, so a click on its water may be more than the tolerance from the
+    mapped centreline and close to a small stream. When a river at least :data:`LARGER_ORDER_GAP` orders bigger
+    than the chosen (or nearest) reach lies beyond the tolerance but within the search, ``larger`` names it and
+    ``message`` says how far it is, so a caller can offer it; it is never taken silently.
+
+    Returns plain JSON, with ``message`` a sentence that says what happened.
+    """
+    lat, lon = _check_point(lat, lon)
+    if prefer not in ("main", "nearest"):
+        raise ValueError(f"prefer is 'main' or 'nearest', not {prefer!r}")
+    max_d = max(1.0, float(max_distance_m))
+    search_m = max(3.0 * max_d, 3000.0)
+    found, mpu = _candidates(lat, lon, search_m)
     out: dict[str, Any] = {
         "lat": round(lat, 6), "lon": round(lon, 6), "max_distance_m": max_d, "searched_m": search_m,
         "snapped": False, "river_id": None, "strahler_order": None, "distance_m": None,
-        "snap_lat": None, "snap_lon": None, "nearest": None,
+        "snap_lat": None, "snap_lon": None, "nearest": None, "nearer": None, "larger": None, "choice": None,
+        "n_candidates": 0, "mixed_orders": False,
         "source": "GEOGLOWS v2 stream network (TDX-Hydro), streams.pmtiles",
         "attribution": ATTRIBUTION, "licence": LICENCE,
     }
-    if best is None:
+    if not found:
         out["message"] = (f"No stream within {_fmt_distance(search_m)} of this point "
                           "(open water, or no river mapped here).")
         return out
-    d_m = best[0] * mpu
-    qlon, qlat = _lonlat(best[3], best[4], z)
-    nearest = {"river_id": best[1], "strahler_order": best[2], "distance_m": round(d_m, 1),
-               "lat": round(qlat, 6), "lon": round(qlon, 6)}
+    reaches = sorted((_as_reach(rid, item, mpu) for rid, item in found.items()), key=lambda r: r["distance_m"])
+    nearest = reaches[0]
     out["nearest"] = nearest
-    if d_m <= max_d:
-        out.update(snapped=True, river_id=best[1], strahler_order=best[2], distance_m=round(d_m, 1),
-                   snap_lat=nearest["lat"], snap_lon=nearest["lon"])
-        order = f", Strahler order {best[2]}" if best[2] is not None else ""
-        out["message"] = f"Snapped {_fmt_distance(d_m)} to river reach {best[1]}{order}."
-    else:
+    within = [r for r in reaches if r["distance_m"] <= max_d]
+    out["n_candidates"] = len(within)
+    out["mixed_orders"] = len({r["strahler_order"] for r in within}) > 1
+    if not within:
+        out["larger"] = _larger_beyond(reaches, max_d, nearest)
         out["message"] = (f"No stream within {_fmt_distance(max_d)} of this point. The nearest mapped reach is "
-                          f"{best[1]}, {_fmt_distance(d_m)} away.")
+                          f"{nearest['river_id']}, {_fmt_distance(nearest['distance_m'])} away."
+                          + _larger_sentence(out["larger"]))
+        return out
+    chosen, choice, matched = nearest, "nearest", None
+    # Reaches of one order in reach are one river's neighbouring reaches (or rivers of a size): the area match
+    # (which reads the unit's routing tables, up to about 30 MB) is spent only where the sizes differ.
+    if area_km2 is not None and out["mixed_orders"]:
+        matched = match_by_area(within, area_km2)
+        if matched is not None:
+            chosen, choice = matched["reach"], "area"
+    if matched is None and prefer == "main":
+        chosen = main_channel(within) or nearest
+        if chosen["river_id"] != nearest["river_id"]:
+            choice = "main_channel"
+    out.update(snapped=True, river_id=chosen["river_id"], strahler_order=chosen["strahler_order"],
+               distance_m=chosen["distance_m"], snap_lat=chosen["lat"], snap_lon=chosen["lon"], choice=choice)
+    if matched is not None:
+        out.update(upstream_area_km2=matched["upstream_area_km2"], area_ratio=matched["area_ratio"])
+    if chosen["river_id"] != nearest["river_id"]:
+        out["nearer"] = nearest
+    # A gauge matched by its catchment area has its river; a bigger one further off is not offered.
+    out["larger"] = None if matched is not None else _larger_beyond(reaches, max_d, chosen)
+    order = chosen["strahler_order"]
+    d = _fmt_distance(chosen["distance_m"])
+    if choice == "main_channel":
+        msg = (f"Snapped {d} to the main channel (river reach {chosen['river_id']}, order {order}); a smaller "
+               f"stream is {_fmt_distance(nearest['distance_m'])} away.")
+    elif choice == "area":
+        msg = (f"Snapped {d} to river reach {chosen['river_id']}, the one whose upstream area "
+               f"({matched['upstream_area_km2']:,.0f} km2) matches the catchment's")
+        msg += (f"; the nearest line is {_fmt_distance(nearest['distance_m'])} away." if out["nearer"] else ".")
+    else:
+        msg = f"Snapped {d} to river reach {chosen['river_id']}" + (f", Strahler order {order}." if order is not None
+                                                                     else ".")
+    out["message"] = msg + _larger_sentence(out["larger"])
     return out
+
+
+def _larger_beyond(reaches: list[dict[str, Any]], max_d: float, ref: dict[str, Any]) -> dict[str, Any] | None:
+    """The main channel beyond the tolerance, when it is at least :data:`LARGER_ORDER_GAP` orders bigger than
+    ``ref`` (the reach chosen, or the nearest one when none was in reach)."""
+    beyond = main_channel([r for r in reaches if r["distance_m"] > max_d])
+    if beyond is None or beyond.get("strahler_order") is None:
+        return None
+    if int(beyond["strahler_order"]) < int(ref.get("strahler_order") or 0) + LARGER_ORDER_GAP:
+        return None
+    return beyond
+
+
+def _larger_sentence(larger: dict[str, Any] | None) -> str:
+    if not larger:
+        return ""
+    return (f" A larger river (reach {larger['river_id']}, order {larger['strahler_order']}) is "
+            f"{_fmt_distance(larger['distance_m'])} away.")
 
 
 def reaches_near(lat: float, lon: float, *, max_distance_m: float = 2000.0, limit: int = 6) -> list[dict[str, Any]]:
     """The distinct river reaches within ``max_distance_m`` of a point, nearest first (at most ``limit``).
 
-    The same tile read as :func:`snap_to_river`, keeping every reach rather than the closest one: a gauge on a
+    The same tile read as :func:`snap_to_river`, keeping every reach rather than the chosen one: a gauge on a
     main stem sits a few hundred metres from its tributaries too, and the reach that matches it is the one whose
-    upstream area matches the gauge's catchment, not always the nearest line (:mod:`aquascope.evidence`).
+    upstream area matches the gauge's catchment (:func:`match_by_area`), not always the nearest line.
     Each item is ``{"river_id", "strahler_order", "distance_m", "lat", "lon"}``.
     """
     lat, lon = _check_point(lat, lon)
-    max_d = max(1.0, float(max_distance_m))
-    z = SNAP_ZOOM
-    gx, gy = _world(lon, lat, z)
-    mpu = _metres_per_unit(lat, z)
-    best: dict[int, tuple[float, int | None, float, float]] = {}
-    for tx, ty in _tiles_around(gx, gy, max_d / mpu, z):
-        for rid, reach in _tile_reaches(z, tx, ty).items():
-            for line in reach["lines"]:
-                for a, b in zip(line, line[1:]):
-                    d, _t, qx, qy = _segment_distance(gx, gy, a[0], a[1], b[0], b[1])
-                    if d * mpu <= max_d and (rid not in best or d < best[rid][0]):
-                        best[rid] = (d, reach.get("order"), qx, qy)
-    out = []
-    for rid, (d, order, qx, qy) in sorted(best.items(), key=lambda kv: kv[1][0])[: max(1, int(limit))]:
-        qlon, qlat = _lonlat(qx, qy, z)
-        out.append({"river_id": rid, "strahler_order": order, "distance_m": round(d * mpu, 1),
-                    "lat": round(qlat, 6), "lon": round(qlon, 6)})
-    return out
+    found, mpu = _candidates(lat, lon, max(1.0, float(max_distance_m)))
+    reaches = sorted((_as_reach(rid, item, mpu) for rid, item in found.items()), key=lambda r: r["distance_m"])
+    return reaches[: max(1, int(limit))]
 
 
 # ── the reach record ─────────────────────────────────────────────────────────

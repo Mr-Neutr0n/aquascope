@@ -5,16 +5,23 @@
 
 let pyodide = null;
 let ready = null;
+// A light worker (worker-client.js's pool) loads no pandas or scipy and answers only the calls that read the
+// network without them: a place's context layers, a click's river snap and the quick forecast. Several run at
+// once, so those reads no longer queue behind the main worker's record, one sync request after another.
+let lite = false;
+const LITE_TYPES = new Set(["context", "river", "now"]);
 
 function post(type, extra = {}) { self.postMessage({ type, ...extra }); }
 
-async function init({ pyodideIndexURL, wheelsJson }) {
+async function init({ pyodideIndexURL, wheelsJson, lite: light = false }) {
+  lite = Boolean(light);
   post("progress", { text: "Loading Python runtime (Pyodide)…" });
   importScripts(`${pyodideIndexURL}pyodide.js`);
   pyodide = await loadPyodide({ indexURL: pyodideIndexURL });
 
-  post("progress", { text: "Loading numpy, scipy, pandas…" });
-  await pyodide.loadPackage(["micropip", "numpy", "scipy", "pandas", "pydantic", "httpx"]);
+  post("progress", { text: lite ? "Loading numpy…" : "Loading numpy, scipy, pandas…" });
+  await pyodide.loadPackage(lite ? ["micropip", "numpy", "pydantic", "httpx"]
+    : ["micropip", "numpy", "scipy", "pandas", "pydantic", "httpx"]);
 
   post("progress", { text: "Installing aquascope…" });
   const wheels = await (await fetch(wheelsJson, { cache: "no-store" })).json();
@@ -34,16 +41,27 @@ async function init({ pyodideIndexURL, wheelsJson }) {
   } catch (err) {
     console.warn("could not pre-fetch the wheel, falling back to the URL:", err);
   }
-  await micropip.install(["pyodide-http", wheelSpec]);
+  if (lite) {
+    // Without the wheel's dependencies: pandas and scipy are what make the main worker heavy.
+    await micropip.install("pyodide-http");
+    await micropip.install.callKwargs(wheelSpec, { deps: false });
+  } else {
+    await micropip.install(["pyodide-http", wheelSpec]);
+  }
   pyodide.globals.set("_aq_build_revision", String(wheels.build || "unknown"));
+  pyodide.globals.set("_aq_lite", lite);
 
   await pyodide.runPythonAsync(`
 import json, logging, os
 os.environ["AQUASCOPE_REVISION"] = _aq_build_revision
 logging.basicConfig(level=logging.WARNING)
 import pyodide_http
-pyodide_http.patch_all()
-import aquascope.explore as analysis
+try:
+    pyodide_http.patch_all()
+except ImportError:  # no requests in a light worker
+    pyodide_http.patch_urllib()
+if not _aq_lite:
+    import aquascope.explore as analysis
 _STORE = {}
 `);
   post("ready");
@@ -96,7 +114,8 @@ from aquascope import rivers as _rivers
 _a = json.loads(${payload})
 _op, _k = _a["op"], _a["args"]
 if _op == "snap":
-    _res = _rivers.snap_to_river(_k["lat"], _k["lon"], max_distance_m=_k.get("max_distance_m") or 1000.0)
+    _res = _rivers.snap_to_river(_k["lat"], _k["lon"], max_distance_m=_k.get("max_distance_m") or 1000.0,
+                                 prefer=_k.get("prefer") or "main", area_km2=_k.get("area_km2"))
 elif _op == "record":
     _res = _rivers.reach_record(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"))
 elif _op == "trace":
@@ -134,8 +153,10 @@ json.dumps(_res, default=str)
 // Now and next (#517): aquascope.nownext, the same functions as `aquascope now` and the MCP tools. op "status"
 // places the stored gauge record's newest day (topped up from the agency) against the same days in other years;
 // op "forecast" reads GEOGLOWS and GloFAS for the reach and, with use_gauge, corrects GEOGLOWS to the stored
-// record. The gauge in the request must be the one in _STORE, so a reply for a gauge the reader has left is
-// never computed from the next one's record.
+// record. history false is the quick forecast (no 86-year simulated record, so no thresholds), which a light
+// worker answers first; known_geoglows hands the full call that answer's GEOGLOWS part so it is not read twice.
+// The gauge in the request must be the one in _STORE, so a reply for a gauge the reader has left is never
+// computed from the next one's record.
 async function nowNext({ id, op, args }) {
   const payload = JSON.stringify(JSON.stringify({ op: String(op || ""), args: args || {} }));
   const code = `
@@ -154,7 +175,9 @@ if _op == "status":
 elif _op == "forecast":
     _obs = _STORE.get("series") if (_k.get("use_gauge") and _mine) else None
     _res = _nn.forecast(_k.get("lat"), _k.get("lon"), river_id=_k.get("river_id"), obs=_obs,
-                        match_mean_flow=_k.get("match_mean_flow"), snap=False)
+                        match_mean_flow=_k.get("match_mean_flow"), snap=False,
+                        history=_k.get("history", True), glofas=_k.get("glofas", True),
+                        known_geoglows=_k.get("known_geoglows"))
 else:
     raise ValueError(f"unknown now operation {_op!r}")
 json.dumps(_res, default=str)
@@ -1075,6 +1098,7 @@ self.onmessage = async (e) => {
   try {
     if (m.type === "init") { ready = init(m); await ready; return; }
     await ready;
+    if (lite && !LITE_TYPES.has(m.type)) throw new Error(`a light worker does not run ${m.type}`);
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
     if (m.type === "river") return await river(m);

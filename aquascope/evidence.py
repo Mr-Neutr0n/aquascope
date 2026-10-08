@@ -334,9 +334,10 @@ def geoglows_site(lat: float, lon: float, area_km2: float | None = None, *,
     """The GEOGLOWS v2 reach that stands for the gauge.
 
     With the gauge's catchment area, every reach within ``max_distance_m`` (up to ``candidates``) has its upstream
-    area summed (:func:`aquascope.rivers.upstream_area`) and the one whose area is closest to the gauge's (on a log
-    scale) wins: a main-stem gauge then gets the main stem, not the tributary that happens to pass nearer. Without
-    an area the nearest reach is taken and the match is recorded as ``nearest``.
+    area summed and the one whose area is closest to the gauge's (on a log scale) wins
+    (:func:`aquascope.rivers.match_by_area`, which a gauge's snap uses too): a main-stem gauge then gets the main
+    stem, not the tributary that happens to pass nearer. Without an area the nearest reach is taken and the match
+    is recorded as ``nearest``.
 
     Returns ``{"site_id", "distance_m", "model_area_km2", "area_ratio", "match", "n_candidates"}`` or
     ``{"error": ...}``.
@@ -350,22 +351,15 @@ def geoglows_site(lat: float, lon: float, area_km2: float | None = None, *,
         r = near[0]
         return {"site_id": str(r["river_id"]), "distance_m": r["distance_m"], "model_area_km2": None,
                 "area_ratio": None, "match": "nearest", "n_candidates": len(near)}
-    scored = []
-    for r in near:
-        try:
-            up = rivers.upstream_area(r["river_id"], lat=r["lat"], lon=r["lon"])["upstream_area_km2"]
-        except Exception as exc:  # noqa: BLE001 - one reach whose unit cannot be read does not stop the others
-            logger.info("upstream area unavailable for reach %s: %s", r["river_id"], exc)
-            continue
-        if up and up > 0:
-            scored.append((abs(math.log(float(up) / float(area_km2))), r, float(up)))
-    if not scored:
+    matched = rivers.match_by_area(near, area_km2)
+    if matched is None:
         r = near[0]
         return {"site_id": str(r["river_id"]), "distance_m": r["distance_m"], "model_area_km2": None,
                 "area_ratio": None, "match": "nearest", "n_candidates": len(near)}
-    _gap, r, up = min(scored, key=lambda x: (x[0], x[1]["distance_m"]))
-    return {"site_id": str(r["river_id"]), "distance_m": r["distance_m"], "model_area_km2": round(up, 1),
-            "area_ratio": round(up / float(area_km2), 3), "match": "area", "n_candidates": len(near)}
+    r = matched["reach"]
+    return {"site_id": str(r["river_id"]), "distance_m": r["distance_m"],
+            "model_area_km2": matched["upstream_area_km2"], "area_ratio": matched["area_ratio"], "match": "area",
+            "n_candidates": len(near)}
 
 
 def geoglows_series(river_id: Any) -> Any:

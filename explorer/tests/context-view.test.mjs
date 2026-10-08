@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CONTEXT_LAYERS, boxProblem, contextLine, credits, floodPoints, floodYears, normaliseBox, pickChart, rainYears, titleCase,
+  CONTEXT_LAYERS, boxProblem, contextLine, credits, fetchOrder, floodPoints, floodYears, normaliseBox, pickChart, rainYears,
+  titleCase,
 } from "../src/context-view.js";
 
 const FLOODS = {
@@ -20,6 +21,14 @@ const RAIN = {
 test("the layers are listed once each, in the engine's names", () => {
   const ids = CONTEXT_LAYERS.map((l) => l.id);
   assert.deepEqual(ids, ["flood_history", "surface_water", "flood_hazard", "dams", "rain_gauge", "actual_et", "soil"]);
+});
+
+test("every layer is asked for once, quickest first, with Soil started early when workers run side by side", () => {
+  const ids = CONTEXT_LAYERS.map((l) => l.id).sort();
+  for (const n of [1, 3]) assert.deepEqual(fetchOrder(n).slice().sort(), ids);
+  assert.equal(fetchOrder(1)[0], "dams");
+  assert.equal(fetchOrder(1).at(-1), "soil");
+  assert.deepEqual(fetchOrder(3).slice(0, 3), ["dams", "soil", "rain_gauge"]);
 });
 
 test("a line says loading, the summary, an error, or a quiet not-yet", () => {
