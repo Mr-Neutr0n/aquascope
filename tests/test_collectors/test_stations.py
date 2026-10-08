@@ -144,17 +144,28 @@ class TestUSGSStations:
         assert ("https://example/next", None) in calls
         assert len(collector.stations(max_items=2)) == 2
 
-    def test_nwis_state_sweep_uses_aq_not_as(self):
+    def test_names_pass_asks_for_a_slim_page(self):
+        collector, client = self._collector()
+        collector.stations(bbox=(-77.3, 38.8, -77.0, 39.0))
+        loc_call = next(c for c in client.get_json.call_args_list if "monitoring-locations" in c.args[0])
+        params = loc_call.kwargs["params"]
+        assert params["skipGeometry"] == "true"
+        assert params["properties"] == "id,monitoring_location_name,drainage_area"
+        assert "api_key" not in params  # keyless: no key, not the shared DEMO_KEY
+
+    def test_failed_names_pass_returns_stations_without_names(self):
         client = MagicMock()
-        client.get_text.return_value = ""
-        collector = USGSCollector(api_key="DEMO_KEY", client=client)
-        collector._nwis_site_names(None)
-        state_codes = {
-            call.kwargs["params"]["stateCd"]
-            for call in client.get_text.call_args_list
-        }
-        assert "AQ" in state_codes
-        assert "AS" not in state_codes
+
+        def get_json(path, params=None, **kw):
+            if "time-series-metadata" in path:
+                return USGS_TS_PAGE
+            raise RuntimeError("429")
+
+        client.get_json.side_effect = get_json
+        stations = USGSCollector(api_key="DEMO_KEY", client=client).stations()
+        assert [s.station_id for s in stations] == ["USGS-01646000"] and stations[0].name is None
+        assert all("waterservices" not in str(c) for c in client.get_json.call_args_list)
+        client.get_text.assert_not_called()
 
 
 # ─── UK EA ───────────────────────────────────────────────────────────────────
