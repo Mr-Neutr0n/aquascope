@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 USGS_BASE = "https://api.waterdata.usgs.gov/ogcapi/v1"
 
+# Station names by id: sites per monitoring-locations request, and the most sites asked for that way per call.
+_NAME_LOOKUP_CHUNK = 100
+_NAME_LOOKUP_MAX_SITES = 2_000
+
 #: Older collection names (the v0 draft and the NWIS endpoints) -> the v1 collection that replaced them.
 COLLECTION_ALIASES: dict[str, str] = {
     "sta": "continuous",
@@ -483,8 +487,9 @@ class USGSCollector(BaseCollector):
                 loc_params["bbox"] = params["bbox"]
             if variable in (None, "discharge", "water_level"):
                 loc_params["site_type_code"] = "ST"
-            try:
-                for feat in self._paginate("collections/monitoring-locations/items", loc_params, max_items):
+
+            def _take(feats: list[dict]) -> None:
+                for feat in feats:
                     props = feat.get("properties", {})
                     loc_id = props.get("id") or feat.get("id")
                     if loc_id in by_site:
@@ -494,8 +499,34 @@ class USGSCollector(BaseCollector):
                                 areas[loc_id] = float(props["drainage_area"]) * MILES2_TO_KM2
                         except (TypeError, ValueError):
                             pass
-            except RuntimeError as exc:
-                logger.warning("USGS monitoring-locations lookup failed (%s); returning stations without names.", exc)
+
+            # A capped national call (no bbox, a few sites) would walk the first max_items stream sites of the
+            # whole country, which rarely include the ones found; asking for those sites by id is exact.
+            walk = bool(bbox) or max_items is None or len(by_site) > _NAME_LOOKUP_MAX_SITES
+            if walk:
+                try:
+                    _take(self._paginate("collections/monitoring-locations/items", loc_params, max_items))
+                except RuntimeError as exc:
+                    logger.warning("USGS monitoring-locations walk failed (%s); asking for the sites by id.", exc)
+            # Sites the walk missed (it failed, was capped, or the site is not a stream) are asked for by id,
+            # in small batches and at most _NAME_LOOKUP_MAX_SITES of them. The NWIS site service that used to be
+            # the fallback is retired (#515). Stations without names still beat no stations.
+            missing = [s for s in by_site if s not in names][:_NAME_LOOKUP_MAX_SITES]
+            id_params = {k: v for k, v in loc_params.items() if k not in ("bbox", "site_type_code", "limit")}
+            for i in range(0, len(missing), _NAME_LOOKUP_CHUNK):
+                chunk = missing[i : i + _NAME_LOOKUP_CHUNK]
+                try:
+                    page = self.client.get_json(
+                        "collections/monitoring-locations/items",
+                        params={**id_params, "id": ",".join(chunk), "limit": len(chunk)},
+                    )
+                except RuntimeError as exc:
+                    logger.warning(
+                        "USGS monitoring-locations lookup by id failed (%s); returning %d stations without names.",
+                        exc, sum(1 for s in by_site if s not in names),
+                    )
+                    break
+                _take(page.get("features", []))
 
         stations: list[Station] = []
         for site, entry in by_site.items():
