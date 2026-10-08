@@ -214,6 +214,26 @@ for the Explorer's Python worker, which has no Parquet reader. The manual `mirro
 publishes them; each step is also `python -m aquascope.archive.context_mirror <step>`. Global Water Watch is
 not mirrored: its data licence is not confirmed.
 
+## Issued forecasts and today's status (`forecasts/`)
+
+Once a day the `forecast-archive` workflow (#517) looks at the Archive's discharge gauges with a live record: a
+mirrored series of 10 years or more whose last value, after asking the agency for its newest days, is at most 3
+days old. It writes only under `forecasts/`; the catalogue and the observations are never touched.
+
+| path | what | licence |
+| --- | --- | --- |
+| `forecasts/status/latest.parquet` | each live gauge's flow today against normal: `source`, `station_id`, `value_date`, `value`, `percentile`, `class`, `n_years` (the Explorer's "Today vs normal" colouring) | derived from the mirrored observations |
+| `forecasts/status/latest.json` | when the snapshot was made, the sources it covers, the count per class | |
+| `forecasts/status/<date>.parquet` | the same snapshot, kept by date | |
+| `forecasts/issued/<date>.parquet` | for up to 250 of those gauges with a snapped GEOGLOWS reach: the GEOGLOWS and GloFAS forecasts as issued that day, one row per gauge, model and valid day, the ensemble statistics raw and (GEOGLOWS) corrected to the gauge, the lead day and the correction's hindcast KGE | GEOGLOWS v2 and Open-Meteo (GloFAS v4) output, both CC BY 4.0 |
+| `forecasts/reaches.parquet` | each gauge's GEOGLOWS `river_id`, the snap distance and the GloFAS cell used; IDs only, no geometry | |
+| `forecasts/manifest.json` | every issue date, how many gauges, and how many were dropped and why (the daily cap, the time budget, no fresh value, no river reach) | |
+
+The point of keeping what was issued is forecast skill at each lead time, measured later against what the gauge
+then recorded; the skill the Explorer shows today is the correction's skill on the simulation. Every step is also
+`python -m aquascope.archive.forecasts run|publish --out build`. A run with `max_items` set is a smoke run and
+never publishes.
+
 ## Caravan-format export
 
 `aquascope caravan export --source uk_ea --out caravan_gb` turns the archive

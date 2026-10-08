@@ -276,6 +276,7 @@
 
         <div class="tabs" role="tablist" aria-label="Station analyses">
           <button role="tab" data-tab="overview" aria-controls="tab-overview" aria-selected="true" id="t-overview">Overview</button>
+          <button role="tab" data-tab="now" aria-controls="tab-now" aria-selected="false" tabindex="-1" id="t-now">Now</button>
           <button role="tab" data-tab="floods" aria-controls="tab-floods" aria-selected="false" tabindex="-1" id="t-floods">Floods</button>
           <button role="tab" data-tab="flows" aria-controls="tab-flows" aria-selected="false" tabindex="-1" id="t-flows">Flows</button>
           <button role="tab" data-tab="model" aria-controls="tab-model" aria-selected="false" tabindex="-1" id="t-model">Model</button>
@@ -316,6 +317,10 @@
               <div class="card-title"><h3>Notes</h3></div>
               <div class="card-body"><ul id="notes"></ul></div>
             </div>
+          </section>
+
+          <section id="tab-now" role="tabpanel" aria-labelledby="t-now" tabindex="0" hidden>
+            <div id="st-now" class="now"></div>
           </section>
 
           <section id="tab-floods" role="tabpanel" aria-labelledby="t-floods" tabindex="0" hidden>
@@ -415,6 +420,7 @@
 
         <div class="tabs" role="tablist" aria-label="Point analyses">
           <button role="tab" data-tab="overview" aria-controls="pt-tab-overview" aria-selected="true" id="pt-t-overview">Overview</button>
+          <button role="tab" data-tab="now" aria-controls="pt-tab-now" aria-selected="false" tabindex="-1" id="pt-t-now">Now</button>
           <button role="tab" data-tab="river" aria-controls="pt-tab-river" aria-selected="false" tabindex="-1" id="pt-t-river">River</button>
           <button role="tab" data-tab="context" aria-controls="pt-tab-context" aria-selected="false" tabindex="-1" id="pt-t-context">Context</button>
           <button role="tab" data-tab="modelled" aria-controls="pt-tab-modelled" aria-selected="false" tabindex="-1" id="pt-t-modelled">Modelled</button>
@@ -451,6 +457,10 @@
               <div class="card-title"><h3>Notes</h3></div>
               <div class="card-body"><ul id="pt-notes"></ul></div>
             </div>
+          </section>
+
+          <section id="pt-tab-now" role="tabpanel" aria-labelledby="pt-t-now" tabindex="0" hidden>
+            <div id="pt-now" class="now"></div>
           </section>
 
           <section id="pt-tab-river" role="tabpanel" aria-labelledby="pt-t-river" tabindex="0" hidden>

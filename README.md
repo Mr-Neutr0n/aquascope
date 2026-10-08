@@ -57,6 +57,9 @@ Start with one task:
 - **Follow a river:** click anywhere and the point snaps to its river (or says no stream is near). The River
   tab shows 86 years of simulated daily flow for that reach, its return periods and flow-duration curve, and
   traces it to the sea past the gauges on the way. Simulated, and labelled so.
+- **Now and next:** a gauge's **Now** tab says where today's flow sits against normal for the date, and plots the
+  next 15 days from GEOGLOWS and GloFAS with the return-period lines, corrected to the gauge's own record with the
+  correction's skill beside it. The map can colour the gauges by today against normal. Model forecasts, labelled so.
 - **Read a place:** click anywhere and open **Context** for what flooded there before, how often the ground has
   been water since 1984, modelled flood depth, dams, soil, evaporation and the nearest rain gauge, each with its source.
 
@@ -124,6 +127,7 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 
 - 🌊 **Pull water data** from USGS, NOAA NWPS, Colorado DWR/CDSS, US Water Quality Portal, England's Environment Agency, France Hub'Eau, Germany PEGELONLINE, Ireland OPW, Greece Hydroscope and OpenHi.net, Poland IMGW-PIB, EU WFD, Taiwan MOENV/WRA/CWA/Civil IoT/DataGov, Japan MLIT, Korea WAMIS, India WRIS, South Africa DWS, Australia BOM, Brazil ANA Hidroweb, CAMELS-CL and CAMELS-BR, GRDC, GEMStat, Copernicus ERA5, OpenMeteo, FAO AQUASTAT, FAO WaPOR and UN SDG 6 — **one unified Python API**.
 - 🏞️ **Treat rivers as objects**: snap any point to its GEOGLOWS v2 river reach (about 6.8 million worldwide), read that reach's simulated daily flow since 1940 with return periods, flow-duration curve and monthly regime (labelled modelled), and trace it downstream to the sea with the gauges it passes. `aquascope river snap|record|area|trace`, the MCP tools, the Explorer's River tab, and the Studio's ungauged studies all use the same functions.
+- 🔭 **Now and next**: where a gauge's flow sits today against normal for the date (the USGS and WMO HydroSOS classes, at least 10 years behind it), and the next 15 days from GEOGLOWS and GloFAS with return-period thresholds, corrected to the gauge's record by flow-duration quantile mapping with the hindcast skill of that correction. A daily workflow archives the forecasts as issued, so real forecast skill builds up. `aquascope now`, the MCP tools, the Explorer's Now tab and its "Today vs normal" map colouring use the same functions.
 - 📈 **Run hydrological analyses** — flood frequency (GEV / LP3 / Gumbel / non-stationary GEV, with separate EMA routines), baseflow separation, rating curves, 22 hydrological signatures.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
@@ -341,7 +345,7 @@ Switch to MCMC with `degree>1` for polynomial models, or pass `prior_precision` 
 
 ## 💻 CLI
 
-AquaScope ships a 37-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
+AquaScope ships a 38-command CLI (`agri`, `basins`, `caravan`, `eval`, `gym`, `layers`, `playbooks` and `river` carry subcommands) for the most common workflows:
 
 ```bash
 # Find stations, then collect data
@@ -353,6 +357,7 @@ aquascope basins regionalize 52.29 -3.51          # estimated flow regime of an 
 aquascope river snap 46.948 7.452                 # the river reach at a point (GEOGLOWS v2), or "no stream within 1 km"
 aquascope river record --at 46.948 7.452          # that reach's simulated daily flow since 1940: return periods, FDC (modelled)
 aquascope river trace --at 46.948 7.452           # follow it to the sea: length, path, the gauges it passes
+aquascope now --station usgs/USGS-01350000        # today against normal, and the 15-day forecast corrected to the gauge
 aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
 aquascope context 51.86 5.95                      # flood history, surface water, flood depth, dams, rain gauge, ET and soil at a place
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive

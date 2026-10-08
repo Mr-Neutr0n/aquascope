@@ -8,7 +8,7 @@ import {
   basemapById, creditLines, defaultDate, overlayById, recordYears, yearsSinceLast,
 } from "./layers.js?v=__BUILD__";
 import {
-  areaSelectActive, currentBasemap, globeSupported, setBasemap, setGaugeStyle, setGlobe,
+  areaSelectActive, currentBasemap, globeSupported, refreshMapData, setBasemap, setGaugeStyle, setGlobe,
   setHeatmap, setHillshade, setOverlay, setOverlayOpacity, setTerrain, startAreaSelect,
 } from "./map.js?v=__BUILD__";
 import { syncTimeBar } from "./time-ui.js?v=__BUILD__";
@@ -17,6 +17,7 @@ import { RIVERS_CREDIT } from "./river-core.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
 import { openAreaStudy } from "./area-study.js?v=__BUILD__";
 import { cancelAreaContext, openAreaContext } from "./context.js?v=__BUILD__";
+import { ensureNowStatus, nowLegendHtml } from "./now-map.js?v=__BUILD__";
 
 // A tiny swatch standing in for each basemap, so eight radio rows become two
 // columns of chips you can pick from at a glance.
@@ -159,6 +160,7 @@ function gaugeLegendHtml(mode) {
   const swatch = (c, l) => `<span class="sw"><i style="background:${c}"></i>${escapeHtml(l)}</span>`;
   if (mode === "record") return RECORD_BREAKS.map((b) => swatch(b.color, b.label)).join("");
   if (mode === "recent") return RECENT_BREAKS.map((b) => swatch(b.color, b.label)).join("");
+  if (mode === "now") return nowLegendHtml();
   return "";
 }
 
@@ -171,6 +173,15 @@ function buildGaugeStyle() {
     $("gauge-legend").innerHTML = gaugeLegendHtml(state.gaugeStyle);
     $("gauge-legend").hidden = state.gaugeStyle === "source";
     $("rail-sources").classList.toggle("dimmed", state.gaugeStyle !== "source");
+    // Today vs normal reads the daily snapshot the first time it is picked, then colours the dots.
+    if (state.gaugeStyle === "now" && !state.nowStatus) {
+      ensureNowStatus().then(() => {
+        if (state.gaugeStyle !== "now") return;
+        refreshMapData();
+        setGaugeStyle("now");
+        $("gauge-legend").innerHTML = gaugeLegendHtml("now");
+      });
+    }
   };
   select.addEventListener("change", (e) => { state.gaugeStyle = e.target.value; apply(); writeUrl(); });
   const heat = $("toggle-heat");
