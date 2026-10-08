@@ -616,6 +616,7 @@ def test_notebook_is_valid_nbformat(ws) -> None:
 
 
 def test_build_adds_the_documents_and_the_zip_lists_them(ws) -> None:
+    ws = Workspace.from_json(ws.to_json())  # a copy: the fixture is shared by the module, and order varies
     before = len(ws.artifacts)
     added = bundle.build(ws)
     assert [a.id for a in added] == ["report-md", "report-html", "report-docx", "memo-docx", "memo-html",
@@ -667,6 +668,7 @@ def test_build_formats_subset(ws) -> None:
 
 
 def test_export_writes_every_artifact(ws, tmp_path) -> None:
+    ws = Workspace.from_json(ws.to_json())  # a copy, so the shared fixture never holds the built documents
     bundle.build(ws)
     paths = bundle.export(ws, tmp_path / "out")
     assert set(paths) == {a.id for a in ws.artifacts}

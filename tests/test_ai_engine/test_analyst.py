@@ -81,7 +81,9 @@ def test_ask_stops_at_max_steps():
 
 
 def test_resolve_llm_env_and_errors(monkeypatch):
-    for k in ("OPENAI_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "AQUASCOPE_LLM_API_KEY", "AQUASCOPE_LLM_BASE_URL"):
+    # every provider's variable, not a hand-picked few: an ANTHROPIC_API_KEY in the shell must not answer here
+    provider_vars = {cfg["env"] for cfg in analyst.PROVIDERS.values() if cfg["env"]}
+    for k in provider_vars | {"AQUASCOPE_LLM_API_KEY", "AQUASCOPE_LLM_BASE_URL", "AQUASCOPE_LLM_MODEL"}:
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(RuntimeError, match="No LLM configured"):
         analyst.resolve_llm()
