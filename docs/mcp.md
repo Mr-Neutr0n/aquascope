@@ -84,7 +84,7 @@ arrays in analyses): an assistant's context is not a data lake. Ask for
 
 ## Keys and terms
 
-Every tool works keyless. `USGS_API_KEY` in the environment lifts the shared demo-key throttling for USGS;
+Every tool works keyless. `USGS_API_KEY` in the environment raises the keyless USGS rate limit;
 `HF_TOKEN` is not needed to read the public catalog. Data licences are returned with every result;
 sources whose terms do not allow redistribution are still searchable but their observations are only
 ever fetched live from the agency, never mirrored.
