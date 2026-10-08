@@ -136,6 +136,25 @@ def test_nwm_daily_averages_hours_into_days_and_caps_the_chunks(stores):
     assert dropped == {"nwm_columns_over_cap": 1, "nwm_gauges_over_cap": 1}
 
 
+def test_nwm_daily_drops_the_padding_past_the_end_of_the_record(stores):
+    st = stores[skill.NWM_ZARR] = FakeStore(skill.NWM_ZARR)
+    st.array("feature_id", np.array([11, 22], dtype="<i8"), [2])
+    hours = 40                                             # the second time chunk is padded to 24 rows
+    st.array("streamflow", np.full((hours, 2), 500, dtype="<i4"), [24, 2], attrs={"scale_factor": 0.01})
+    st.array("time", np.arange(hours, dtype="<i8") + 23, [24])
+    s = skill.nwm_daily([22], years=1, workers=1)[22]
+    assert s.index.min() == pd.Timestamp("1979-02-02")    # no zero-flow day at the epoch from the padding
+    assert (s == 5.0).all()
+
+
+def test_nwm_daily_reads_the_chunks_left_out_last_month_first(stores):
+    _nwm_store(stores)
+    dropped: dict = {}
+    out = skill.nwm_daily([22, 44], years=1, max_columns=1, workers=1, dropped=dropped,
+                          last_scored={22: "2026-09-03T05:41:00+00:00"})
+    assert list(out) == [44]                               # 44 was never scored, so its chunk goes first
+
+
 # ── the build, end to end on a tiny archive ─────────────────────────────────
 
 
@@ -169,8 +188,8 @@ def _patch_build(monkeypatch, tmp_path):
     monkeypatch.setattr(skill, "_load_inputs", lambda archive: (catalog, obs, catch))
     monkeypatch.setattr(evidence, "geoglows_site", lambda lat, lon, area: {
         "site_id": "110000001", "distance_m": 50.0, "model_area_km2": 1010.0, "area_ratio": 1.01, "match": "area"})
-    monkeypatch.setattr(skill, "geoglows_daily", lambda ids: {110000001: q * 1.4})
-    monkeypatch.setattr(skill, "grrr_daily", lambda ids, max_chunks, dropped: {7000000001: q * 1.02,
+    monkeypatch.setattr(skill, "geoglows_daily", lambda ids, **kw: {110000001: q * 1.4})
+    monkeypatch.setattr(skill, "grrr_daily", lambda ids, max_chunks, dropped, **kw: {7000000001: q * 1.02,
                                                                                2000000001: q * 2.1})
     monkeypatch.setattr(skill, "nwm_feature_ids", lambda sites: {"01013500": (22, "nwm_gage")})
     monkeypatch.setattr(skill, "nwm_daily", lambda fids, **kw: {22: q * 0.9})
@@ -228,3 +247,36 @@ def test_publish_uploads_only_the_skill_folder(monkeypatch, tmp_path):
     assert skill.publish(tmp_path / "out", token="t") == "https://hf/commit"
     assert seen["files"] == ["skill/manifest.json", "skill/model_skill.parquet"]
     assert seen["msg"].startswith("model skill: 5 rows")
+
+
+def test_a_model_left_out_this_run_keeps_last_months_row(monkeypatch, tmp_path):
+    q = _patch_build(monkeypatch, tmp_path)
+    skill.build(tmp_path / "a", tmp_path / "out")
+    first = pd.read_parquet(tmp_path / "out" / "model_skill.parquet")
+
+    def nwm_down(fids, **kw):
+        raise RuntimeError("store unreachable")
+
+    monkeypatch.setattr(skill, "nwm_daily", nwm_down)
+    monkeypatch.setattr(skill, "grrr_daily", lambda ids, **kw: {7000000001: q * 3.0, 2000000001: q * 2.1})
+    m = skill.build(tmp_path / "a", tmp_path / "out")
+    df = pd.read_parquet(tmp_path / "out" / "model_skill.parquet")
+    usgs = df[df["source"] == "usgs"].set_index("model")
+    assert set(usgs.index) == {"geoglows", "grrr", "nwm"} and m["failures"]["nwm_read_failed"] == 1
+    old_nwm = first[(first["source"] == "usgs") & (first["model"] == "nwm")].iloc[0]
+    assert usgs.loc["nwm", "computed_at"] == old_nwm["computed_at"]          # carried, not rescored
+    assert usgs.loc["nwm", "kge"] == pytest.approx(old_nwm["kge"])
+    # GRRR got worse this month, so the best mark moves to the carried NWM row: one best per gauge
+    assert usgs.loc["nwm", "is_best"] and not usgs.loc["grrr", "is_best"]
+    assert df.groupby(["source", "station_id"])["is_best"].sum().max() == 1
+
+
+def test_a_gauge_the_archive_no_longer_mirrors_is_let_go(monkeypatch, tmp_path):
+    _patch_build(monkeypatch, tmp_path)
+    skill.build(tmp_path / "a", tmp_path / "out")
+    catalog, obs, catch, _q = _archive()
+    obs = obs[obs["station_id"] != "abc"]
+    monkeypatch.setattr(skill, "_load_inputs", lambda archive: (catalog, obs, catch))
+    skill.build(tmp_path / "a", tmp_path / "out")
+    df = pd.read_parquet(tmp_path / "out" / "model_skill.parquet")
+    assert "abc" not in set(df["station_id"])

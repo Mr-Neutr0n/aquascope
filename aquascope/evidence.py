@@ -150,6 +150,12 @@ def _daily(s: Any) -> Any:
     return s.resample("D").mean().dropna()
 
 
+def _is_cms(unit: str) -> bool:
+    """True for the spellings of cubic metres per second the collectors use (m3/s, m³/s, cms, ...)."""
+    u = str(unit or "").lower().replace(" ", "")
+    return u in {"m3/s", "m³/s", "m^3/s", "m3s-1", "m3.s-1", "cms", "cumecs"}
+
+
 def _label(model: str) -> str:
     return str(MODELS.get(model, {}).get("label") or model)
 
@@ -534,8 +540,13 @@ def model_skill(
 
         fetched = fetch_series(source, station_id, variable="discharge")
         series = fetched.get("series")
+        unit = str(fetched.get("unit") or "")
         if fetched.get("variable") != "discharge":
             series = None
+        elif unit and not _is_cms(unit):
+            # every model speaks m3/s; a record in another unit would score as a huge bias, so it is not scored
+            series = None
+            notes.append(f"The gauge's discharge is in {unit}, not m3/s, so the models are not scored against it.")
     obs = _daily(series)
     if lat is None or lon is None:
         raise ValueError("the gauge's position is unknown: pass lat and lon")
@@ -546,8 +557,8 @@ def model_skill(
         "computed": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     if len(obs) < 2:
-        return {**base, "models": [], "error": "no daily discharge record at this gauge to score models against",
-                **summarize([])}
+        return {**base, "models": [], "error": "no daily discharge record in m3/s at this gauge to score models "
+                "against", **summarize([]), "notes": notes}
     if years:
         obs = obs[obs.index >= obs.index.max() - pd.Timedelta(days=int(float(years) * 365.25))]
     base.update(obs_start=obs.index.min().strftime("%Y-%m-%d"), obs_end=obs.index.max().strftime("%Y-%m-%d"),

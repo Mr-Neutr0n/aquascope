@@ -196,6 +196,27 @@ def test_model_skill_needs_a_record_and_a_place():
     assert empty["models"] == [] and "no daily discharge" in empty["error"]
 
 
+def test_model_skill_does_not_score_a_record_in_another_unit(monkeypatch):
+    from aquascope import explore
+
+    monkeypatch.setattr(explore, "fetch_series", lambda source, station_id, variable=None: {
+        "series": _gauge() * 35.3147, "variable": "discharge", "unit": "ft3/s"})
+    res = evidence.model_skill("x", "1", lat=1.0, lon=2.0, area_km2=100.0, published=[])
+    assert res["models"] == [] and "m3/s" in res["error"]
+    assert any("ft3/s" in n for n in res["notes"])
+
+
+def test_model_skill_scores_a_station_record_in_m3s(monkeypatch):
+    from aquascope import explore
+
+    obs = _gauge()
+    _patch_models(monkeypatch, obs)
+    monkeypatch.setattr(explore, "fetch_series", lambda source, station_id, variable=None: {
+        "series": obs, "variable": "discharge", "unit": "m³/s"})
+    res = evidence.model_skill("x", "1", lat=1.0, lon=2.0, area_km2=100.0, models=["geoglows"], published=[])
+    assert res["models"][0]["kge"] is not None and not res.get("error")
+
+
 def test_model_skill_keeps_the_last_n_years(monkeypatch):
     obs = _gauge(years=40)
     _patch_models(monkeypatch, obs)

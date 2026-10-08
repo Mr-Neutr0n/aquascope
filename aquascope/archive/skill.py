@@ -36,6 +36,7 @@ import math
 import os
 import re
 import tempfile
+import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -67,6 +68,7 @@ CI_MODELS = ("geoglows", "nwm", "grrr")
 # ── HTTP and chunk decoding (tests replace _get) ────────────────────────────
 
 _HTTP: Any = None
+_HTTP_LOCK = threading.Lock()
 
 
 def _get(url: str) -> bytes:
@@ -74,8 +76,9 @@ def _get(url: str) -> bytes:
     global _HTTP
     import httpx
 
-    if _HTTP is None:
-        _HTTP = httpx.Client(timeout=180.0, follow_redirects=True)
+    with _HTTP_LOCK:  # the readers fetch chunks from several threads; one shared client
+        if _HTTP is None:
+            _HTTP = httpx.Client(timeout=180.0, follow_redirects=True)
     last: Exception | None = None
     for attempt in range(3):
         try:
@@ -153,8 +156,9 @@ def _daily_from(values: Any, times: Any) -> Any:
 # ── GEOGLOWS v2 (the daily Zarr) ────────────────────────────────────────────
 
 
-def geoglows_daily(river_ids: list[int], *, store: _Zarr | None = None) -> dict[int, Any]:
-    """Daily discharge per reach from the GEOGLOWS v2 retrospective Zarr (reaches sharing a chunk read once)."""
+def geoglows_daily(river_ids: list[int], *, store: _Zarr | None = None, workers: int = 8) -> dict[int, Any]:
+    """Daily discharge per reach from the GEOGLOWS v2 retrospective Zarr (reaches sharing a chunk read once,
+    ``workers`` reach chunks at a time: a full run reads thousands of them)."""
     import numpy as np
     import pandas as pd
 
@@ -175,12 +179,15 @@ def geoglows_daily(river_ids: list[int], *, store: _Zarr | None = None) -> dict[
         if k < len(sorted_ids) and sorted_ids[k] == rid:
             col = int(order[k])
             by_col[col // cch].append((rid, col % cch))
-    out: dict[int, Any] = {}
-    for cc, members in by_col.items():
+    def read(cc: int) -> dict[int, Any]:
         blocks = [z.chunk("Q", ti, cc) for ti in range((n_t + tch - 1) // tch)]
         full = np.concatenate(blocks, axis=0)[:n_t]
-        for rid, j in members:
-            out[rid] = _daily_from(full[:, j].astype(float), times)
+        return {rid: _daily_from(full[:, j].astype(float), times) for rid, j in by_col[cc]}
+
+    out: dict[int, Any] = {}
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+        for part in pool.map(read, list(by_col)):
+            out.update(part)
     return out
 
 
@@ -223,11 +230,14 @@ def nwm_feature_ids(sites: list[str], *, store: _Zarr | None = None, nldi: bool 
 
 
 def nwm_daily(feature_ids: list[int], *, years: int = DEFAULT_NWM_YEARS, max_columns: int = DEFAULT_NWM_MAX_COLUMNS,
-              workers: int = 8, store: _Zarr | None = None, dropped: dict[str, Any] | None = None) -> dict[int, Any]:
+              workers: int = 8, store: _Zarr | None = None, dropped: dict[str, Any] | None = None,
+              last_scored: dict[int, str] | None = None) -> dict[int, Any]:
     """Daily mean discharge per NWM reach over the last ``years`` of the retrospective.
 
-    Reaches are grouped by the 30,000-reach chunk they sit in; at most ``max_columns`` such chunks are read (the
-    ones holding the most gauges first) and the rest are reported in ``dropped``.
+    Reaches are grouped by the 30,000-reach chunk they sit in; at most ``max_columns`` such chunks are read and
+    the rest are reported in ``dropped``. ``last_scored`` (feature id -> when its row was last computed) puts the
+    chunks whose reaches were never scored, or scored longest ago, first, so the chunks left out this month come
+    first next month; among equals, the chunks holding the most gauges go first.
     """
     import numpy as np
     import pandas as pd
@@ -247,7 +257,8 @@ def nwm_daily(feature_ids: list[int], *, years: int = DEFAULT_NWM_YEARS, max_col
     for f in sorted(set(int(x) for x in feature_ids)):
         if f in pos:
             by_col[pos[f] // cch].append((f, pos[f] % cch))
-    cols = sorted(by_col, key=lambda c: (-len(by_col[c]), c))
+    seen = last_scored or {}
+    cols = sorted(by_col, key=lambda c: (min(seen.get(f, "") for f, _j in by_col[c]), -len(by_col[c]), c))
     keep, skip = cols[:max(0, int(max_columns))], cols[max(0, int(max_columns)):]
     if dropped is not None and skip:
         dropped["nwm_columns_over_cap"] = len(skip)
@@ -273,7 +284,8 @@ def nwm_daily(feature_ids: list[int], *, years: int = DEFAULT_NWM_YEARS, max_col
             parts = dict(pool.map(read, t_chunks))
         vals = np.concatenate([parts[ti] for ti in t_chunks], axis=0)
         hours = np.concatenate([time_blocks[ti] for ti in t_chunks])
-        n = min(len(hours), len(vals))
+        # the last time chunk is padded past the end of the record (hour 0, missing flow): keep only real hours
+        n = min(len(hours), len(vals), n_t - first * tch)
         valid = hours[:n] >= 0
         times = epoch + pd.to_timedelta(hours[:n][valid], unit="h")
         for k, (f, _j) in enumerate(members):
@@ -286,8 +298,9 @@ def nwm_daily(feature_ids: list[int], *, years: int = DEFAULT_NWM_YEARS, max_col
 
 
 def grrr_daily(hybas_ids: list[int], *, max_chunks: int = DEFAULT_GRRR_MAX_CHUNKS, store: _Zarr | None = None,
-               dropped: dict[str, Any] | None = None) -> dict[int, Any]:
-    """Daily discharge per HydroBASINS level-12 outlet from the GRRR reanalysis (128 basins a chunk)."""
+               dropped: dict[str, Any] | None = None, workers: int = 8) -> dict[int, Any]:
+    """Daily discharge per HydroBASINS level-12 outlet from the GRRR reanalysis (128 basins a chunk, ``workers``
+    chunks at a time)."""
     import numpy as np
     import pandas as pd
 
@@ -310,11 +323,14 @@ def grrr_daily(hybas_ids: list[int], *, max_chunks: int = DEFAULT_GRRR_MAX_CHUNK
     keep, skip = rows[:max(0, int(max_chunks))], rows[max(0, int(max_chunks)):]
     if dropped is not None and skip:
         dropped["grrr_chunks_over_cap"] = len(skip)
-    out: dict[int, Any] = {}
-    for r in keep:
+    def read(r: int) -> dict[int, Any]:
         block = np.concatenate([z.chunk("streamflow", r, ti) for ti in range((n_t + tch - 1) // tch)], axis=1)[:, :n_t]
-        for h, i in by_row[r]:
-            out[h] = _daily_from(block[i].astype(float), times)
+        return {h: _daily_from(block[i].astype(float), times) for h, i in by_row[r]}
+
+    out: dict[int, Any] = {}
+    with ThreadPoolExecutor(max_workers=max(1, int(workers))) as pool:
+        for part in pool.map(read, keep):
+            out.update(part)
     return out
 
 
@@ -391,10 +407,13 @@ def build(archive: str | Path, out: str | Path, *, max_gauges: int = DEFAULT_MAX
         candidates.append((src, str(sid)))
     prev = _previous(out_dir, archive)
     last: dict[tuple[str, str], str] = {}
+    nwm_last: dict[int, str] = {}
     if prev is not None and len(prev):
-        for r in prev[["source", "station_id", "computed_at"]].drop_duplicates(["source", "station_id"]).to_dict(
-                "records"):
-            last[(r["source"], str(r["station_id"]))] = str(r["computed_at"])
+        for r in prev[["source", "station_id", "model", "site_id", "computed_at"]].to_dict("records"):
+            k, stamp = (r["source"], str(r["station_id"])), str(r["computed_at"])
+            last[k] = max(last.get(k, ""), stamp)
+            if r["model"] == "nwm" and str(r["site_id"]).isdigit():
+                nwm_last[int(r["site_id"])] = max(nwm_last.get(int(r["site_id"]), ""), stamp)
     candidates.sort(key=lambda k: (last.get(k, ""), k))
     if smoke:
         # a few gauges from each source in turn, and a light NWM read, so a smoke run touches every reader cheaply
@@ -446,7 +465,7 @@ def build(archive: str | Path, out: str | Path, *, max_gauges: int = DEFAULT_MAX
         ok = {k: s for k, s in sites.items() if not s.get("error")}
         errors["geoglows_no_reach"] += len(sites) - len(ok)
         try:
-            got = geoglows_daily([int(s["site_id"]) for s in ok.values()])
+            got = geoglows_daily([int(s["site_id"]) for s in ok.values()], workers=workers)
         except Exception as exc:  # noqa: BLE001 - one model failing leaves the others
             logger.warning("GEOGLOWS Zarr unreadable: %s", exc)
             got, errors["geoglows_read_failed"] = {}, len(ok)
@@ -461,7 +480,7 @@ def build(archive: str | Path, out: str | Path, *, max_gauges: int = DEFAULT_MAX
             if c and c.get("hybas_id"):
                 want[k] = int(c["hybas_id"])
         try:
-            got = grrr_daily(list(want.values()), max_chunks=grrr_max_chunks, dropped=dropped)
+            got = grrr_daily(list(want.values()), max_chunks=grrr_max_chunks, dropped=dropped, workers=workers)
         except Exception as exc:  # noqa: BLE001
             logger.warning("GRRR store unreadable: %s", exc)
             got, errors["grrr_read_failed"] = {}, len(want)
@@ -481,7 +500,7 @@ def build(archive: str | Path, out: str | Path, *, max_gauges: int = DEFAULT_MAX
             try:
                 fids = nwm_feature_ids(sorted(set(sites_us.values())))
                 got = nwm_daily([f for f, _how in fids.values()], years=nwm_years, max_columns=nwm_max_columns,
-                                workers=workers, dropped=dropped)
+                                workers=workers, dropped=dropped, last_scored=nwm_last)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("NWM store unreadable: %s", exc)
                 fids, got, errors["nwm_read_failed"] = {}, {}, len(sites_us)
@@ -505,16 +524,19 @@ def build(archive: str | Path, out: str | Path, *, max_gauges: int = DEFAULT_MAX
             row.update(source=k[0], station_id=k[1], lat=_f(r["latitude"]), lon=_f(r["longitude"]),
                        area_km2=area_of(k), computed_at=now)
             mine.append(row)
-        best = evidence.summarize(mine).get("best")
-        for row in mine:
-            row["is_best"] = row["model"] == best
         rows.extend(mine)
     table = pd.DataFrame(rows)
     if prev is not None and len(prev) and not smoke:
-        done = {(s, str(i)) for s, i in run}
-        carried = prev[[(s, str(i)) not in done for s, i in zip(prev["source"], prev["station_id"])]]
+        # Last month's row for every (gauge, model) this run did not score: the gauges over the cap, and the
+        # models a gauge's run left out (an NWM chunk over its cap, a store that could not be read this time).
+        # Gauges the Archive no longer mirrors are let go.
+        fresh = {(s, str(i), m) for s, i, m in zip(table["source"], table["station_id"], table["model"])} \
+            if len(table) else set()
+        mirrored = set(candidates)
+        carried = prev[[(s, str(i), m) not in fresh and (s, str(i)) in mirrored
+                        for s, i, m in zip(prev["source"], prev["station_id"], prev["model"])]]
         table = pd.concat([table, carried], ignore_index=True) if len(table) else carried
-    table = _tidy(table)
+    table = _mark_best(_tidy(table))
     path = out_dir / "model_skill.parquet"
     table.to_parquet(path, index=False)
     counts = {m: int((table["model"] == m).sum()) if len(table) else 0 for m in models}
@@ -572,6 +594,17 @@ def _tidy(df: Any) -> Any:
         df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
     df["is_best"] = df["is_best"].fillna(False).astype(bool)
     return df.sort_values(["source", "station_id", "model"]).reset_index(drop=True)
+
+
+def _mark_best(df: Any) -> Any:
+    """``is_best`` on the graded row with the highest KGE at each gauge (fresh and carried rows alike)."""
+    if not len(df):
+        return df
+    df["is_best"] = False
+    graded = df[df["grade"].notna() & df["kge"].notna()]
+    if len(graded):
+        df.loc[graded.groupby(["source", "station_id"])["kge"].idxmax().to_numpy(), "is_best"] = True
+    return df
 
 
 def publish(out: str | Path, *, repo_id: str = "Rekin226/aquascope-gauges", token: str | None = None) -> str:
