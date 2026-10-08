@@ -234,6 +234,22 @@ then recorded; the skill the Explorer shows today is the correction's skill on t
 `python -m aquascope.archive.forecasts run|publish --out build`. A run with `max_items` set is a smoke run and
 never publishes.
 
+## Monthly bulletins (`bulletins/`)
+
+On the 3rd of every month the `bulletin` workflow (#523) writes last month's state of
+the rivers: each gauge's monthly mean against the same month in its other years, in the
+HydroSOS classes, rolled up per country and per river basin. It writes only under
+`bulletins/`; the catalogue and the observations are never touched.
+
+| path | what | licence |
+| --- | --- | --- |
+| `bulletins/<YYYY-MM>/bulletin.html`, `bulletin.md`, `map.png` | the bulletin, print-ready, and its map | derived from the mirrored observations; sources listed in each bulletin |
+| `bulletins/<YYYY-MM>/bulletin.json` | every number, the per-gauge list included | |
+| `bulletins/<YYYY-MM>/status.parquet` | one row per classed gauge: `source`, `station_id`, `month`, `value`, `n_days`, `percentile`, `class`, `n_years`, `median`, `ratio`, `record`, `country`, `basin_id` | |
+| `bulletins/index.json` | every month published, newest first | |
+
+Share-alike sources are left out of it. See [the bulletin](bulletin.md) for the method.
+
 ## Caravan-format export
 
 `aquascope caravan export --source uk_ea --out caravan_gb` turns the archive

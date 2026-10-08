@@ -1256,6 +1256,46 @@ def cmd_evidence(args: argparse.Namespace) -> None:
     sys.exit(skill.main(["publish", "--out", args.out, "--repo", args.repo]))
 
 
+def cmd_bulletin(args: argparse.Namespace) -> None:
+    """`aquascope bulletin [YYYY-MM]`: the month's state of the rivers, HydroSOS style (#523)."""
+    from aquascope import bulletin
+
+    try:
+        res = bulletin.status_bulletin(args.month, args.sources, archive=args.archive, rebuild=args.rebuild,
+                                       top_up=args.top_up, workers=args.workers)
+    except ValueError as exc:
+        print(f"  {exc}")
+        sys.exit(2)
+    if args.out:
+        written = bulletin.write_bulletin(res, args.out, figure=not args.no_map)
+        if not args.json:
+            for what, path in written.items():
+                print(f"  {what:<8} -> {path}")
+    if args.json:
+        print(json.dumps(res if args.gauges else {k: v for k, v in res.items() if k != "gauges"}, indent=2,
+                         ensure_ascii=False, default=str))
+        return
+    where = "published" if res.get("origin") == "published" else "built from the Archive's discharge records"
+    print(f"  {res['title']}, {res['label']} ({where})")
+    print(f"  {res['summary']}")
+    cov = res["coverage"]
+    if cov["classed"]:
+        print()
+        print(f"  {'Country':<16} {'Gauges':>6}  {'Much below':>10} {'Below':>6} {'Normal':>6} {'Above':>6} "
+              f"{'Much above':>10}  Median pct")
+        order = ("much_below", "below", "normal", "above", "much_above")
+        for c in res["countries"]:
+            k = [c["counts"][x] for x in order]
+            print(f"  {c['name'][:16]:<16} {c['n']:>6}  {k[0]:>10} {k[1]:>6} {k[2]:>6} {k[3]:>6} {k[4]:>10}  "
+                  f"{c['median_percentile']:.0f} ({c['median_label']})")
+    left = {k: v for k, v in cov["excluded"].items() if v}
+    if left:
+        print()
+        print("  Left out: " + "; ".join(f"{v:,} with {cov['excluded_text'][k]}" for k, v in left.items()) + ".")
+    if not args.out:
+        print("  Write the HTML, Markdown, map and status table with --out DIR.")
+
+
 def cmd_now(args: argparse.Namespace) -> None:
     """`aquascope now LAT LON | --station SOURCE/ID | --river-id ID`: today against normal and the next 15 days."""
     from aquascope import nownext
@@ -3859,6 +3899,18 @@ def main() -> None:
     p_lframes.add_argument("--max-frames", type=int, default=60)
     p_lframes.add_argument("--json", action="store_true")
     # ── basins ───────────────────────────────────────────────────────
+    p_bul = sub.add_parser("bulletin", help="The month's state of the rivers: every Archive gauge against normal, "
+                           "HydroSOS classes")
+    p_bul.add_argument("month", nargs="?", default=None, help="YYYY-MM (default: the last full month)")
+    p_bul.add_argument("--sources", nargs="+", default=None, help="Only these sources (usgs, uk_ea, ...)")
+    p_bul.add_argument("--archive", default=None, help="A local copy of the Archive dataset instead of the Hub")
+    p_bul.add_argument("--rebuild", action="store_true", help="Build it even when a bulletin is published")
+    p_bul.add_argument("--top-up", type=int, default=0, help="Ask the agencies for up to N gauges' missing days")
+    p_bul.add_argument("--workers", type=int, default=4)
+    p_bul.add_argument("--out", default=None, help="Write bulletins/<month>/ (HTML, Markdown, map, status) here")
+    p_bul.add_argument("--no-map", action="store_true", help="Leave the map out (no matplotlib needed)")
+    p_bul.add_argument("--gauges", action="store_true", help="With --json, include every classed gauge")
+    p_bul.add_argument("--json", action="store_true")
     p_now = sub.add_parser("now", help="Today against normal and the next 15 days (GEOGLOWS, GloFAS), corrected to a gauge")
     p_now.add_argument("coords", nargs="*", type=float, metavar="LAT LON", help="A point, snapped to its river reach")
     p_now.add_argument("--station", default=None, metavar="SOURCE/ID", help="A gauge: its status, and the forecast "
@@ -4595,6 +4647,7 @@ def main() -> None:
         "river": cmd_river,
         "evidence": cmd_evidence,
         "now": cmd_now,
+        "bulletin": cmd_bulletin,
         "assess": cmd_assess,
         "context": cmd_context,
         "area-study": cmd_area_study,
