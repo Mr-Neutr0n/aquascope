@@ -905,6 +905,46 @@ def studio_export(workspace: dict[str, Any], out_dir: str) -> dict[str, Any]:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
+MAX_EXPORT_CHARS = 60_000
+
+
+def engineering_export(
+    source: str, station_id: str, tool: str, years: int | None = None, variable: str | None = None,
+    regional_skew: float | None = None, regional_skew_mse: float | None = None, out_dir: str | None = None,
+    max_chars: int = MAX_EXPORT_CHARS,
+) -> dict[str, Any]:
+    """Inputs for an engineering tool from a gauge's record: tool is one of hec-hms, hec-ras, hec-ssp, dss,
+    swmm, modflow6, fews, raven (or "all"). Returns each file's text (a long file is cut at max_chars and marked
+    truncated) and the notes to read before using it; pass out_dir to also write the files there. hec-ssp adds
+    the Bulletin 17C settings and AquaScope's own result to compare; regional_skew weights its skew. DSS is a
+    real .dss where HEC's hecdss loads, else the CSV hecdss reads.
+    """
+    from aquascope.io import engineering as eng
+
+    if source not in SOURCES:
+        return {"error": f"unknown source {source!r}"}
+    if tool != "all" and tool not in eng.TOOLS:
+        return {"error": f"unknown tool {tool!r}; choose from {', '.join(eng.TOOLS)} or all"}
+    try:
+        res = eng.export_station(source, station_id, tool, years=int(years) if years else None, variable=variable,
+                                 regional_skew=regional_skew, regional_skew_mse=regional_skew_mse)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" in res:
+        return res
+    if out_dir:
+        res["written"] = eng.write_files(eng.files_from(res), out_dir)
+    for f in res["files"]:
+        f.pop("base64", None)  # a binary .dss stays on disk (out_dir), never in the reply
+        text = f.get("text")
+        if isinstance(text, str) and len(text) > max_chars:
+            f["text"] = text[:max_chars]
+            f["truncated"] = True
+    meta = SOURCES[source]
+    res.update({"license": meta.license, "attribution": meta.attribution})
+    return res
+
+
 def _sparkline(values: list[float], width: int = 560, height: int = 120) -> str:
     """A dependency-free hydrograph: the shape of a record, in an inline SVG."""
     clean = [v for v in values if isinstance(v, (int, float))]
@@ -1004,6 +1044,7 @@ def build_server():
     server.tool()(list_analyses)
     server.tool()(analyse_table)
     server.tool()(station_view)
+    server.tool()(engineering_export)
     server.tool()(list_playbooks)
     server.tool()(describe_playbook)
     server.tool()(solve_plan)

@@ -18,6 +18,7 @@ import { siteKey } from "./sites.js?v=__BUILD__";
 import { syncPlaceButton } from "./places.js?v=__BUILD__";  // My places: the ☆ Save button
 import { metrics } from "./metrics.js?v=__BUILD__";
 import { catalogOnly, observationMetadata } from "./availability.js?v=__BUILD__";
+import { base64ToBytes, exportOptions, exportSummary } from "./export-menu.js?v=__BUILD__";
 
 let analysisRun = 0;
 let gr4jRun = 0;
@@ -77,6 +78,7 @@ export function selectStation(key, { fly = false, tab = null, push = true } = {}
   const agency = $("st-agency");
   if (r.url) { agency.href = r.url; agency.hidden = false; } else agency.hidden = true;
   $("btn-csv").disabled = true;
+  hideExportMenu();
   $("btn-unit").hidden = true;
 
   // Reset the tabs to "loading" so nothing from the last station lingers.
@@ -133,6 +135,7 @@ export function reanalyze() {
   const my = ++analysisRun;
   state.result = null;
   $("btn-csv").disabled = true;
+  hideExportMenu();
   for (const id of ["st-hydro-card", "st-ffa-card", "st-fdc-card", "st-trend-card", "st-gr4j-card", "st-notes-card"]) {
     hideCard($(id));
   }
@@ -183,6 +186,52 @@ async function requestAnalysis(r, my) {
   }
 }
 
+// "Export for..." (#519): the worker says which tools take this record; picking one downloads that tool's
+// files as a zip built by aquascope.io.engineering.
+function hideExportMenu() {
+  const sel = $("st-export");
+  sel.hidden = true;
+  sel.replaceChildren();
+}
+
+async function loadExportMenu(my) {
+  let menu;
+  try {
+    menu = await call("engineering", { op: "menu" });
+  } catch {
+    return;  // the menu is an extra; the record and its CSV are already there
+  }
+  if (my !== analysisRun) return;
+  const sel = $("st-export");
+  sel.replaceChildren();
+  for (const o of exportOptions(menu)) {
+    const opt = new Option(o.label, o.value);
+    opt.title = o.title;
+    if (o.prompt) { opt.disabled = true; opt.selected = true; }
+    sel.add(opt);
+  }
+  sel.hidden = sel.options.length === 0;
+}
+
+async function exportFor(tool) {
+  const r = state.selected;
+  const sel = $("st-export");
+  if (!tool || !r || !state.result) return;
+  sel.disabled = true;
+  setStatus("Writing the files…");
+  try {
+    const out = await call("engineering", { op: "export", tool, name: r.name || r.station_id, lat: r.lat, lon: r.lon });
+    downloadBlob(out.filename, base64ToBytes(out.zip_base64), "application/zip");
+    setStatus(exportSummary(out));
+    $("st-export-help").hidden = false;
+  } catch (err) {
+    setStatus(`Could not export: ${err.message}`, "error");
+  } finally {
+    sel.disabled = false;
+    sel.selectedIndex = 0;
+  }
+}
+
 function render(res, r) {
   const st = sourceStyle(r.source);
   const rawUnit = res.unit || "";
@@ -201,6 +250,7 @@ function render(res, r) {
     return;
   }
   $("btn-csv").disabled = false;
+  void loadExportMenu(analysisRun);
   metrics.record("usable_record", { kind: "station" });
   const eligibility = res.eligibility;
   $("st-analysis-period").textContent = `Analyzed ${res.start}–${res.end}: ${res.n} observations, ${res.variable} in ${res.unit}. ` +
@@ -549,6 +599,8 @@ export function initStationPanel() {
       btn.disabled = false;
     }
   });
+
+  $("st-export").addEventListener("change", (e) => exportFor(e.currentTarget.value));
 
   $("btn-gr4j").addEventListener("click", () => runGr4j());
   $("btn-gr4j-stop").addEventListener("click", () => { if (gr4jCancel) gr4jCancel(); });

@@ -56,7 +56,7 @@ without ever hammering an agency. What is mirrored:
 
 | source | variables | where the daily value comes from |
 | --- | --- | --- |
-| `usgs` | discharge, water_level | NWIS daily values, 00060 and 00065 (gage height converted from feet to metres) |
+| `usgs` | discharge, water_level | USGS Water Data API (OGC v1) daily means, statistic 00003, parameters 00060 and 00065 (gage height converted from feet to metres) |
 | `uk_ea` | discharge, water_level, precipitation, groundwater_level | Hydrology API daily mean flow; daily max level where no daily mean is published; daily rainfall totals; borehole levels in metres above Ordnance Datum (manual dips or logger) |
 | `hubeau_hydrometrie` | discharge | obs_elab QmnJ, the elaborated daily mean discharge |
 | `taiwan_cwa` | precipitation | CODIS daily rainfall |

@@ -410,6 +410,7 @@ body.drawer-open #btn-panel { display: none; }
 .head h2 { font-size: 1.1rem; line-height: 1.3; letter-spacing: -.02em; }
 .st-meta { font-size: .76rem; color: var(--muted); margin: .25rem 0 .55rem; line-height: 1.5; }
 .st-actions, .row-actions { display: flex; gap: .3rem; flex-wrap: wrap; align-items: center; }
+.export-select { max-width: 11rem; appearance: auto; }
 /* One action in the open, the rest behind a menu. Five peer buttons above the
    tabs gave no clue which one anybody actually wanted. */
 .more { position: relative; }
