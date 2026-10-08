@@ -239,6 +239,49 @@ def test_the_files_the_40_year_cap_truncated_are_refreshed_first():
     assert obs._missing_years(rows[0], stations["WHOLE"]) == 0.0
 
 
+def test_truncated_files_go_ahead_of_a_backlog_of_never_harvested_stations():
+    """#501: USGS has ~25,000 stations never harvested; ahead of them, the truncated files never came up."""
+    old = "2020-01-01T00:00:00+00:00"
+    fresh = [{"source": "usgs", "station_id": f"NEW{i}", "variables": ["discharge"], "period_start": "2000-01-01"}
+             for i in range(20)]
+    rows = fresh + [
+        {"source": "usgs", "station_id": "CUT", "variables": ["discharge"], "period_start": "1898-03-01"},
+        {"source": "usgs", "station_id": "WHOLE", "variables": ["discharge"], "period_start": "1986-01-01"},
+    ]
+    stations = {"CUT": {"first": "1986-08-23", "harvested_at": old, "last_attempt_status": "ok"},
+                "WHOLE": {"first": "1986-01-02", "harvested_at": old, "last_attempt_status": "ok"}}
+    manifest = {"sources": {obs.entry_key("usgs", "discharge"): {"stations": stations}}}
+    picked = [r["station_id"] for r in obs._pick_stations(rows, manifest, "usgs", "discharge", 5, 7, None)]
+    assert picked == ["CUT", "NEW0", "NEW1", "NEW2", "NEW3"], "the truncated file comes first; a whole one waits"
+
+
+def test_the_reference_stations_are_harvested_first():
+    """#501: the stations the Explorer's live check reads go before everything else while new, stale or cut."""
+    old = "2020-01-01T00:00:00+00:00"
+    rows = [{"source": "usgs", "station_id": sid, "variables": ["discharge"], "period_start": start}
+            for sid, start in (("CUT", "1880-01-01"), ("NEW", "2000-01-01"), ("USGS-01013500", "1903-07-29"))]
+    stations = {"CUT": {"first": "1986-08-23", "harvested_at": old, "last_attempt_status": "ok"},
+                "USGS-01013500": {"first": "1986-08-24", "harvested_at": old, "last_attempt_status": "ok"}}
+    manifest = {"sources": {obs.entry_key("usgs", "discharge"): {"stations": stations}}}
+    picked = [r["station_id"] for r in obs._pick_stations(rows, manifest, "usgs", "discharge", 2, 7, None)]
+    assert picked == ["USGS-01013500", "CUT"], "the reference station first, though CUT is more truncated"
+    # freshly harvested and whole, a reference station waits its turn like any other
+    stations["USGS-01013500"] = {"first": "1903-07-29", "harvested_at": datetime.now(timezone.utc).isoformat(),
+                                 "last_attempt_status": "ok"}
+    picked = [r["station_id"] for r in obs._pick_stations(rows, manifest, "usgs", "discharge", 5, 7, None)]
+    assert picked == ["CUT", "NEW"]
+
+
+def test_the_reference_stations_match_the_live_check() -> None:
+    """The list in observations.py is the one the Explorer's daily check reads (#501)."""
+    import re
+    from pathlib import Path
+
+    smoke = (Path(__file__).resolve().parents[2] / ".github" / "scripts" / "explorer_smoke.mjs").read_text()
+    cases = set(re.findall(r'source: "([^"]+)", station: "([^"]+)"', smoke))
+    assert cases and cases == set(obs.REFERENCE_STATIONS)
+
+
 def test_sub_daily_rainfall_folds_to_daily_totals_and_flow_to_means():
     """OpenHi telemetry is 15-minute: a day of rainfall is its sum, a day of flow its mean (#408)."""
     idx = pd.date_range("2024-01-01", periods=96 * 2, freq="15min")
