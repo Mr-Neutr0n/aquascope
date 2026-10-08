@@ -416,7 +416,7 @@ export function globeSupported() {
 
 // ── how the gauges are drawn ────────────────────────────────────────────────
 
-const COLOR_FIELD = { source: "color", record: "colorRecord", recent: "colorRecent", now: "colorNow" };
+const COLOR_FIELD = { source: "color", record: "colorRecord", recent: "colorRecent", skill: "colorSkill", now: "colorNow" };
 
 export function setGaugeStyle(mode) {
   if (!state.mapOk || !map.getLayer("points")) return;

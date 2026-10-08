@@ -111,6 +111,25 @@ json.dumps(_res, default=str)
   post("result", { id, result: JSON.parse(out) });
 }
 
+// The evidence ladder (#518): aquascope.evidence.model_skill on the record the page just analysed (the same
+// function as `aquascope evidence skill` and the MCP tool). GEOGLOWS and GloFAS are read here; the NWM and
+// Google GRRR rows come from the published skill table, which the page reads with DuckDB and passes in.
+async function evidence({ id, args }) {
+  const payload = JSON.stringify(JSON.stringify(args || {}));
+  const code = `
+import json
+from aquascope import evidence as _ev
+_k = json.loads(${payload})
+_same = (_STORE.get("source"), str(_STORE.get("station_id"))) == (_k.get("source"), str(_k.get("station_id")))
+_res = _ev.model_skill(_k.get("source"), _k.get("station_id"), series=_STORE.get("series") if _same else None,
+                       lat=_k.get("lat"), lon=_k.get("lon"), area_km2=_k.get("area_km2"),
+                       published=_k.get("published") or [], include_series=True)
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
 // Now and next (#517): aquascope.nownext, the same functions as `aquascope now` and the MCP tools. op "status"
 // places the stored gauge record's newest day (topped up from the agency) against the same days in other years;
 // op "forecast" reads GEOGLOWS and GloFAS for the reach and, with use_gauge, corrects GEOGLOWS to the stored
@@ -1023,6 +1042,7 @@ self.onmessage = async (e) => {
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
     if (m.type === "river") return await river(m);
+    if (m.type === "evidence") return await evidence(m);
     if (m.type === "now") return await nowNext(m);
     if (m.type === "assess") return await assess(m);
     if (m.type === "compare") return await compare(m);

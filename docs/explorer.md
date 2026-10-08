@@ -250,6 +250,20 @@ shown here, never republished. Dams on the path are not there yet.
 The same functions are `aquascope river snap|record|area|trace` and the MCP
 tools `snap_to_river`, `reach_record`, `upstream_area` and `trace_downstream`.
 
+## Evidence: the models against the gauge
+
+On a gauge with three or more years of daily discharge, the **Evidence** tab
+sets the record beside the global models on the same river: the gauge drawn
+bold, GEOGLOWS v2 and GloFAS thin, on one plot. A table scores each model (KGE
+with r, alpha and beta, NSE, bias, and the error at the 2-, 10- and 100-year
+flows) and grades it A to D, and one sentence says which fits best and where
+they disagree. GEOGLOWS and GloFAS are computed in the page for that gauge (about
+half a minute); NWM v3 (US) and Google GRRR come from the table the monthly CI
+run publishes. The best grade also shows as a small badge next to the gauge's
+dates, and **Best model skill** in the rail's gauge colouring paints every gauge
+by it, with a legend. Until the first monthly run publishes the table, that
+colouring is grey and the legend says why. How the grades work:
+[evidence.md](evidence.md).
 ## Now and next
 
 The **Now** tab on a gauge says, in one sentence, where today's flow sits against

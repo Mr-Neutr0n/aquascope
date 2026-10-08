@@ -37,7 +37,7 @@ from aquascope.studio.prompts import INTERPRETER
 from aquascope.studio.workspace import Workspace
 
 __all__ = ["GRADES", "decision_text", "find_path", "grade_for_step", "grade_for_study", "headline_gates", "interpret",
-           "interpreter_context", "resolve_basis", "rules_findings", "validate_findings"]
+           "interpreter_context", "model_choice", "resolve_basis", "rules_findings", "validate_findings"]
 
 #: From the most to the least trusted; a model may move a grade down this list, never up.
 GRADES = ("established", "indicative", "screening", "not_established")
@@ -586,11 +586,33 @@ def rules_findings(ws: Workspace) -> dict[str, Any]:
     for r in requests:
         if len(decision["what_would_change_it"]) < 5:
             decision["what_would_change_it"].append(f"{r['what']}: {r['effect_on_grade']}")
+    choice = model_choice(ws)
+    if choice:
+        decision["model_choice"] = choice
+        decision["limitations"].append(choice)
     plan_assumptions = [str(a) for a in ((study.plan or {}).get("assumptions") or [])] if study else []
     assumptions = list(dict.fromkeys([*ws.brief.assumptions, *plan_assumptions]))
     return {"findings": findings, "consistency": _consistency(ws), "decision": decision,
             "data_requests": requests, "assumptions": assumptions, "next_steps": [],
             "written_by": "rules", "dropped": 0, "primary_step": primary}
+
+
+#: The steps whose numbers come from a global model, where it matters which model to trust near the site.
+_MODELLED_TOOLS = frozenset({"reach_record", "anywhere"})
+
+
+def model_choice(ws: Workspace) -> str | None:
+    """The evidence ladder's word on a modelled step (#518): which global model tracked the gauges near the site,
+    from the Scout's read of the published skill table. Only when the study leaned on a model (a GEOGLOWS reach
+    record or the GloFAS cross-check ran) and there is a model to name."""
+    inv = ws.inventory
+    models = getattr(inv, "models", None) if inv else None
+    if not models or not models.get("model"):
+        return None
+    ran = {str(r.get("tool")) for r in (ws.run or {}).get("results") or [] if r.get("ok") or r.get("result")}
+    if not ran & _MODELLED_TOOLS:
+        return None
+    return str(models.get("sentence") or "") or None
 
 
 # ── the model ──
@@ -621,6 +643,8 @@ def interpreter_context(ws: Workspace) -> tuple[str, dict[str, Any]]:
         "grades": list(GRADES),
         "rule_grade": draft["decision"]["grade"],
         "draft": {k: draft[k] for k in ("findings", "consistency", "decision", "data_requests")},
+        # which global model to lean on near the site, from the published skill at nearby gauges (#518)
+        "model_skill_nearby": (ws.inventory.models if ws.inventory and ws.inventory.models else None),
     }
     return INTERPRETER, context
 

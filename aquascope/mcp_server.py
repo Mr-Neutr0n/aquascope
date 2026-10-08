@@ -43,7 +43,9 @@ INSTRUCTIONS = (
     "the flood history, surface water, flood hazard, dams, soil, evapotranspiration and nearest rain gauge of a "
     "place. Flood frequency needs at least "
     "10 complete years of daily flow. For a river with no gauge, snap_to_river then reach_record gives 86 years "
-    "of simulated flow, labelled modelled. Always show the licence/attribution returned with the data."
+    "of simulated flow, labelled modelled; model_skill says how well each global model reproduces a gauge (graded "
+    "A to D) and model_to_lean_on which one to trust near a site. Always show the licence/attribution returned "
+    "with the data."
 )
 
 MAX_STATIONS = 200
@@ -367,6 +369,32 @@ def reach_record(river_id: int | None = None, lat: float | None = None, lon: flo
     from aquascope import rivers
 
     return rivers.reach_summary(river_id, lat=lat, lon=lon, years=years, return_periods=return_periods)
+
+
+def model_skill(source: str | None = None, station_id: str | None = None, lat: float | None = None,
+                lon: float | None = None, area_km2: float | None = None, models: list[str] | None = None,
+                years: int = 30) -> dict[str, Any]:
+    """How well each global model reproduces a gauge (the evidence ladder): GEOGLOWS v2 and GloFAS scored live,
+    NWM v3 (US) and Google GRRR from the published monthly table. Per model: KGE with r, alpha and beta, NSE,
+    percent bias, the 2-, 10- and 100-year flows of gauge and model (each from its own GEV fit) with the error in
+    %, and a grade A to D (A: KGE >= 0.75, B >= 0.5, C > -0.41, else D; one letter lower when the 100-year flow is
+    off by more than 50 %). Give the station's source and station_id (lat/lon/area_km2 are then optional).
+    `sentence` says which model fits best and where they disagree; quote it, and say models are modelled."""
+    from aquascope import evidence
+
+    res = evidence.model_skill(source, station_id, lat=lat, lon=lon, area_km2=area_km2, models=models,
+                               years=years or None)
+    res.pop("series", None)
+    return res
+
+
+def model_to_lean_on(lat: float, lon: float, radius_km: float = 150.0) -> dict[str, Any]:
+    """Which global model (GEOGLOWS, NWM, Google GRRR) tracked the gauges near a site best, from the published
+    monthly skill table: the median KGE of each over the nearest graded gauges within radius_km. For an ungauged
+    site, it says which model's numbers to lean on and why."""
+    from aquascope import evidence
+
+    return evidence.lean_on(lat, lon, radius_km=radius_km)
 
 
 def upstream_area(river_id: int, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
@@ -1140,6 +1168,8 @@ def build_server():
     server.tool()(reach_record)
     server.tool()(upstream_area)
     server.tool()(trace_downstream)
+    server.tool()(model_skill)
+    server.tool()(model_to_lean_on)
     server.tool()(flow_status)
     server.tool()(flow_forecast)
     server.tool()(correct_to_gauge)
