@@ -234,8 +234,8 @@ def _regulation_note(ws: Workspace, inv: Inventory, river_id: str | int | None) 
         if row["layer"] == "dams":
             row["upstream"] = str(res["summary"])
             row["regulated_upstream"] = res.get("regulated")
-    if res.get("available") and res.get("regulated") is not None:
-        ctx = dict(inv.recon.get("context") or {})  # copied, never written into the shared reconnaissance
+    if res.get("available") and res.get("regulated") is not None and isinstance(inv.recon.get("context"), dict):
+        ctx = dict(inv.recon["context"])  # copied, never written into the shared reconnaissance
         ctx["upstream_dams"] = {
             "regulated": res.get("regulated"), "n_dams": res.get("n_dams"),
             "total_capacity_mcm": res.get("total_capacity_mcm"),
@@ -291,8 +291,9 @@ def scout(ws: Workspace) -> Inventory:
     inv.context = context_layers()
     if ws.brief.playbook in FLOOD_PLAYBOOKS:
         _flood_history_note(ws, inv)
-    if ws.brief.playbook in REGULATION_PLAYBOOKS:
-        _regulation_note(ws, inv, reach.station_id if reach is not None else None)
+    if ws.brief.playbook in REGULATION_PLAYBOOKS and reach is not None:
+        # no reach (no stream near, or the network unreadable) means no river to look upstream of
+        _regulation_note(ws, inv, reach.station_id)
     chosen = ws.brief.intake.get("value_column")
     for dataset_id, csv in ws.tables.items():
         try:

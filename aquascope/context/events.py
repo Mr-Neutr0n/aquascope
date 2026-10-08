@@ -230,12 +230,15 @@ def _reservoir_link() -> dict[str, str]:
 
 def _dam(r: dict[str, str]) -> dict[str, Any]:
     year = num(r.get("year"))
+    lat, lon = num(r.get("lat")), num(r.get("lon"))
+    if lat == 0 and lon == 0:  # a mirror built from GDW's LAT_DAM/LONG_DAM parked ~35,000 barriers at 0, 0
+        lat = lon = None
     return {
         "name": r.get("name") or r.get("reservoir") or "unnamed", "reservoir": r.get("reservoir") or None,
         "river": r.get("river") or None, "country": r.get("country") or None,
         "year": int(year) if year and year > 0 else None, "height_m": num(r.get("height_m")),
         "capacity_mcm": num(r.get("capacity_mcm")), "main_use": r.get("main_use") or None,
-        "dor_pc": num(r.get("dor_pc")), "lat": num(r.get("lat")), "lon": num(r.get("lon")),
+        "dor_pc": num(r.get("dor_pc")), "lat": lat, "lon": lon,
         "gdw_id": r.get("gdw_id") or None,
     }
 

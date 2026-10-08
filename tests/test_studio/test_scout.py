@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aquascope.explore
 from aquascope.studio.roles import scout
-from aquascope.studio.workspace import Workspace
+from aquascope.studio.workspace import Dataset, Workspace
 from tests.test_studio.conftest import RICH, SAMPLES_CSV, SERIES_CSV, UNGAUGED, patched
 
 
@@ -174,6 +174,12 @@ UPSTREAM = {"available": True, "regulated": True, "n_dams": 7, "total_capacity_m
                        "million m3, about 3.8 % of a year's mean flow here (GEOGLOWS, modelled)."}
 
 
+def _with_reach(monkeypatch, river_id="230260670"):
+    reach = Dataset(id="geoglows_reach", kind="modelled", variable="discharge", source="GEOGLOWS v2",
+                    station_id=river_id, name=f"GEOGLOWS river reach {river_id}")
+    monkeypatch.setattr(scout, "reach_dataset", lambda lat, lon: (reach, None))
+
+
 def test_a_supply_question_reads_the_dams_upstream_as_context(monkeypatch):
     seen = []
 
@@ -182,11 +188,12 @@ def test_a_supply_question_reads_the_dams_upstream_as_context(monkeypatch):
         return dict(UPSTREAM)
 
     monkeypatch.setattr(scout, "_read_upstream_dams", fake)
+    _with_reach(monkeypatch)
     ws = _ws()
     ws.brief.problem, ws.brief.playbook = "supply", "supply_reliability"
     with patched(RICH):
         inv = scout.scout(ws)
-    assert seen == [(51.415, -0.308, None)]  # no reach in the tests, so the point is snapped again
+    assert seen == [(51.415, -0.308, "230260670")]  # the reach the site snapped to
     dams = next(c for c in inv.context if c["layer"] == "dams")
     assert dams["regulated_upstream"] is True and dams["upstream"].startswith("Regulated upstream: 7 dams")
     assert inv.recon["context"]["upstream_dams"]["degree_of_regulation_pct"] == 3.8
@@ -200,6 +207,7 @@ def test_the_dams_upstream_are_read_for_a_flood_question_but_not_a_drought_one(m
     calls = []
     monkeypatch.setattr(scout, "_read_upstream_dams", lambda lat, lon, river_id=None: calls.append(1) or {
         "available": False, "regulated": None, "summary": "Dams upstream are not available yet."})
+    _with_reach(monkeypatch)
     ws = _ws()
     ws.brief.playbook = "flood_change"
     with patched(RICH):
@@ -216,9 +224,21 @@ def test_a_failed_dams_upstream_read_never_stops_the_scout(monkeypatch):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(scout, "_read_upstream_dams", boom)
+    _with_reach(monkeypatch)
     ws = _ws()
     ws.brief.playbook = "supply_reliability"
     with patched(RICH):
         inv = scout.scout(ws)
     assert "upstream" not in next(c for c in inv.context if c["layer"] == "dams")
     assert any("dams upstream unreadable" in e["detail"] for e in ws.events)
+
+
+def test_no_reach_means_no_dams_upstream_to_read(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scout, "_read_upstream_dams", lambda lat, lon, river_id=None: calls.append(1) or dict(UPSTREAM))
+    monkeypatch.setattr(scout, "reach_dataset", lambda lat, lon: (None, "GEOGLOWS river network: no stream near"))
+    ws = _ws()
+    ws.brief.playbook = "flood_risk"
+    with patched(RICH):
+        inv = scout.scout(ws)
+    assert calls == [] and not any(n.startswith("Dams upstream") for n in inv.notes)
