@@ -189,6 +189,73 @@ def test_reaches_near_lists_every_reach_within_the_distance_nearest_first(two_ri
     assert len(rivers.reaches_near(LAT, LON, max_distance_m=500, limit=1)) == 1
 
 
+def test_snap_prefers_the_main_channel_and_says_a_smaller_stream_was_nearer(two_rivers):
+    res = rivers.snap_to_river(LAT, LON)
+    assert res["snapped"] is True and res["choice"] == "main_channel"
+    assert res["river_id"] == 230260671 and res["strahler_order"] == 7
+    assert res["nearer"]["river_id"] == 230260670 and res["nearer"]["distance_m"] < res["distance_m"]
+    assert res["n_candidates"] == 2 and res["mixed_orders"] is True
+    assert "to the main channel" in res["message"] and "order 7" in res["message"]
+    assert "a smaller stream is" in res["message"]
+
+
+def test_snap_can_still_take_the_nearest_line(two_rivers):
+    res = rivers.snap_to_river(LAT, LON, prefer="nearest")
+    assert res["river_id"] == 230260670 and res["choice"] == "nearest" and res["nearer"] is None
+    with pytest.raises(ValueError):
+        rivers.snap_to_river(LAT, LON, prefer="widest")
+
+
+def test_snap_keeps_the_nearest_when_the_main_channel_is_beyond_the_tolerance(two_rivers, monkeypatch):
+    res = rivers.snap_to_river(LAT, LON, max_distance_m=50)
+    assert res["river_id"] == 230260670 and res["choice"] == "nearest" and res["n_candidates"] == 1
+    assert res["mixed_orders"] is False
+    # one reach in reach: the gauge's area has nothing to decide, so the routing tables are not read
+    monkeypatch.setattr(rivers, "upstream_area", lambda *a, **k: pytest.fail("no area match with one candidate"))
+    assert rivers.snap_to_river(LAT, LON, max_distance_m=50, area_km2=3000.0)["choice"] == "nearest"
+    # ...and names the bigger river beyond it (a braided river's centreline can be far from its water).
+    assert res["larger"]["river_id"] == 230260671 and res["larger"]["strahler_order"] == 7
+    assert "A larger river (reach 230260671, order 7) is" in res["message"]
+
+
+def test_snap_names_no_larger_river_when_the_chosen_one_is_the_biggest(two_rivers):
+    assert rivers.snap_to_river(LAT, LON)["larger"] is None
+    assert rivers.snap_to_river(LAT, LON, max_distance_m=50, prefer="nearest")["larger"]["river_id"] == 230260671
+
+
+def test_main_channel_ranks_by_order_then_distance():
+    cands = [{"river_id": 1, "strahler_order": 2, "distance_m": 60.0},
+             {"river_id": 2, "strahler_order": 9, "distance_m": 380.0},
+             {"river_id": 3, "strahler_order": 9, "distance_m": 200.0},
+             {"river_id": 4, "strahler_order": None, "distance_m": 5.0}]
+    assert rivers.main_channel(cands)["river_id"] == 3
+    assert rivers.main_channel([]) is None
+
+
+def test_a_gauge_with_a_known_area_snaps_to_the_reach_whose_area_matches(two_rivers, monkeypatch):
+    areas = {230260670: 30.0, 230260671: 2900.0}
+    monkeypatch.setattr(rivers, "upstream_area", lambda rid, lat=None, lon=None: {"upstream_area_km2": areas[rid]})
+    small = rivers.snap_to_river(LAT, LON, area_km2=25.0)
+    assert small["choice"] == "area" and small["river_id"] == 230260670 and small["area_ratio"] == 1.2
+    big = rivers.snap_to_river(LAT, LON, area_km2=3000.0)
+    assert big["choice"] == "area" and big["river_id"] == 230260671 and big["nearer"]["river_id"] == 230260670
+    assert "upstream area" in big["message"] and "the nearest line is" in big["message"]
+
+
+def test_match_by_area_skips_unreadable_units_and_needs_an_area(monkeypatch):
+    cands = [{"river_id": 1, "distance_m": 10.0}, {"river_id": 2, "distance_m": 90.0}]
+
+    def area(rid, lat=None, lon=None):
+        if rid == 1:
+            raise LookupError("no unit")
+        return {"upstream_area_km2": 500.0}
+
+    monkeypatch.setattr(rivers, "upstream_area", area)
+    assert rivers.match_by_area(cands, 480.0)["reach"]["river_id"] == 2
+    assert rivers.match_by_area(cands, None) is None
+    assert rivers.match_by_area(cands, 0) is None
+
+
 def test_snap_rejects_a_point_off_the_earth():
     with pytest.raises(ValueError):
         rivers.snap_to_river(95, 0)

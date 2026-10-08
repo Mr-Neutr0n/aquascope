@@ -349,14 +349,21 @@ def study_area(
         return {"error": str(exc)}
 
 
-def snap_to_river(lat: float, lon: float, max_distance_m: float = 1000.0) -> dict[str, Any]:
-    """Snap a point to the nearest GEOGLOWS v2 river reach (about 6.8 million worldwide): its river_id, Strahler
-    order and how far it is. Beyond max_distance_m it says there is no stream within that distance and names the
-    nearest reach found, so a hillside is not taken for a river. Call it before reach_record or trace_downstream
-    when you only have a place."""
+def snap_to_river(lat: float, lon: float, max_distance_m: float = 1000.0, prefer: str = "main",
+                  area_km2: float | None = None) -> dict[str, Any]:
+    """Snap a point to its GEOGLOWS v2 river reach (about 6.8 million worldwide): its river_id, Strahler order and
+    how far it is. Among the reaches within max_distance_m the main channel wins (the highest stream order, the
+    nearer on a tie), and the answer names a smaller stream that was nearer; prefer="nearest" takes the nearest
+    line. Give area_km2 (a gauge's catchment area) to take the reach whose upstream area matches it. Beyond
+    max_distance_m it says there is no stream within that distance and names the nearest reach found, so a
+    hillside is not taken for a river. Call it before reach_record or trace_downstream when you only have a
+    place."""
     from aquascope import rivers
 
-    return rivers.snap_to_river(lat, lon, max_distance_m=max_distance_m)
+    try:
+        return rivers.snap_to_river(lat, lon, max_distance_m=max_distance_m, prefer=prefer, area_km2=area_km2)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
 
 def reach_record(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
@@ -477,17 +484,18 @@ def status_bulletin(month: str | None = None, sources: list[str] | None = None,
 
 
 def flow_forecast(lat: float | None = None, lon: float | None = None, river_id: int | None = None,
-                  station: str | None = None, days: int = 15) -> dict[str, Any]:
+                  station: str | None = None, days: int = 15, quick: bool = False) -> dict[str, Any]:
     """The next 15 days of river flow from two global models, MODELLED: GEOGLOWS v2 (ECMWF 51-member ensemble
     statistics for the river reach: mean, median, 25-75 and min-max bands, high-res run) and GloFAS v4 via
     Open-Meteo (daily ensemble statistics for the 5 km cell), with the reach's 2- to 100-year flows from its
     simulated record since 1940. Give a point (snapped to its reach), a river_id, or station "source/station_id":
     a gauge also gets today's status and the forecast corrected to its own record, with the correction's
-    hindcast skill. Say it is a model forecast whenever you quote it."""
+    hindcast skill. quick=True returns only the two forecasts, without the thresholds and the correction (it
+    skips the 86-year simulated record, the slow read). Say it is a model forecast whenever you quote it."""
     from aquascope import nownext
 
     try:
-        return nownext.now(lat, lon, station=station, river_id=river_id, days=days)
+        return nownext.now(lat, lon, station=station, river_id=river_id, days=days, history=not quick)
     except ValueError as exc:
         return {"error": str(exc)}
 

@@ -209,11 +209,14 @@ def snap_reaches(gauges: list[dict[str, Any]], known: dict[tuple[str, str], dict
                  positions: dict[tuple[str, str], tuple[float, float]], *, today: date,
                  snapper: Callable[..., dict[str, Any]] | None = None) -> dict[tuple[str, str], dict[str, Any]]:
     """Snap each gauge to its GEOGLOWS reach once (kept in ``reaches.parquet``); a gauge that did not snap is
-    tried again after :data:`RESNAP_DAYS`."""
+    tried again after :data:`RESNAP_DAYS`. A gauge's position is on its own river, so the nearest line is taken
+    (a click's snap prefers the main channel; a tributary gauge beside a big river must not)."""
     if snapper is None:
+        from functools import partial
+
         from aquascope.rivers import snap_to_river
 
-        snapper = snap_to_river
+        snapper = partial(snap_to_river, prefer="nearest")
     for g in gauges:
         key = (g["source"], g["station_id"])
         old = known.get(key)

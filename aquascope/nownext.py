@@ -363,7 +363,7 @@ def _fetch_json(url: str, params: dict[str, Any] | None = None) -> Any:
     """The Open-Meteo seam (tests replace it). An hour's cache: the GloFAS forecast is issued once a day."""
     global _CLIENT
     if _CLIENT is None:
-        from aquascope.archive.catalog import cache_dir
+        from aquascope.utils.cache import cache_dir
         from aquascope.utils.http_client import CachedHTTPClient
 
         _CLIENT = CachedHTTPClient(timeout=60.0, retries=2, cache_dir=cache_dir() / "openmeteo-flood",
@@ -379,26 +379,45 @@ _GLOFAS_KEYS = (("river_discharge_mean", "mean"), ("river_discharge_median", "me
 STAT_KEYS = ("mean", "median", "p25", "p75", "min", "max", "high_res")
 
 
-def _daily_geoglows(stats: dict[str, Any], days: int) -> dict[str, Any]:
-    """GEOGLOWS's hourly-then-3-hourly statistics as daily means, the first ``days`` days."""
-    import pandas as pd
+def _utc_naive(ts: Any) -> datetime | None:
+    """An ISO timestamp as a naive UTC datetime (a naive one is taken to be UTC already), None if unreadable."""
+    try:
+        d = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo is not None else d
 
-    idx = pd.to_datetime(list(stats.get("datetime") or []), utc=True).tz_convert(None)
-    cols: dict[str, Any] = {}
-    for key, name in _GEOGLOWS_KEYS:
-        vals = stats.get(key)
-        if isinstance(vals, list) and len(vals) == len(idx):
-            s = pd.Series(pd.to_numeric(pd.Series(vals), errors="coerce").to_numpy(dtype=float), index=idx)
-            cols[name] = s.groupby(s.index.normalize()).mean()
+
+def _daily_geoglows(stats: dict[str, Any], days: int) -> dict[str, Any]:
+    """GEOGLOWS's hourly-then-3-hourly statistics as daily means, the first ``days`` days.
+
+    Plain Python, no pandas: the Explorer reads the forecast in a light worker that does not load it."""
+    times = [_utc_naive(t) for t in list(stats.get("datetime") or [])]
+    cols = [(key, name) for key, name in _GEOGLOWS_KEYS
+            if isinstance(stats.get(key), list) and len(stats[key]) == len(times)]
     if not cols:
         return {"date": []}
-    frame = pd.DataFrame(cols).dropna(how="all").sort_index().iloc[: int(days)]
-    out: dict[str, Any] = {"date": [d.strftime("%Y-%m-%d") for d in frame.index]}
-    if len(idx):
+    by_day: dict[date, dict[str, list[float]]] = {}
+    for i, t in enumerate(times):
+        if t is None:
+            continue
+        slot = by_day.setdefault(t.date(), {})
+        for key, name in cols:
+            v = _num(stats[key][i], 12)
+            if v is not None:
+                slot.setdefault(name, []).append(v)
+    kept = sorted(d for d, slot in by_day.items() if slot)[: int(days)]
+    out: dict[str, Any] = {"date": [d.strftime("%Y-%m-%d") for d in kept]}
+    valid = [t for t in times if t is not None]
+    if valid:
         # The run's start: GEOGLOWS's newest run is often the previous day's 00 UTC one.
-        out["initialized"] = idx.min().strftime("%Y-%m-%dT%H:%MZ")
-    for name in frame.columns:
-        out[name] = [_num(v) for v in frame[name].to_numpy(dtype=float)]
+        out["initialized"] = min(valid).strftime("%Y-%m-%dT%H:%MZ")
+    for _key, name in cols:
+        means = []
+        for d in kept:
+            vals = by_day[d].get(name)
+            means.append(_num(sum(vals) / len(vals)) if vals else None)
+        out[name] = means
     return out
 
 
@@ -505,7 +524,8 @@ def forecast(lat: float | None = None, lon: float | None = None, *, river_id: in
              days: int = FORECAST_DAYS, return_periods: list[float] | None = None, obs: Any = None,
              glofas: bool = True, glofas_at: tuple[float, float] | None = None,
              match_mean_flow: float | None = None, snap: bool = True, by: str = "month",
-             max_distance_m: float = 1000.0, store: dict[str, Any] | None = None) -> dict[str, Any]:
+             max_distance_m: float = 1000.0, store: dict[str, Any] | None = None, history: bool = True,
+             prefer: str = "main", known_geoglows: dict[str, Any] | None = None) -> dict[str, Any]:
     """The next ``days`` days of flow at a river reach or a point, from two global models, with thresholds.
 
     Give a GEOGLOWS ``river_id``, or ``lat``/``lon`` to snap to the nearest reach (``snap=False`` skips the
@@ -527,18 +547,24 @@ def forecast(lat: float | None = None, lon: float | None = None, *, river_id: in
     * ``sentence``: the peak against the thresholds, and ``notes``, ``methods``, ``attribution``.
 
     ``store`` (a dict) receives the reach's daily simulated series under ``"reach_series"``.
+
+    Speed. ``history=False`` skips the reach's simulated record (86 years of daily flow, the slow read): no
+    ``thresholds``, ``status`` or correction, only the forecasts, so a caller can show the next days at once
+    and ask for the rest after; ``"history"`` in the answer says which it was. ``known_geoglows`` (the
+    ``geoglows`` part of an earlier answer for the same reach) is used rather than read again. ``prefer`` goes to
+    the snap (:func:`aquascope.rivers.snap_to_river`): ``"main"`` for a place, ``"nearest"`` for a gauge.
     """
     from aquascope import rivers
 
     days = max(1, min(int(days), 30))
     out: dict[str, Any] = {"days": days, "modelled": True, "river_id": None, "lat": _num(lat, 6),
-                           "lon": _num(lon, 6), "notes": [], "methods": [METHODS["forecast"]],
-                           "attribution": [GEOGLOWS_CREDIT, GLOFAS_CREDIT]}
+                           "lon": _num(lon, 6), "history": bool(history), "notes": [],
+                           "methods": [METHODS["forecast"]], "attribution": [GEOGLOWS_CREDIT, GLOFAS_CREDIT]}
     rid = None
     if river_id not in (None, ""):
         rid = rivers._river_id(river_id)
     elif lat is not None and lon is not None and snap:
-        sn = rivers.snap_to_river(lat, lon, max_distance_m=max_distance_m)
+        sn = rivers.snap_to_river(lat, lon, max_distance_m=max_distance_m, prefer=prefer)
         out["snap"] = sn
         if sn.get("snapped"):
             rid = int(sn["river_id"])
@@ -553,18 +579,22 @@ def forecast(lat: float | None = None, lon: float | None = None, *, river_id: in
 
     reach_series = None
     if rid is not None:
-        try:
-            stats = rivers.forecast_stats(rid)
-        except Exception as exc:  # noqa: BLE001 - the other model can still answer
-            stats = {"error": f"GEOGLOWS did not answer ({exc})."}
-        if stats.get("error"):
-            out["geoglows"] = {"error": stats["error"]}
+        if isinstance(known_geoglows, dict) and known_geoglows.get("date"):
+            out["geoglows"] = dict(known_geoglows)
         else:
-            daily = _daily_geoglows(stats, days)
-            daily.update({"modelled": True, "source": stats.get("source"), "attribution": GEOGLOWS_CREDIT,
-                          "licence": "CC BY 4.0", "url": stats.get("url"), "generated": stats.get("generated"),
-                          "unit": "m3/s"})
-            out["geoglows"] = daily
+            try:
+                stats = rivers.forecast_stats(rid)
+            except Exception as exc:  # noqa: BLE001 - the other model can still answer
+                stats = {"error": f"GEOGLOWS did not answer ({exc})."}
+            if stats.get("error"):
+                out["geoglows"] = {"error": stats["error"]}
+            else:
+                daily = _daily_geoglows(stats, days)
+                daily.update({"modelled": True, "source": stats.get("source"), "attribution": GEOGLOWS_CREDIT,
+                              "licence": "CC BY 4.0", "url": stats.get("url"), "generated": stats.get("generated"),
+                              "unit": "m3/s"})
+                out["geoglows"] = daily
+    if rid is not None and history:
         try:
             rec, reach_series = _reach_history(rid)
         except Exception as exc:  # noqa: BLE001 - a forecast without thresholds is still a forecast
@@ -835,12 +865,13 @@ def _station_row(source: str, station_id: str) -> dict[str, Any] | None:
 
 def now(lat: float | None = None, lon: float | None = None, *, station: str | None = None,
         river_id: int | str | None = None, days: int = FORECAST_DAYS, date: Any = None, refresh: bool = True,
-        with_forecast: bool = True, correct: bool = True) -> dict[str, Any]:
+        with_forecast: bool = True, correct: bool = True, history: bool = True) -> dict[str, Any]:
     """Now and next in one call: a gauge's status today and the forecast for its reach, corrected to it.
 
     ``station`` is ``"source/station_id"``: its record gives the status (:func:`station_status`) and, for a
     discharge record, the correction (:func:`correct_to_gauge`); its position is snapped to a river reach for the
     forecast. Without a station, ``lat``/``lon`` or ``river_id`` give the forecast for that reach or point.
+    ``history=False`` is the quick forecast (:func:`forecast`): no thresholds, reach status or correction.
     """
     out: dict[str, Any] = {"station": None, "status": None, "forecast": None}
     obs, var = None, None
@@ -868,7 +899,9 @@ def now(lat: float | None = None, lon: float | None = None, *, station: str | No
     if with_forecast and (river_id not in (None, "") or (lat is not None and lon is not None)):
         use_obs = obs if (correct and var == "discharge" and obs is not None and len(obs)) else None
         mean = float(_as_daily(use_obs).mean()) if use_obs is not None else None
-        out["forecast"] = forecast(lat, lon, river_id=river_id, days=days, obs=use_obs, match_mean_flow=mean)
+        # A gauge sits on its own river: its position takes the nearest line, not the main channel near it.
+        out["forecast"] = forecast(lat, lon, river_id=river_id, days=days, obs=use_obs, match_mean_flow=mean,
+                                   prefer="nearest" if station else "main", history=history)
     elif with_forecast and station:
         out["forecast"] = {"error": "The catalog has no position for this station, so it cannot be snapped to a "
                            "river; give --river-id."}
