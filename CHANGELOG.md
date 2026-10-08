@@ -7,7 +7,16 @@ All notable changes to AquaScope are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Engineering exports** (#519, part of #526): any gauge record, or a CSV, as ready inputs for the tools practitioners use (`aquascope.io.engineering`).
+  - HEC-HMS (the gage record as DSS), HEC-RAS (the `Flow Hydrograph=` block of a `.u##` file and the DSS record), HEC-SSP (annual peaks for the Data Importer, the DSS record, and the Bulletin 17C settings with AquaScope's own result to compare), HEC-DSS, SWMM (time series file, `[TIMESERIES]` block, `[INFLOWS]` or `[RAINGAGES]` line), MODFLOW 6 (a River or Well package by stress period with its TDIS file, as text or through FloPy), Delft-FEWS (PI-XML) and Raven (an `.rvt` observation block). Each format cites the documentation it was written against, and each folder carries a README on how to load it.
+  - Real `.dss` files through HEC's own `hecdss` (MIT) where its native library loads (Linux, Windows); elsewhere, and in the browser, the CSV layout `hecdss` reads.
+  - `aquascope export --to <tool>` (from `--station source/id` or `--file`), the `engineering_export` MCP tool, an **Export for…** menu on the Explorer's station panel (a zip built in the worker), and an `engineering/` folder in every Studio bundle with a gauge record.
+  - The `engineering` extra (`hecdss`, `flopy`), included in `all`.
+- **Bulletin 17C check** (`aquascope.hydrology.b17c_check`, docs page "Engineering exports"): AquaScope's EMA against the published Bulletin 17C examples, which HEC states HEC-SSP reproduces. It matches Example 1 (Moose River, weighted skew) within 1%, and does not match Example 2 (Orestimba Creek, zeros and low outliers): its Multiple Grubbs-Beck test censors 15 peaks where the Bulletin censors 30, so the rare floods come out several times too large. Examples 3 to 7 need flow intervals the EMA does not take yet.
+
 ### Fixed
+- `aquascope/io/hec.py` no longer says the DSS format needs a proprietary library: HEC's `hecdss` is MIT and on PyPI.
 - **A source's health record keeps the error under a wrapped failure** (#498). BOM raises one `RuntimeError` once every parameter type has failed, and the harvest recorded only that message, so the 2026-10-05 outage (503s and timeouts) was filed as unclassified and sent to the repair bot as a possible code fault. The catalog error now carries the exceptions it was raised from, so the health issue names the 503.
 - **The weekly harvest now reaches the files the 40-year cap truncated** (#501). The 0.21.0 change (#270) sorted them first among stations due a refresh, but behind every station never harvested; USGS has about 25,000 of those, enough to fill each weekly budget of 150, so its 133 truncated files would have waited about three years. They now go ahead of new stations, and the stations the Explorer's daily live check reads (Fish River, Thames at Kingston, Seine at Paris) go first of all while new, stale or truncated.
 - Record the verified v0.25.0 Zenodo DOI (`10.5281/zenodo.23219118`) in release citations, Explorer BibTeX and generated study reports; retain the concept DOI for the project as a whole.

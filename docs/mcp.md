@@ -60,6 +60,7 @@ If `aquascope` is not on the client's PATH, use the interpreter explicitly:
 | `describe_playbook(id)` | one playbook in full: intake, branches with conditions and steps, gates, fallbacks, declines, caveats, citations | no |
 | `solve_plan(problem, lat, lon, playbook, intake)` | reconnaissance of the point, the playbook and branch the tree picks, and the study (version 2) it fills, with a gate per step; nothing is executed and no model is called; `declined` carries the playbook's reason when it refuses | no (the catalog) |
 | `solve_run(study)` | execute a study from `solve_plan` (edited or not): every gate outcome, the report, the study with its results, which `aquascope run` reproduces | yes (the study's tools) |
+| `engineering_export(source, station_id, tool, years, variable, regional_skew, regional_skew_mse, out_dir)` | the record as inputs for an engineering tool (`hec-hms`, `hec-ras`, `hec-ssp`, `dss`, `swmm`, `modflow6`, `fews`, `raven`, or `all`): each file's text, cut at `max_chars`, with the notes to read first; `out_dir` also writes them ([formats](engineering_exports.md)) | yes |
 | `station_view(source, station_id, years)` | the `analyze_station` result plus a self-contained HTML view (inline hydrograph, headline numbers, attribution) under `_meta["mcp/view"]`, for clients that support the MCP Apps extension; clients that do not simply ignore the extra key | yes |
 
 Resources: `aquascope://sources` and `aquascope://methods` (JSON).

@@ -1130,6 +1130,79 @@ def cmd_assess(args: argparse.Namespace) -> None:
     print(_format_assessment(res, radius_km=args.radius_km))
 
 
+# ── export (engineering tools, #519) ─────────────────────────────────────────
+
+
+#: The ``--to`` choices, kept literal so the parser stays import-light (a test pins it to engineering.TOOLS).
+EXPORT_TOOLS = ("hec-hms", "hec-ras", "hec-ssp", "dss", "swmm", "modflow6", "fews", "raven")
+
+
+def _export_series_from_file(path: str, column: str | None):
+    """A CSV's first datetime-like column as the index and ``column`` (or the first numeric one) as values."""
+    import pandas as pd
+
+    df = pd.read_csv(path)
+    if df.shape[1] < 2:
+        raise ValueError(f"{path}: need a date column and a value column")
+    when = pd.to_datetime(df.iloc[:, 0], errors="coerce", utc=False)
+    if column:
+        if column not in df.columns:
+            raise ValueError(f"{path}: no column {column!r}; columns are {list(df.columns)}")
+        values = df[column]
+    else:
+        numeric = [c for c in df.columns[1:] if pd.api.types.is_numeric_dtype(df[c])]
+        if not numeric:
+            raise ValueError(f"{path}: no numeric value column")
+        values = df[numeric[0]]
+    s = pd.Series(pd.to_numeric(values, errors="coerce").to_numpy(), index=pd.DatetimeIndex(when))
+    return s[s.index.notna()]
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """`aquascope export --to TOOL`: a gauge's record (or a CSV) as inputs for an engineering tool (thin face)."""
+    from aquascope.io import engineering as eng
+
+    opts = {"regional_skew": args.regional_skew, "regional_skew_mse": args.regional_skew_mse,
+            "year_start_month": args.year_start_month, "subbasin_id": args.subbasin_id,
+            "cellid": tuple(args.cell) if args.cell else (1, 1, 1), "cond": args.cond, "rbot": args.rbot,
+            "period": args.period, "engine": args.engine, "dss_binary": False if args.no_dss else None}
+    try:
+        if args.station:
+            source, _, station_id = args.station.partition("/")
+            if not station_id:
+                raise ValueError("give --station as source/station_id, for example usgs/01646500")
+            res = eng.export_station(source, station_id, args.to, years=args.years, variable=args.variable,
+                                     **opts)
+        elif args.file:
+            s = _export_series_from_file(args.file, args.column)
+            res = eng.export_series(s, args.to, variable=args.variable or "discharge", unit=args.unit,
+                                    location=args.location or Path(args.file).stem, name=args.location, **opts)
+        else:
+            raise ValueError("give --station source/station_id or --file a CSV")
+    except (ValueError, KeyError) as exc:
+        logger.error("%s", exc)
+        sys.exit(2)
+    if "error" in res:
+        logger.error("%s", res["error"])
+        sys.exit(1)
+    files = eng.files_from(res)
+    if args.zip:
+        out = Path(args.out_dir if args.out_dir.endswith(".zip") else f"{args.out_dir}.zip")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(eng.zip_bytes(files))
+        written = [str(out)]
+    else:
+        written = eng.write_files(files, args.out_dir)
+    if args.json:
+        print(json.dumps({"written": written, "notes": res["notes"], "tool": res["tool"]}, indent=2))
+        return
+    print(f"{res['label']}: {len(files)} file(s)")
+    for w in written:
+        print(f"  {w}")
+    for n in res["notes"]:
+        print(f"- {n}")
+
+
 # ── area-study (Study this area) ─────────────────────────────────────────────
 
 
@@ -3994,6 +4067,34 @@ def main() -> None:
     p_climate.add_argument("--output", default=None, help="Save results to JSON")
 
     # ── hydro ─────────────────────────────────────────────────────────
+    p_export = sub.add_parser(
+        "export", help="Inputs for HEC-HMS, HEC-RAS, HEC-SSP, HEC-DSS, SWMM, MODFLOW 6, Delft-FEWS or Raven (#519)"
+    )
+    p_export.add_argument("--to", required=True, choices=[*EXPORT_TOOLS, "all"], help="The tool to write inputs for")
+    p_export.add_argument("--station", default=None, help="A gauge as source/station_id, e.g. usgs/01646500")
+    p_export.add_argument("--file", default=None, help="Or a CSV: a date column, then the values")
+    p_export.add_argument("--column", default=None, help="The value column of --file (default: first numeric)")
+    p_export.add_argument("--variable", default=None,
+                          help="discharge (default), water_level, groundwater_level or precipitation")
+    p_export.add_argument("--unit", default=None, help="Unit of --file values (default m3/s, m or mm)")
+    p_export.add_argument("--location", default=None, help="Identifier for --file in the outputs")
+    p_export.add_argument("--years", type=int, default=None, help="Only the last N years of the gauge record")
+    p_export.add_argument("-o", "--out-dir", default="aquascope-export", help="Folder to write (default aquascope-export)")
+    p_export.add_argument("--zip", action="store_true", help="Write one zip (OUT_DIR.zip) instead of a folder")
+    p_export.add_argument("--no-dss", action="store_true", help="Write the DSS CSV even where hecdss loads")
+    p_export.add_argument("--regional-skew", type=float, default=None, help="HEC-SSP: weight the skew with this")
+    p_export.add_argument("--regional-skew-mse", type=float, default=None, help="HEC-SSP: MSE of the regional skew")
+    p_export.add_argument("--year-start-month", type=int, default=10, help="HEC-SSP: first month of the water year")
+    p_export.add_argument("--subbasin-id", type=int, default=1, help="Raven: the subbasin at the gauge")
+    p_export.add_argument("--cell", type=int, nargs=3, metavar=("LAYER", "ROW", "COL"), default=None,
+                          help="MODFLOW 6: the river or well cell (default 1 1 1)")
+    p_export.add_argument("--cond", type=float, default=None, help="MODFLOW 6 RIV: riverbed conductance")
+    p_export.add_argument("--rbot", type=float, default=None, help="MODFLOW 6 RIV: riverbed bottom elevation")
+    p_export.add_argument("--period", default=None, help="MODFLOW 6: resample first, e.g. MS for monthly")
+    p_export.add_argument("--engine", choices=["text", "flopy"], default="text",
+                          help="MODFLOW 6: write as text (default) or through FloPy")
+    p_export.add_argument("--json", action="store_true", help="Print the written paths and notes as JSON")
+
     p_hydro = sub.add_parser("hydro", help="Run hydrological analysis (FDC, baseflow, recession, flood-freq)")
     p_hydro.add_argument(
         "--analysis",
@@ -4038,6 +4139,7 @@ def main() -> None:
         "forecast": cmd_forecast,
         "plot": cmd_plot,
         "hydro": cmd_hydro,
+        "export": cmd_export,
         "alerts": cmd_alerts,
         "dashboard": cmd_dashboard,
         "agri": cmd_agri,
