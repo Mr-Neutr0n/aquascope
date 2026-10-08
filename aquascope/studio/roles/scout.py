@@ -12,7 +12,9 @@ It also lists the place-context layers (#520) that cover any site: flood
 history, surface water, flood depth, dams, rain gauges, actual ET and soil,
 each with its sources and licences. For a flood question it reads the flood
 history (news events and radar detections near the site), so the report can
-set the historical events beside the estimate.
+set the historical events beside the estimate. For a flood or supply question
+it also reads whether dams upstream regulate the river at the site (Global Dam
+Watch, matched to the GEOGLOWS network), as context only: it changes no plan.
 """
 
 from __future__ import annotations
@@ -24,13 +26,16 @@ from typing import Any
 
 from aquascope.studio.workspace import Dataset, Inventory, Workspace
 
-__all__ = ["FLOOD_PLAYBOOKS", "choose_column", "context_layers", "reach_dataset", "scout", "upload_dataset"]
+__all__ = ["FLOOD_PLAYBOOKS", "REGULATION_PLAYBOOKS", "choose_column", "context_layers", "reach_dataset", "scout",
+           "upload_dataset"]
 
 logger = logging.getLogger(__name__)
 
 ERA5_START = "1940-01-01"
 #: The playbooks whose questions are about floods: the Scout reads the flood history for them.
 FLOOD_PLAYBOOKS = ("flood_risk", "flood_change")
+#: The playbooks whose flows dams upstream can shape: the Scout reads the dams upstream of the site for them.
+REGULATION_PLAYBOOKS = (*FLOOD_PLAYBOOKS, "supply_reliability")
 
 
 def _say(ws: Workspace):
@@ -206,6 +211,43 @@ def _flood_history_note(ws: Workspace, inv: Inventory) -> None:
     ws.event("scout", "context", f"flood history: {res['summary']}")
 
 
+def _read_upstream_dams(lat: float, lon: float, river_id: str | int | None = None) -> dict[str, Any]:
+    """The dams upstream of the site's river reach (network; the tests replace it)."""
+    from aquascope import rivers
+
+    if river_id is not None:
+        return rivers.upstream_dams(river_id, lat=lat, lon=lon)
+    return rivers.upstream_dams(lat=lat, lon=lon)
+
+
+def _regulation_note(ws: Workspace, inv: Inventory, river_id: str | int | None) -> None:
+    """Read whether dams upstream regulate the river at the site and keep it as context: on the dams row, in the
+    notes and under ``context.upstream_dams``. Never a reason for the study to stop, and no plan reads it."""
+    try:
+        res = _read_upstream_dams(inv.site["lat"], inv.site["lon"], river_id)
+    except Exception as exc:  # noqa: BLE001 - context is never a reason for the study to stop
+        ws.event("scout", "context", f"dams upstream unreadable: {type(exc).__name__}: {exc}")
+        return
+    if not isinstance(res, dict) or not res.get("summary"):
+        return
+    for row in inv.context:
+        if row["layer"] == "dams":
+            row["upstream"] = str(res["summary"])
+            row["regulated_upstream"] = res.get("regulated")
+    if res.get("available") and res.get("regulated") is not None:
+        ctx = dict(inv.recon.get("context") or {})  # copied, never written into the shared reconnaissance
+        ctx["upstream_dams"] = {
+            "regulated": res.get("regulated"), "n_dams": res.get("n_dams"),
+            "total_capacity_mcm": res.get("total_capacity_mcm"),
+            "degree_of_regulation_pct": res.get("degree_of_regulation_pct"),
+            "largest": [d.get("name") for d in (res.get("dams") or [])[:3]],
+            "source": "Global Dam Watch v1.0 (CC BY 4.0); mean flow GEOGLOWS v2, modelled",
+        }
+        inv.recon = {**inv.recon, "context": ctx}
+    inv.notes.append(f"Dams upstream: {res['summary']}")
+    ws.event("scout", "context", f"dams upstream: {res['summary']}")
+
+
 def scout(ws: Workspace) -> Inventory:
     """Build the inventory and write it to ``ws.inventory``. Never raises on the reconnaissance's account."""
     from aquascope.ai_engine.team import _scout
@@ -249,6 +291,8 @@ def scout(ws: Workspace) -> Inventory:
     inv.context = context_layers()
     if ws.brief.playbook in FLOOD_PLAYBOOKS:
         _flood_history_note(ws, inv)
+    if ws.brief.playbook in REGULATION_PLAYBOOKS:
+        _regulation_note(ws, inv, reach.station_id if reach is not None else None)
     chosen = ws.brief.intake.get("value_column")
     for dataset_id, csv in ws.tables.items():
         try:

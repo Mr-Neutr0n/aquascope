@@ -617,6 +617,16 @@ CONTEXT_LAYERS: dict[str, ContextLayerMeta] = {
         citation="Menne, M. J. et al. (2012). An overview of the Global Historical Climatology Network-Daily "
                  "database. J. Atmos. Oceanic Technol. 29, 897-910. doi:10.1175/JTECH-D-11-00103.1",
     ),
+    "natural_earth": ContextLayerMeta(
+        key="natural_earth", short="Natural Earth",
+        label="Country boundaries (Natural Earth 1:50m)", provider="Natural Earth",
+        description="Admin-0 country polygons, used to name the countries a traced river crosses. Read from the "
+                    "world-atlas 2.0.2 TopoJSON on jsDelivr; borders as Natural Earth draws them, not a position on "
+                    "any dispute",
+        license="public domain", redistributable=True,
+        attribution="Natural Earth 1:50m admin-0 boundaries (public domain), via world-atlas 2.0.2",
+        homepage="https://www.naturalearthdata.com/about/terms-of-use/",
+    ),
     "global_water_watch": ContextLayerMeta(
         key="global_water_watch", short="Global Water Watch",
         label="Reservoir surface area (Global Water Watch)",

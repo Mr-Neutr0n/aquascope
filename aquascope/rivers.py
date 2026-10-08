@@ -1,7 +1,7 @@
 """Rivers as objects: snap a point to a river reach, its simulated record, its upstream area, its way to the sea.
 
 The unit is a GEOGLOWS v2 river reach (about 6.8 million of them, keyed by a
-9-digit ``river_id``, the TDX-Hydro ``LINKNO``). Four functions, one engine for
+9-digit ``river_id``, the TDX-Hydro ``LINKNO``). Five functions, one engine for
 the Explorer, the MCP server and the CLI:
 
 * :func:`snap_to_river` reads the global stream network (``streams.pmtiles``,
@@ -14,7 +14,12 @@ the Explorer, the MCP server and the CLI:
   labelled modelled everywhere.
 * :func:`upstream_area` adds up the unit catchments upstream of a reach.
 * :func:`trace_downstream` follows the network to the outlet and returns the
-  path geometry, its length and the Archive gauges along it.
+  path geometry, its length and the Archive gauges along it, with the dams on
+  the path, the countries it crosses and the dams upstream
+  (:mod:`aquascope.river_path`).
+* :func:`upstream_dams` says whether the river is regulated upstream of a
+  reach: the Global Dam Watch dams that drain to it and their storage as a
+  share of a year's flow.
 
 Everything is keyless and readable from a browser page (both hosts answer CORS
 for any origin), and every reader here is plain Python (no pyarrow, no
@@ -51,6 +56,7 @@ __all__ = [
     "snap_to_river",
     "trace_downstream",
     "upstream_area",
+    "upstream_dams",
 ]
 
 GEOGLOWS_API = "https://geoglows.ecmwf.int/api/v2"
@@ -800,6 +806,21 @@ class _Network:
 
 
 _NETWORKS: OrderedDict[int, _Network] = OrderedDict()
+_UPSTREAM: OrderedDict[tuple[int, int], list[int]] = OrderedDict()
+
+
+def _upstream_of(net: _Network, i: int) -> list[int]:
+    """The reaches upstream of reach index ``i`` (its own included), kept for the last few asked: the trace, the
+    upstream area and the upstream dams all walk the same basin."""
+    key = (net.vpu, int(i))
+    if key in _UPSTREAM:
+        _UPSTREAM.move_to_end(key)
+        return _UPSTREAM[key]
+    ups = net.upstream(i)
+    _UPSTREAM[key] = ups
+    while len(_UPSTREAM) > 4:
+        _UPSTREAM.popitem(last=False)
+    return ups
 
 
 def _network(vpu: int) -> _Network:
@@ -870,11 +891,20 @@ def upstream_area(river_id: int | str, *, lat: float | None = None, lon: float |
     net = _network_for(rid, lat, lon)
     i = net.index(rid)
     assert i is not None
-    ups = net.upstream(i)
+    ups = _upstream_of(net, i)
     total = float(net.area_m2[ups].sum())
     return {"river_id": rid, "vpu": net.vpu, "upstream_area_km2": round(total / 1e6, 1),
             "unit_area_km2": round(float(net.area_m2[i]) / 1e6, 2), "n_reaches_upstream": len(ups),
             "method": AREA_METHOD, "note": AREA_NOTE, "modelled": True, "attribution": ATTRIBUTION}
+
+
+def upstream_dams(river_id: int | str | None = None, **kwargs: Any) -> dict[str, Any]:
+    """The Global Dam Watch dams upstream of a reach and the degree of regulation there; see
+    :func:`aquascope.river_path.upstream_dams`."""
+    from aquascope.river_path import upstream_dams as _upstream_dams
+
+    res: dict[str, Any] = _upstream_dams(river_id, **kwargs)
+    return res
 
 
 # ── the trace to the outlet ──────────────────────────────────────────────────
@@ -957,55 +987,80 @@ def _line_km(pts: list[tuple[float, float]]) -> float:
     return sum(_haversine_m(a[1], a[0], b[1], b[0]) for a, b in zip(pts, pts[1:])) / 1000.0
 
 
+class PathIndex:
+    """Where points lie relative to a polyline of ``[lon, lat]``: how far off it and how far along it, in km.
+
+    A coarse grid of the segments keeps each lookup to the few segments nearby. The gauges and the dams along a
+    trace are both placed with it.
+    """
+
+    def __init__(self, coords: list[list[float]], max_km: float):
+        self.coords = coords
+        self.max_km = float(max_km)
+        self.cell = c = max(0.02, self.max_km / 111.0)
+        self.grid: dict[tuple[int, int], list[int]] = {}
+        for k, (a, b) in enumerate(zip(coords, coords[1:])):
+            for cx in range(int(math.floor(min(a[0], b[0]) / c)), int(math.floor(max(a[0], b[0]) / c)) + 1):
+                for cy in range(int(math.floor(min(a[1], b[1]) / c)), int(math.floor(max(a[1], b[1]) / c)) + 1):
+                    self.grid.setdefault((cx, cy), []).append(k)
+        self.cum = [0.0]
+        for a, b in zip(coords, coords[1:]):
+            self.cum.append(self.cum[-1] + _haversine_m(a[1], a[0], b[1], b[0]) / 1000.0)
+        lons = [p[0] for p in coords] or [0.0]
+        lats = [p[1] for p in coords] or [0.0]
+        pad_lat = self.max_km / 111.0
+        pad_lon = pad_lat / max(0.1, math.cos(math.radians(max(abs(min(lats)), abs(max(lats))))))
+        self.bbox = (min(lons) - pad_lon, min(lats) - pad_lat, max(lons) + pad_lon, max(lats) + pad_lat)
+
+    @property
+    def length_km(self) -> float:
+        return self.cum[-1]
+
+    def locate(self, lat: float, lon: float) -> tuple[float, float, int] | None:
+        """``(distance_km, along_km, segment)`` of the nearest point on the path, or None beyond ``max_km``."""
+        if len(self.coords) < 2:
+            return None
+        west, south, east, north = self.bbox
+        if not (south <= lat <= north and west <= lon <= east):
+            return None
+        c = self.cell
+        reach_cells = int(math.ceil(self.max_km / (111.0 * max(0.05, math.cos(math.radians(lat)))) / c))
+        gcx, gcy = int(math.floor(lon / c)), int(math.floor(lat / c))
+        segs: set[int] = set()
+        for cx in range(gcx - reach_cells, gcx + reach_cells + 1):
+            for cy in range(gcy - 1, gcy + 2):
+                segs.update(self.grid.get((cx, cy), ()))
+        kx = 111.320 * math.cos(math.radians(lat))
+        best: tuple[float, float, int] | None = None
+        for k in segs:
+            a, b = self.coords[k], self.coords[k + 1]
+            d, t, _qx, _qy = _segment_distance(0.0, 0.0, (a[0] - lon) * kx, (a[1] - lat) * 110.574,
+                                               (b[0] - lon) * kx, (b[1] - lat) * 110.574)
+            if best is None or d < best[0]:
+                best = (d, self.cum[k] + t * (self.cum[k + 1] - self.cum[k]), k)
+        if best is None or best[0] > self.max_km:
+            return None
+        return best
+
+
 def _gauges_along(coords: list[list[float]], rows: list[dict[str, Any]], max_km: float, limit: int = 60
                   ) -> list[dict[str, Any]]:
     """Catalog stations within ``max_km`` of the path, in the order the path reaches them."""
     if len(coords) < 2:
         return []
-    cell = max(0.02, max_km / 111.0)
-    grid: dict[tuple[int, int], list[int]] = {}
-    for k, (a, b) in enumerate(zip(coords, coords[1:])):
-        for cx in range(int(math.floor(min(a[0], b[0]) / cell)), int(math.floor(max(a[0], b[0]) / cell)) + 1):
-            for cy in range(int(math.floor(min(a[1], b[1]) / cell)), int(math.floor(max(a[1], b[1]) / cell)) + 1):
-                grid.setdefault((cx, cy), []).append(k)
-    cum = [0.0]
-    for a, b in zip(coords, coords[1:]):
-        cum.append(cum[-1] + _haversine_m(a[1], a[0], b[1], b[0]) / 1000.0)
-    lons = [c[0] for c in coords]
-    lats = [c[1] for c in coords]
-    pad_lat = max_km / 111.0
-    pad_lon = pad_lat / max(0.1, math.cos(math.radians(max(abs(min(lats)), abs(max(lats))))))
-    west, east = min(lons) - pad_lon, max(lons) + pad_lon
-    south, north = min(lats) - pad_lat, max(lats) + pad_lat
+    index = PathIndex(coords, max_km)
     found: list[dict[str, Any]] = []
     for r in rows:
         try:
             glat, glon = float(r.get("latitude")), float(r.get("longitude"))
         except (TypeError, ValueError):
             continue
-        if not (south <= glat <= north and west <= glon <= east):
-            continue
-        reach_cells = int(math.ceil(max_km / (111.0 * max(0.05, math.cos(math.radians(glat)))) / cell))
-        gcx, gcy = int(math.floor(glon / cell)), int(math.floor(glat / cell))
-        segs: set[int] = set()
-        for cx in range(gcx - reach_cells, gcx + reach_cells + 1):
-            for cy in range(gcy - 1, gcy + 2):
-                segs.update(grid.get((cx, cy), ()))
-        if not segs:
-            continue
-        kx = 111.320 * math.cos(math.radians(glat))
-        best: tuple[float, float] | None = None
-        for k in segs:
-            a, b = coords[k], coords[k + 1]
-            d, t, _qx, _qy = _segment_distance(0.0, 0.0, (a[0] - glon) * kx, (a[1] - glat) * 110.574,
-                                               (b[0] - glon) * kx, (b[1] - glat) * 110.574)
-            if best is None or d < best[0]:
-                best = (d, cum[k] + t * (cum[k + 1] - cum[k]))
-        if best is None or best[0] > max_km:
+        loc = index.locate(glat, glon)
+        if loc is None:
             continue
         found.append({"source": r.get("source"), "station_id": r.get("station_id"), "name": r.get("name"),
                       "latitude": glat, "longitude": glon, "variables": list(r.get("variables") or []),
-                      "distance_km": round(best[0], 2), "along_km": round(best[1], 1)})
+                      "distance_km": round(loc[0], 2), "along_km": round(loc[1], 1)})
     found.sort(key=lambda g: (g["along_km"], g["distance_km"]))
     return found[:limit]
 
@@ -1030,14 +1085,23 @@ def trace_downstream(
     max_reaches: int = 5000,
     stations: list[dict[str, Any]] | None = None,
     max_points: int = 6000,
+    dam_km: float = 2.0,
+    path_context: bool = True,
+    upstream_cells: int = 24,
 ) -> dict[str, Any]:
-    """Follow a reach down the network to its outlet: the path, its length and the gauges along it.
+    """Follow a reach down the network to its outlet: the path, its length, the gauges, dams and countries on it.
 
     Give ``river_id``, or ``lat``/``lon`` to snap first (:func:`snap_to_river`). The topology is GEOGLOWS's own
     (``rapid_connect.csv`` of the reach's processing unit); the geometry is read from the stream tiles reach by
     reach, so the path can be drawn on a map. Catalog stations within ``gauge_km`` of the path are listed in the
     order the water reaches them (``stations`` overrides the catalog). The answer also carries the upstream area
-    of the first reach. Dams are not on the path yet.
+    of the first reach.
+
+    With ``path_context`` (the default) it adds what the river passes, from :mod:`aquascope.river_path`: the
+    Global Dam Watch dams within ``dam_km`` of the path (``dams``, with capacity, purpose, the degree of
+    regulation where GDW gives it and the km along the path), the countries crossed (``countries``, Natural
+    Earth admin-0) and the dams upstream of the first reach (``upstream_dams``, searched when the basin spans at
+    most ``upstream_cells`` 2-degree cells). Each part says when its data is not available and the rest stands.
 
     The geometry is TDX-Hydro (CC BY-SA 4.0): return it for display, do not republish it as a product.
     """
@@ -1077,6 +1141,7 @@ def trace_downstream(
         notes.append(f"Stopped after {max_reaches} reaches; the river goes on.")
 
     coords: list[list[float]] = []
+    coord_reach: list[int] = []  # the reach each vertex belongs to
     reaches: list[dict[str, Any]] = []
     missing = 0
     run = 0  # reaches in a row with no line of their own
@@ -1111,6 +1176,7 @@ def trace_downstream(
             p = [round(pt[0], 5), round(pt[1], 5)]
             if not coords or coords[-1] != p:
                 coords.append(p)
+                coord_reach.append(r)
         here = down[-1]
         order_hint = order if order is not None else order_hint
     geometry_complete = bool(coords) and reaches[-1].get("drawn", False)
@@ -1138,13 +1204,32 @@ def trace_downstream(
         area = upstream_area(rid, lat=lat, lon=lon)
     except Exception as exc:  # noqa: BLE001
         notes.append(f"Upstream area unavailable: {exc}")
+    dams: dict[str, Any] | None = None
+    countries: dict[str, Any] | None = None
+    up_dams: dict[str, Any] | None = None
+    if path_context:
+        from aquascope import river_path
+
+        if coords:
+            dams = river_path.dams_along(coords, reach_of_segment=coord_reach[1:], dam_km=dam_km,
+                                         min_catchment_km2=area.get("upstream_area_km2") if area else None)
+            countries = river_path.countries_along(coords)
+            if dams.get("note") and not dams.get("available"):
+                notes.append(dams["note"])
+        try:
+            up_dams = river_path.upstream_dams(rid, lat=lat, lon=lon, with_flow=False, limit=5,
+                                               max_cells=upstream_cells, max_tiles=upstream_cells)
+        except Exception as exc:  # noqa: BLE001 - the path stands without them
+            up_dams = {"available": False, "summary": f"Dams upstream unavailable: {exc}"}
     last_drawn = bool(reaches) and bool(reaches[-1].get("drawn"))
     outlet = {"river_id": path[-1], "lon": coords[-1][0] if coords and last_drawn else None,
               "lat": coords[-1][1] if coords and last_drawn else None}
     where = (f" at {outlet['lat']:.3f}, {outlet['lon']:.3f}" if outlet["lat"] is not None else "")
     message = (f"{len(path)} reaches, {length_km:,.0f} km to the outlet{where}"
                + ("" if truncated else ", where the network ends (the sea, or an inland sink)") + ". "
-               + (f"{len(gauges)} gauge{'s' if len(gauges) != 1 else ''} within {gauge_km:g} km of the path."
+               + (f"{len(gauges)} gauge{'s' if len(gauges) != 1 else ''} within {gauge_km:g} km of the path"
+                  + (f", {dams['n_dams']} dam{'s' if dams['n_dams'] != 1 else ''}"
+                     if dams and dams.get("available") else "") + "."
                   if coords else "The path could not be drawn."))
     return {
         "snapped": True, "river_id": rid, "vpu": net.vpu, "snap": snap,
@@ -1154,6 +1239,11 @@ def trace_downstream(
         "geometry_complete": geometry_complete,
         "geometry_licence": "TDX-Hydro, CC BY-SA 4.0: for display; a product derived from it is share-alike.",
         "gauges": gauges, "gauge_km": float(gauge_km),
+        "dams": (dams or {}).get("dams", []),
+        "dams_info": {k: v for k, v in dams.items() if k != "dams"} if dams else None,
+        "countries": (countries or {}).get("countries", []),
+        "countries_info": {k: v for k, v in countries.items() if k != "countries"} if countries else None,
+        "upstream_dams": up_dams,
         "upstream_area_km2": area.get("upstream_area_km2") if area else None,
         "upstream": area,
         "message": message, "notes": notes, "attribution": ATTRIBUTION, "licence": LICENCE,

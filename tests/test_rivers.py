@@ -95,13 +95,11 @@ def _pmtiles(tiles: dict[tuple[int, int, int], bytes]) -> bytes:
 
 @pytest.fixture(autouse=True)
 def _fresh_caches():
-    rivers._ARCHIVE.clear()
-    rivers._TILES.clear()
-    rivers._NETWORKS.clear()
+    for cache in (rivers._ARCHIVE, rivers._TILES, rivers._NETWORKS, rivers._UPSTREAM):
+        cache.clear()
     yield
-    rivers._ARCHIVE.clear()
-    rivers._TILES.clear()
-    rivers._NETWORKS.clear()
+    for cache in (rivers._ARCHIVE, rivers._TILES, rivers._NETWORKS, rivers._UPSTREAM):
+        cache.clear()
 
 
 LAT, LON = 46.948, 7.452

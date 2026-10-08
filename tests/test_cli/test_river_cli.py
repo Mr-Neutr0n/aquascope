@@ -78,12 +78,24 @@ def test_river_trace_lists_the_gauges_and_writes_geojson(monkeypatch, capsys, tm
              "geometry": {"type": "LineString", "coordinates": [[7.45, 46.95], [4.08, 51.95]]},
              "geometry_licence": "TDX-Hydro, CC BY-SA 4.0", "length_km": 1078.0,
              "gauges": [{"along_km": 222.1, "source": "pegelonline", "station_id": "x", "name": "BASEL"}],
+             "dams": [{"along_km": 23.8, "name": "Muehleberg", "capacity_mcm": 25.0, "purpose": "Hydroelectricity"}],
+             "dams_info": {"summary": "1 dam within 2 km of the path."},
+             "countries_info": {"summary": "Crosses Switzerland, Germany, France and Netherlands."},
+             "upstream_dams": {"summary": "Regulated upstream: 7 dams in Global Dam Watch drain to this reach."},
              "notes": ["A note."]}
-    monkeypatch.setattr(rivers, "trace_downstream", lambda rid, gauge_km=2.0: trace)
+    seen = {}
+
+    def fake(rid, gauge_km=2.0, dam_km=2.0):
+        seen.update(gauge_km=gauge_km, dam_km=dam_km)
+        return trace
+
+    monkeypatch.setattr(rivers, "trace_downstream", fake)
     path = tmp_path / "trace.geojson"
-    _run(monkeypatch, "trace", "230260670", "--geojson", str(path))
+    _run(monkeypatch, "trace", "230260670", "--geojson", str(path), "--dam-km", "1.5")
     out = capsys.readouterr().out
     assert "1,078 km to the outlet" in out and "3,019 km2" in out and "pegelonline/x" in out
+    assert "km    23.8  Muehleberg  25.0 million m3  Hydroelectricity" in out and seen["dam_km"] == 1.5
+    assert "Crosses Switzerland" in out and "Upstream: Regulated upstream: 7 dams" in out
     fc = json.loads(path.read_text())
     assert fc["features"][0]["properties"]["licence"].startswith("TDX-Hydro")
 
@@ -109,6 +121,24 @@ def test_river_area_at_a_point_passes_where_the_reach_is(monkeypatch, capsys):
     assert seen == {"rid": 230260670, "lat": 46.9498, "lon": 7.4521}
 
 
+def test_river_dams_lists_the_dams_upstream(monkeypatch, capsys):
+    seen = {}
+
+    def fake(rid, with_flow=True, lat=None, lon=None):
+        seen.update(rid=rid, with_flow=with_flow, lat=lat)
+        return {"summary": "Regulated upstream: 1 dam in Global Dam Watch drains to this reach.",
+                "dams": [{"name": "Spitallamm", "capacity_mcm": 101.0, "purpose": None}],
+                "note": "Approximate.", "source": {"attribution": "Global Dam Watch database v1.0, CC BY 4.0"}}
+
+    monkeypatch.setattr(rivers, "snap_to_river", lambda lat, lon, max_distance_m=1000.0: SNAP)
+    monkeypatch.setattr(rivers, "upstream_dams", fake)
+    _run(monkeypatch, "dams", "--at", "46.948", "7.452", "--no-flow")
+    out = capsys.readouterr().out
+    assert "River reach 230260670: Regulated upstream: 1 dam" in out
+    assert "Spitallamm" in out and "101.0 million m3" in out
+    assert seen == {"rid": 230260670, "with_flow": False, "lat": 46.9498} and "CC BY 4.0" in out
+
+
 def test_river_needs_a_reach_or_a_point(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         _run(monkeypatch, "record")
@@ -131,6 +161,13 @@ def test_mcp_tools_wrap_the_engine(monkeypatch):
     monkeypatch.setattr(rivers, "trace_downstream", lambda *a, **k: {"reaches": list(reaches)})
     res = m.trace_downstream(230260670)
     assert len(res["reaches"]) == 40 and "100 reaches" in res["reaches_note"]
+    dams = [{"name": f"d{i}", "along_km": float(i), "capacity_mcm": float(i)} for i in range(50)]
+    monkeypatch.setattr(rivers, "trace_downstream", lambda *a, **k: {"dams": list(dams)})
+    res = m.trace_downstream(230260670)
+    assert len(res["dams"]) == 30 and res["dams"][0]["name"] == "d20" and "50 dams" in res["dams_note"]
+    monkeypatch.setattr(rivers, "upstream_dams", lambda rid, lat=None, lon=None, with_flow=True: {
+        "river_id": rid, "with_flow": with_flow})
+    assert m.upstream_dams(230260670, with_flow=False) == {"river_id": 230260670, "with_flow": False}
 
 
 def test_the_mcp_server_registers_the_river_tools():
@@ -139,7 +176,7 @@ def test_the_mcp_server_registers_the_river_tools():
     from aquascope import mcp_server as m
 
     names = {t.name for t in asyncio.run(m.build_server().list_tools())}
-    assert {"snap_to_river", "reach_record", "upstream_area", "trace_downstream"} <= names
+    assert {"snap_to_river", "reach_record", "upstream_area", "trace_downstream", "upstream_dams"} <= names
 
 
 def test_the_analyst_tool_and_the_team_sentence(monkeypatch):

@@ -379,18 +379,36 @@ def upstream_area(river_id: int, lat: float | None = None, lon: float | None = N
 
 
 def trace_downstream(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
-                     gauge_km: float = 2.0) -> dict[str, Any]:
+                     gauge_km: float = 2.0, dam_km: float = 2.0) -> dict[str, Any]:
     """Follow a river reach (or the reach a point snaps to) down to its outlet: how many reaches, how many km,
-    where it ends, the catalog gauges within gauge_km of the path in the order the water reaches them, and the
-    upstream area. The path geometry is thinned to 400 points (TDX-Hydro, CC BY-SA 4.0: for display)."""
+    where it ends, the catalog gauges within gauge_km of the path in the order the water reaches them, the
+    Global Dam Watch dams within dam_km of it (name, capacity in million m3, purpose, degree of regulation where
+    GDW gives it, km along the path), the countries it crosses (Natural Earth) and the dams upstream of the
+    first reach. The path geometry is thinned to 400 points (TDX-Hydro, CC BY-SA 4.0: for display)."""
     from aquascope import rivers
 
-    res = rivers.trace_downstream(river_id, lat=lat, lon=lon, gauge_km=gauge_km, max_points=400)
+    res = rivers.trace_downstream(river_id, lat=lat, lon=lon, gauge_km=gauge_km, dam_km=dam_km, max_points=400)
     reaches = res.get("reaches") or []
     if len(reaches) > 40:
         res["reaches"] = reaches[:20] + reaches[-20:]
         res["reaches_note"] = f"{len(reaches)} reaches; the first and last 20 are listed."
+    dams = res.get("dams") or []
+    if len(dams) > 30:
+        res["dams"] = sorted(dams, key=lambda d: d.get("capacity_mcm") or 0.0, reverse=True)[:30]
+        res["dams"].sort(key=lambda d: d.get("along_km") or 0.0)
+        res["dams_note"] = f"{len(dams)} dams on the path; the 30 with the most storage are listed."
     return res
+
+
+def upstream_dams(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
+                  with_flow: bool = True) -> dict[str, Any]:
+    """Is a river regulated upstream of a reach (or of the reach a point snaps to)? The Global Dam Watch dams that
+    drain to it (largest storage first), their total storage in million m3, and with_flow the degree of
+    regulation: that storage as a % of a year's mean flow at the reach (GEOGLOWS v2, modelled; one more 10 s
+    request). Approximate: each dam is matched to its nearest river reach. Very large basins are not searched."""
+    from aquascope import rivers
+
+    return rivers.upstream_dams(river_id, lat=lat, lon=lon, with_flow=with_flow)
 
 
 def describe_methods() -> dict[str, Any]:
@@ -1090,6 +1108,7 @@ def build_server():
     server.tool()(reach_record)
     server.tool()(upstream_area)
     server.tool()(trace_downstream)
+    server.tool()(upstream_dams)
     server.tool()(place_context)
     server.tool()(area_context)
     server.tool()(similar_basins)

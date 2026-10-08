@@ -1,14 +1,17 @@
 // The River tab (#516): a click (or a gauge) snapped to its GEOGLOWS v2 river
 // reach, the reach's 86 years of simulated daily flow analysed like a gauge,
-// and the trace to the sea. Every number comes from aquascope.rivers in the
-// worker; this module asks for it and lays it out.
+// and the trace to the sea with the gauges, dams and countries on the way.
+// Every number comes from aquascope.rivers in the worker; this module asks for
+// it and lays it out.
 
 import { $, actions, escapeHtml, fmt, sourceStyle, state, stationKey } from "./core.js?v=__BUILD__";
 import { addTableDownload, plot } from "./charts.js?v=__BUILD__";
 import { addMethodOnce } from "./methods.js?v=__BUILD__";
-import { setPointMarker } from "./map.js?v=__BUILD__";
-import { clearRiverTrace, drawRiverTrace, setRiversVisible } from "./river-map.js?v=__BUILD__";
-import { RECORD_CREDIT, snapLine } from "./river-core.js?v=__BUILD__";
+import { flyToPoint, setPointMarker } from "./map.js?v=__BUILD__";
+import { clearRiverTrace, drawRiverDams, drawRiverTrace, setRiversVisible } from "./river-map.js?v=__BUILD__";
+import {
+  BORDERS_CREDIT, DAMS_CREDIT, RECORD_CREDIT, damFacts, damName, notableDams, snapLine,
+} from "./river-core.js?v=__BUILD__";
 import { setCard, setTab } from "./shell.js?v=__BUILD__";
 import { call, ensureCatalogInWorker } from "./worker-client.js?v=__BUILD__";
 
@@ -217,7 +220,7 @@ async function traceToSea(t) {
   const out = part(t, "river-trace-out");
   btn.disabled = true;
   out.innerHTML = `<p class="muted"><span class="spinner" aria-hidden="true"></span> Following the river down the network ` +
-    `(reads the basin's routing tables, a few MB)…</p>`;
+    `and looking for dams on the way (reads the basin's routing tables, a few MB)…</p>`;
   try {
     await ensureCatalogInWorker();
     const res = await call("river", { op: "trace", args: { river_id: reach.river_id, lat: reach.lat, lon: reach.lon } });
@@ -227,6 +230,7 @@ async function traceToSea(t) {
     if (coords.length >= 2) {
       if (!state.riversOn) setRiversVisible(true);
       drawRiverTrace(coords);
+      drawRiverDams(res.dams || []);
     }
     renderTrace(t, res);
   } catch (err) {
@@ -247,21 +251,41 @@ function renderTrace(t, res) {
       `<span class="nearest-name">${escapeHtml(g.name || g.station_id)}</span><span class="muted">${escapeHtml(s.label)}</span>` +
       `<span class="dist">km ${fmt(g.along_km, 0)}</span></button></li>`;
   }).join("");
+  const { notable, others } = notableDams(res.dams);
+  const damsShown = notable.slice(0, 12);
+  const unlisted = others + notable.length - damsShown.length;
+  const damList = damsShown.map((d, i) =>
+    `<li><button type="button" class="nearest-open" data-i="${i}">` +
+    `<span class="nearest-name">${escapeHtml(damName(d))}</span><span class="muted">${escapeHtml(damFacts(d))}</span>` +
+    `<span class="dist">km ${fmt(d.along_km, 0)}</span></button></li>`).join("");
+  const info = res.dams_info || {};
+  const up = res.upstream_dams || {};
+  const countries = res.countries_info || {};
+  const line = (text) => (text ? `<p class="muted">${escapeHtml(text)}</p>` : "");
   out.innerHTML =
     `<p>${escapeHtml(res.message || "")}</p>` +
     (area !== null && area !== undefined ? `<p class="muted">About ${fmt(area, 0)} km² drain to the starting reach.</p>` : "") +
+    line(countries.available ? countries.summary : "") +
+    line(up.summary) +
     (shown.length ? `<h4>Gauges on the way</h4><ol class="nearest river-gauges">${list}</ol>` : "") +
     (gauges.length > shown.length ? `<p class="muted">and ${gauges.length - shown.length} more further down.</p>` : "") +
+    (damsShown.length ? `<h4>Dams on the way</h4><ol class="nearest river-dams">${damList}</ol>` : line(info.summary)) +
+    (damsShown.length && unlisted
+      ? line(`and ${unlisted} smaller or unnamed barrier${unlisted === 1 ? "" : "s"}, shown on the map.`) : "") +
     ((res.notes || []).length ? `<details><summary class="muted">Notes</summary><ul class="muted">${
       res.notes.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul></details>` : "") +
     `<p class="basin-foot muted">Path: TDX-Hydro (NGA) via GEOGLOWS v2, CC BY-SA 4.0, drawn here and not republished. ` +
-    `Dams on the path come later.</p>`;
+    `${escapeHtml(DAMS_CREDIT)}. ${escapeHtml(BORDERS_CREDIT)}.</p>`;
   out.querySelectorAll(".river-gauges button").forEach((b) => {
     const g = shown[Number(b.dataset.i)];
     b.addEventListener("click", () => {
       keepTrace = true;
       try { actions.selectStation(stationKey(g), { fly: true }); } finally { keepTrace = false; }
     });
+  });
+  out.querySelectorAll(".river-dams button").forEach((b) => {
+    const d = damsShown[Number(b.dataset.i)];
+    b.addEventListener("click", () => { if (Number.isFinite(d.lat) && Number.isFinite(d.lon)) flyToPoint(d.lat, d.lon, { zoom: 12 }); });
   });
 }
 

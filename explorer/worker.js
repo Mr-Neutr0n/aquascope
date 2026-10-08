@@ -83,7 +83,8 @@ json.dumps(_res)
 // Rivers as objects (#516): aquascope.rivers, the same functions as `aquascope river` and the MCP tools.
 // snap reads a few byte ranges of the GEOGLOWS stream tiles; record asks the GEOGLOWS API for the reach's
 // simulated daily flow since 1940; trace reads the processing unit's routing tables (a few MB, up to about
-// 30 MB for the largest basins) and the catalog the page sent with "catalog".
+// 30 MB for the largest basins), the catalog the page sent with "catalog", the Archive's Global Dam Watch
+// cells along the path and upstream, a few zoom-8 stream tiles, and Natural Earth's borders (750 kB, once).
 async function river({ id, op, args }) {
   // The arguments travel inside the code as a JSON string literal, not through a shared global: two river
   // calls can be in flight (a record still running when the next click snaps), and a global set by one

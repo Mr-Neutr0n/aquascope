@@ -92,3 +92,47 @@ export function lineBounds(coords) {
   }
   return [w, s, e, n];
 }
+
+// Dams on the trace (Global Dam Watch v1.0, CC BY 4.0) and the borders it
+// crosses (Natural Earth, public domain). The dams themselves, their km along
+// the path and the country list all come from aquascope.river_path.
+export const DAMS_CREDIT = "Dams: Global Dam Watch v1.0 (Lehner et al. 2024), CC BY 4.0";
+export const BORDERS_CREDIT = "Borders: Natural Earth 1:50m, public domain";
+
+// GDW leaves most small barriers unnamed; a reservoir name is the next best thing.
+export function damName(d) {
+  if (!d) return "";
+  return d.name && d.name !== "unnamed" ? d.name : d.reservoir ? `${d.reservoir} dam` : "Unnamed dam";
+}
+
+// Storage and main use, in a few words: "25 million m³, hydroelectricity".
+export function damFacts(d) {
+  if (!d) return "";
+  const bits = [];
+  const cap = Number(d.capacity_mcm);
+  if (d.capacity_mcm !== null && d.capacity_mcm !== undefined && Number.isFinite(cap) && cap > 0) {
+    bits.push(`${cap >= 10 ? Math.round(cap).toLocaleString("en-US") : Number(cap.toFixed(1))} million m³`);
+  }
+  if (d.purpose) bits.push(String(d.purpose).toLowerCase());
+  return bits.join(", ");
+}
+
+// The dams as map points, each carrying its index in the list it came from.
+export function damsGeoJSON(dams) {
+  const features = [];
+  (dams || []).forEach((d, i) => {
+    const lat = Number(d && d.lat), lon = Number(d && d.lon);
+    if (d && d.lat !== null && d.lon !== null && Number.isFinite(lat) && Number.isFinite(lon)) {
+      features.push({ type: "Feature", properties: { i, name: damName(d) }, geometry: { type: "Point", coordinates: [lon, lat] } });
+    }
+  });
+  return { type: "FeatureCollection", features };
+}
+
+// The dams worth a line in the list: those GDW names or gives a storage for.
+// The many unnamed weirs stay on the map and are counted, not listed.
+export function notableDams(dams) {
+  const all = dams || [];
+  const notable = all.filter((d) => (d.name && d.name !== "unnamed") || d.reservoir || Number(d.capacity_mcm) > 0);
+  return { notable, others: all.length - notable.length };
+}

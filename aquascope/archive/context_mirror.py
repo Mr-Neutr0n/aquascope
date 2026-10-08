@@ -313,10 +313,13 @@ def merge_microsoft(out: str | Path, parts: str | Path) -> dict:
 
 # ── Global Dam Watch ─────────────────────────────────────────────────────────
 
+# The location is LAT_RIV/LONG_RIV: the point of the GIS layer, on the HydroSHEDS river, filled for every barrier.
+# LAT_DAM/LONG_DAM is the surveyed dam position and is 0 for about 35,000 of the 41,145 barriers (checked
+# 2026-10-08 against the shapefile's own point geometry, which equals LAT_RIV/LONG_RIV), so it is not used.
 GDW_FIELDS = {"GDW_ID": "gdw_id", "DAM_NAME": "name", "RES_NAME": "reservoir", "RIVER": "river", "COUNTRY": "country",
               "YEAR_DAM": "year", "DAM_HGT_M": "height_m", "CAP_MCM": "capacity_mcm", "AREA_SKM": "area_km2",
-              "MAIN_USE": "main_use", "DOR_PC": "dor_pc", "CATCH_SKM": "catchment_km2", "LAT_DAM": "lat",
-              "LONG_DAM": "lon", "GRAND_ID": "grand_id"}
+              "MAIN_USE": "main_use", "DOR_PC": "dor_pc", "CATCH_SKM": "catchment_km2", "LAT_RIV": "lat",
+              "LONG_RIV": "lon", "GRAND_ID": "grand_id"}
 DAM_COLUMNS = list(GDW_FIELDS.values())
 
 
@@ -353,7 +356,7 @@ def dam_rows(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     for rec in records:
         r = {out: rec.get(src) for src, out in GDW_FIELDS.items()}
         lat, lon = r.get("lat"), r.get("lon")
-        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
             continue
         for k in ("year", "height_m", "capacity_mcm", "area_km2", "dor_pc", "catchment_km2", "grand_id"):
             if isinstance(r.get(k), float) and r[k] < 0:  # GDW codes missing numbers as negative values
@@ -369,7 +372,7 @@ def dam_rows(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_dams(out: str | Path, *, source: str | Path | None = None) -> dict:
-    """Mirror the Global Dam Watch v1.0 barriers from the shapefile zip's attribute table (LAT_DAM, LONG_DAM)."""
+    """Mirror the Global Dam Watch v1.0 barriers from the shapefile zip's attribute table (LAT_RIV, LONG_RIV)."""
     root = _root(out)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(source) if source else download(GDW_SHP_URL, Path(tmp) / "GDW_v1_0_shp.zip")

@@ -56,7 +56,8 @@ Start with one task:
 - **Analyse my table:** use a sample CSV, check the inferred columns, then replace it with your own data.
 - **Follow a river:** click anywhere and the point snaps to its river (or says no stream is near). The River
   tab shows 86 years of simulated daily flow for that reach, its return periods and flow-duration curve, and
-  traces it to the sea past the gauges on the way. Simulated, and labelled so.
+  traces it to the sea past the gauges and dams on the way, naming the countries it crosses. Simulated, and
+  labelled so.
 - **Read a place:** click anywhere and open **Context** for what flooded there before, how often the ground has
   been water since 1984, modelled flood depth, dams, soil, evaporation and the nearest rain gauge, each with its source.
 
@@ -123,7 +124,7 @@ virtual environment first: `python3 -m venv .venv && source .venv/bin/activate`.
 ## ✨ What you can do
 
 - 🌊 **Pull water data** from USGS, NOAA NWPS, Colorado DWR/CDSS, US Water Quality Portal, England's Environment Agency, France Hub'Eau, Germany PEGELONLINE, Ireland OPW, Greece Hydroscope and OpenHi.net, Poland IMGW-PIB, EU WFD, Taiwan MOENV/WRA/CWA/Civil IoT/DataGov, Japan MLIT, Korea WAMIS, India WRIS, South Africa DWS, Australia BOM, Brazil ANA Hidroweb, CAMELS-CL and CAMELS-BR, GRDC, GEMStat, Copernicus ERA5, OpenMeteo, FAO AQUASTAT, FAO WaPOR and UN SDG 6 — **one unified Python API**.
-- 🏞️ **Treat rivers as objects**: snap any point to its GEOGLOWS v2 river reach (about 6.8 million worldwide), read that reach's simulated daily flow since 1940 with return periods, flow-duration curve and monthly regime (labelled modelled), and trace it downstream to the sea with the gauges it passes. `aquascope river snap|record|area|trace`, the MCP tools, the Explorer's River tab, and the Studio's ungauged studies all use the same functions.
+- 🏞️ **Treat rivers as objects**: snap any point to its GEOGLOWS v2 river reach (about 6.8 million worldwide), read that reach's simulated daily flow since 1940 with return periods, flow-duration curve and monthly regime (labelled modelled), and trace it downstream to the sea with the gauges and dams it passes and the countries it crosses, and see whether dams upstream regulate it (Global Dam Watch). `aquascope river snap|record|area|trace|dams`, the MCP tools, the Explorer's River tab, and the Studio's ungauged studies all use the same functions.
 - 📈 **Run hydrological analyses** — flood frequency (GEV / LP3 / Gumbel / non-stationary GEV, with separate EMA routines), baseflow separation, rating curves, 22 hydrological signatures.
 - 🌾 **Plan agricultural water** — FAO-56 Penman-Monteith ET₀, crop water requirements for 26 crops (olive, grape, citrus and winter wheat resolved by variety and canopy), irrigation scheduling, soil water balance with auto-irrigation.
 - 🤖 **Ask the AI engine** — describe your goal in plain English and get a recommended methodology, scored against your dataset profile and auto-executed. LLM enhancement via OpenAI, Groq (free), HuggingFace (free), or local Ollama.
@@ -352,7 +353,8 @@ aquascope basins similar 25.04 121.56             # gauged basins whose catchmen
 aquascope basins regionalize 52.29 -3.51          # estimated flow regime of an ungauged point from those donors, with the leave-one-out skill
 aquascope river snap 46.948 7.452                 # the river reach at a point (GEOGLOWS v2), or "no stream within 1 km"
 aquascope river record --at 46.948 7.452          # that reach's simulated daily flow since 1940: return periods, FDC (modelled)
-aquascope river trace --at 46.948 7.452           # follow it to the sea: length, path, the gauges it passes
+aquascope river trace --at 46.948 7.452           # follow it to the sea: length, path, the gauges, dams and countries it passes
+aquascope river dams --at 46.948 7.452            # the dams upstream of that reach and the degree of regulation
 aquascope assess 51.415 -0.308 --problem flood_risk   # what can be answered here: gauges in reach, catchment, which methods the record supports
 aquascope context 51.86 5.95                      # flood history, surface water, flood depth, dams, rain gauge, ET and soil at a place
 aquascope caravan export --source uk_ea --out caravan_gb   # a Caravan-format large-sample dataset from the archive

@@ -1,10 +1,13 @@
 // Rivers on the map (#516): the GEOGLOWS v2 stream network as a toggleable
 // vector layer, read in place from streams.pmtiles, and the trace to the sea
-// drawn as a line that grows from the click to the outlet.
+// drawn as a line that grows from the click to the outlet, with the dams on
+// it as small squares.
 
 import { $, EMPTY_FC, state } from "./core.js?v=__BUILD__";
-import { fitBoundsTo, map } from "./map.js?v=__BUILD__";
-import { RIVERS_MINZOOM, STREAMS_PMTILES, cumulativeKm, lineBounds, lineUpTo, riverWidth } from "./river-core.js?v=__BUILD__";
+import { ensureShapeImages, fitBoundsTo, map } from "./map.js?v=__BUILD__";
+import {
+  RIVERS_MINZOOM, STREAMS_PMTILES, cumulativeKm, damsGeoJSON, lineBounds, lineUpTo, riverWidth,
+} from "./river-core.js?v=__BUILD__";
 
 let added = false;
 let animation = 0;
@@ -16,7 +19,7 @@ function beforeGauges() {
 
 export function ensureRiverLayers() {
   if (!state.mapOk || !map) return false;
-  if (added && map.getSource("river-trace")) return true;
+  if (added && map.getSource("river-trace") && map.getSource("river-dams")) return true;
   try {
     if (globalThis.pmtiles && !maplibregl.__aqPmtiles) {
       maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
@@ -40,6 +43,15 @@ export function ensureRiverLayers() {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#0d47a1", "line-width": 3 } }, before);
     }
+    if (!map.getSource("river-dams")) {
+      // The square of the gauge shapes, in a dark brown with a white halo: a structure on the line, not a gauge.
+      ensureShapeImages();
+      map.addSource("river-dams", { type: "geojson", data: EMPTY_FC });
+      map.addLayer({ id: "river-dams-icon", type: "symbol", source: "river-dams",
+        layout: { "icon-image": "gauge-square", "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.55, 10, 0.9],
+          "icon-allow-overlap": true },
+        paint: { "icon-color": "#5d4037", "icon-halo-color": "#ffffff", "icon-halo-width": 1.5 } }, before);
+    }
     added = true;
     return true;
   } catch (err) {
@@ -59,6 +71,13 @@ export function setRiversVisible(on) {
 export function clearRiverTrace() {
   animation++;
   if (state.mapOk && map && map.getSource("river-trace")) map.getSource("river-trace").setData(EMPTY_FC);
+  if (state.mapOk && map && map.getSource("river-dams")) map.getSource("river-dams").setData(EMPTY_FC);
+}
+
+// The dams on the traced path, drawn once the line is there.
+export function drawRiverDams(dams) {
+  if (!ensureRiverLayers() || !map.getSource("river-dams")) return;
+  map.getSource("river-dams").setData(damsGeoJSON(dams));
 }
 
 // Draw the path, growing from the start to the outlet over about two seconds
