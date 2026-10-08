@@ -49,16 +49,26 @@ export function snapshotLine(meta, labelOf = (s) => s) {
   return `Daily snapshot of ${whenText(meta.made || meta.date)}: ${meta.n || 0} gauges with a fresh record, from ${list}.`;
 }
 
+// How far above everything else on the plot (the ensemble's top included) the
+// lowest line may sit and still be drawn. Past this the y axis stretches to the
+// line and presses the forecast flat against zero (the Potomac in a dry
+// October: a 62 m³/s forecast, an ensemble top of 374, under a 2,876 m³/s
+// 2-year flow); the sentence above the plot still names the threshold.
+export const FAR_THRESHOLD = 4;
+
 // The return-period lines worth drawing: those within reach of the forecast
-// (up to 1.5 times its highest value) and always the lowest one, so the
-// nearest threshold is on the plot; at most `max` of them.
+// (up to 1.5 times its highest value) and the lowest one, so the nearest
+// threshold is on the plot, unless it is more than FAR_THRESHOLD times the
+// forecast; at most `max` of them.
 export function thresholdsToShow(thr, ymax, max = 3) {
   if (!thr || !Array.isArray(thr.q) || !Array.isArray(thr.return_periods)) return [];
   const all = thr.return_periods.map((T, i) => ({ T, q: thr.q[i] }))
     .filter((t) => Number.isFinite(t.q)).sort((a, b) => a.q - b.q);
   if (!all.length) return [];
-  const top = Number.isFinite(ymax) ? ymax * 1.5 : -Infinity;
-  const near = all.filter((t, i) => i === 0 || t.q <= top);
+  const known = Number.isFinite(ymax) && ymax > 0;
+  const top = known ? ymax * 1.5 : -Infinity;
+  const far = known ? ymax * FAR_THRESHOLD : Infinity;
+  const near = all.filter((t, i) => (i === 0 && t.q <= far) || t.q <= top);
   return near.slice(0, max);
 }
 

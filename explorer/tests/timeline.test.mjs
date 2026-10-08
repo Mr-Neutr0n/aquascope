@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  DEFAULT_SPAN, addStep, chartDate, clampDate, defaultRange, frameDates, gifSize, isIsoDate, layerCovers,
+  DEFAULT_SPAN, addStep, annualMaxPoints, chartDate, clampDate, defaultRange, frameDates, gifSize, isIsoDate, layerCovers,
   layersMissing, missingNote, nextFrame, normaliseRange, readTimeParams, shortDate, spanLabel, writeTimeParams,
 } from "../src/timeline.js";
 import { OVERLAYS, basemapById, datedLayersOn, imageFor, layerDate, layerImages, overlayById } from "../src/layers.js";
@@ -174,4 +174,12 @@ test("a GIF frame is at most 640 wide, never upscaled, in even pixels", () => {
   assert.deepEqual(gifSize(2560, 1440), { width: 640, height: 360 });
   assert.deepEqual(gifSize(375, 501), { width: 374, height: 500 });
   assert.deepEqual(gifSize(1280, 721, 640), { width: 640, height: 360 });
+});
+
+test("annual maxima sit on the day of the peak when the analysis gives it, else at 1 July", () => {
+  const am = { year: [1995, 1996], v: [10, 12], date: ["1995-03-17", "1996-01-21"] };
+  assert.deepEqual(annualMaxPoints(am), { x: ["1995-03-17", "1996-01-21"], onDay: true });
+  assert.deepEqual(annualMaxPoints({ year: [1995, 1996], v: [10, 12] }), { x: ["1995-07-01", "1996-07-01"], onDay: false });
+  assert.equal(annualMaxPoints({ year: [1995], v: [1], date: [null] }).onDay, false);
+  assert.deepEqual(annualMaxPoints(null), { x: [], onDay: false });
 });

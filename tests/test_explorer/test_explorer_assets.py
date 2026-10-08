@@ -748,3 +748,30 @@ def test_the_node_tests_of_the_pure_modules_pass() -> None:
     )
     assert out.returncode == 0, out.stdout + out.stderr
     assert re.search(r"^# fail 0$", out.stdout, re.M), out.stdout
+
+
+@pytestmark_node
+def test_every_named_source_is_a_registry_source() -> None:
+    """The legend names the catalogue's sources ("ANA (BR)", not "brazil_ana"); each key must be a real source."""
+    from aquascope.registry import SOURCES
+
+    core = EXPLORER / "src" / "core.js"
+    script = f"""
+    const m = await import({json.dumps(core.as_uri())});
+    console.log(JSON.stringify({{
+      keys: [...Object.keys(m.SOURCE_STYLE), ...Object.keys(m.SOURCE_LABEL)],
+      ana: m.sourceStyle("brazil_ana").label,
+      unknown: m.sourceStyle("nowhere").label,
+    }}));
+    """
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    got = json.loads(out.stdout)
+    assert set(got["keys"]) <= set(SOURCES), set(got["keys"]) - set(SOURCES)
+    assert got["ana"] == "ANA (BR)"
+    assert got["unknown"] == "nowhere"

@@ -13,6 +13,7 @@ import {
   BORDERS_CREDIT, DAMS_CREDIT, RECORD_CREDIT, damFacts, damName, notableDams, snapLine,
 } from "./river-core.js?v=__BUILD__";
 import { setCard, setTab } from "./shell.js?v=__BUILD__";
+import { annualMaxPoints } from "./timeline.js?v=__BUILD__";
 import { call, ensureCatalogInWorker } from "./worker-client.js?v=__BUILD__";
 
 const TARGETS = {
@@ -118,8 +119,12 @@ function useReach(t, reach) {
   // The marker moves to the river it now stands for; the address keeps the click.
   if (t === "pt" && Number.isFinite(reach.lat) && Number.isFinite(reach.lon)) setPointMarker(reach.lat, reach.lon);
   if (reach.chosen) {
+    const line = `Using river reach ${reach.river_id}, the nearest one mapped.`;
     const p = part(t, "river-snap");
-    if (p) p.textContent = `Using river reach ${reach.river_id}, the nearest one mapped.`;
+    if (p) p.textContent = line;
+    // The line under the point's title said there was no stream here; it now names the reach in use.
+    const head = t === "pt" ? $("pt-snap") : null;
+    if (head) { head.textContent = line; head.hidden = false; }
   }
   const trace = part(t, "river-trace");
   if (trace) { trace.hidden = false; trace.dataset.state = "ready"; }
@@ -165,7 +170,7 @@ function renderRecord(t, res) {
     ["mean", `${fmt(st.mean)} m³/s`, `${res.start} to ${res.end}`],
     ["Q95 (low)", `${fmt(fdc.q95)} m³/s`, "exceeded 95 % of days"],
     ["Q10 (high)", `${fmt(fdc.q10)} m³/s`, "exceeded 10 % of days"],
-    ["record max", `${fmt(st.max)} m³/s`, `${fmt(res.years, 0)} simulated years`],
+    ["record max", `${fmt(st.max)} m³/s`, `over ${fmt(res.years, 1)} simulated years`],
   ].map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${escapeHtml(s)}</div></div>`).join("");
   setCard(card, "ready");
 
@@ -175,8 +180,10 @@ function renderRecord(t, res) {
       line: { width: 1, color: "#1e88e5" }, hovertemplate: "%{x}<br>%{y:.3~f} m³/s<extra></extra>" });
   }
   if (res.annual_max && res.annual_max.year && res.annual_max.year.length > 1) {
-    traces.push({ x: res.annual_max.year.map((y) => `${y}-07-01`), y: res.annual_max.v, type: "scatter", mode: "markers",
-      name: "annual maximum", marker: { size: 4, color: "#0d47a1" }, hovertemplate: "%{x|%Y}: %{y:.3~f} m³/s<extra></extra>" });
+    const peaks = annualMaxPoints(res.annual_max);
+    traces.push({ x: peaks.x, y: res.annual_max.v, type: "scatter", mode: "markers", meta: { mapDate: peaks.onDay },
+      name: "annual maximum", marker: { size: 4, color: "#0d47a1" },
+      hovertemplate: (peaks.onDay ? "%{x|%d %b %Y}" : "%{x|%Y}") + ": %{y:.3~f} m³/s<extra></extra>" });
   }
   plot(`plot-${t}-river`, traces, { height: 230, yaxis: { title: { text: "m³/s" } }, legend: { orientation: "h", y: 1.15 } },
     `river-${res.river_id}-simulated`);

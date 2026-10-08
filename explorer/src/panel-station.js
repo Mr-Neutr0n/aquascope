@@ -22,6 +22,7 @@ import { syncWatchButtons } from "./watch.js?v=__BUILD__";  // Watch (#521): the
 import { metrics } from "./metrics.js?v=__BUILD__";
 import { catalogOnly, observationMetadata } from "./availability.js?v=__BUILD__";
 import { base64ToBytes, exportOptions, exportSummary } from "./export-menu.js?v=__BUILD__";
+import { annualMaxPoints } from "./timeline.js?v=__BUILD__";
 import { resetEvidence, showSkillBadge, startEvidence } from "./evidence.js?v=__BUILD__";
 
 let analysisRun = 0;
@@ -271,7 +272,7 @@ function render(res, r) {
   void loadExportMenu(analysisRun);
   metrics.record("usable_record", { kind: "station" });
   const eligibility = res.eligibility;
-  $("st-analysis-period").textContent = `Analyzed ${res.start}–${res.end}: ${res.n} observations, ${res.variable} in ${res.unit}. ` +
+  $("st-analysis-period").textContent = `Analyzed ${res.start}–${res.end}: ${Number(res.n).toLocaleString()} observations, ${res.variable} in ${res.unit}. ` +
     (eligibility ? `Daily-flow flood screening ${eligibility.flood_frequency ? "eligible" : "not eligible"}: ${eligibility.complete_years} complete years (minimum ${eligibility.minimum_years}).` : "");
 
   // Overview: KPIs + hydrograph
@@ -293,15 +294,18 @@ function render(res, r) {
     hovertemplate: "%{x}<br>%{y:.3~f} " + unit + "<extra></extra>",
   }];
   if (res.annual_max && res.annual_max.year.length > 1) {
+    const peaks = annualMaxPoints(res.annual_max);
     traces.push({
-      x: res.annual_max.year.map((y) => `${y}-07-01`), y: dArr(res.annual_max.v, rawUnit), mode: "markers",
+      x: peaks.x, y: dArr(res.annual_max.v, rawUnit), mode: "markers",
       // Ink with a ring punched out of the card, not a second hue: these mark
       // the same series, and they have to read beside any of the six agency
       // colours (red markers on the UK's green line are ΔE 5.5 under protanopia).
       marker: { color: emphasisColor(), size: 6, line: { color: surfaceColor(), width: 1.5 } },
       name: "annual max",
-      meta: { mapDate: false },   // drawn at 1 July, not on the day of the peak (#522)
-      hovertemplate: "%{x|%Y} annual max<br>%{y:.3~f} " + unit + "<extra></extra>",
+      // On the day of the peak, so a click takes the map to that flood (#522); an older result without the
+      // days draws them at 1 July and opts out.
+      meta: { mapDate: peaks.onDay },
+      hovertemplate: (peaks.onDay ? "%{x|%d %b %Y}" : "%{x|%Y}") + " annual max<br>%{y:.3~f} " + unit + "<extra></extra>",
     });
   }
   setCard($("st-hydro-card"), "ready");

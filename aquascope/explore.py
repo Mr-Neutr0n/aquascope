@@ -775,6 +775,19 @@ def _annual_max(s: pd.Series) -> pd.Series:
     return am[counts >= 292].dropna()
 
 
+def _annual_max_days(s: pd.Series, years: list[int]) -> list[str]:
+    """The day each year's maximum daily mean fell on (``YYYY-MM-DD``), for the years in ``years``.
+
+    The hydrograph draws each annual maximum on its own day, so clicking a peak can move the map date
+    there (#522); the first day wins a tie.
+    """
+    daily = s.resample("D").mean().dropna()
+    if not len(daily):
+        return []
+    peak_days = daily.groupby(daily.index.year).idxmax()
+    return [pd.Timestamp(peak_days[y]).strftime("%Y-%m-%d") if y in peak_days.index else None for y in years]
+
+
 def analyze_series(s: pd.Series, variable: str, unit: str, *,
                    return_periods: list[float] | None = None,
                    exclude_years: list[int] | None = None) -> dict[str, Any]:
@@ -834,7 +847,9 @@ def analyze_series(s: pd.Series, variable: str, unit: str, *,
                                       "v": [_clean(float(v)) for v in dropped.values]}
         out["notes"].append(f"Excluded from the flood fit at the analyst's request: "
                             f"{', '.join(str(y) for y in drop)}.")
-    out["annual_max"] = {"year": [int(y) for y in am.index.year], "v": [_clean(float(v)) for v in am.values]}
+    am_years = [int(y) for y in am.index.year]
+    out["annual_max"] = {"year": am_years, "v": [_clean(float(v)) for v in am.values],
+                         "date": _annual_max_days(s, am_years)}
     out["eligibility"] = {
         "flood_frequency": variable == "discharge" and len(am) >= MIN_YEARS_FOR_FFA,
         "complete_years": len(am), "minimum_years": MIN_YEARS_FOR_FFA,

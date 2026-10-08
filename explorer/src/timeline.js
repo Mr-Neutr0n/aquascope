@@ -215,3 +215,17 @@ export function gifSize(width, height, maxWidth = 640) {
   const even = (n) => Math.max(2, Math.floor(n * scale / 2) * 2);
   return { width: even(w), height: even(h) };
 }
+
+// ── annual maxima on the hydrograph ─────────────────────────────────────────
+
+/**
+ * Where to draw a record's annual maxima: on the day of each peak when the analysis gave the days
+ * (aquascope.explore.analyze_series, "annual_max.date"), so clicking one moves the map to that flood;
+ * at 1 July of each year otherwise (an older cached result), and then the markers do not set the map date.
+ */
+export function annualMaxPoints(am) {
+  const years = (am && Array.isArray(am.year)) ? am.year : [];
+  const dates = (am && Array.isArray(am.date)) ? am.date : [];
+  const onDay = years.length > 0 && dates.length === years.length && dates.every((d) => isIsoDate(d));
+  return { x: onDay ? dates.slice() : years.map((y) => `${y}-07-01`), onDay };
+}
