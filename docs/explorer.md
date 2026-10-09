@@ -20,7 +20,9 @@ aquascope in your browser (Pyodide) to compute:
 The full record is fetched by default; the **Period** control on the record card
 cuts it to the last 40 or 20 years. Every result has a permalink
 (`#s=<source>/<station_id>`, plus `&yr=40` or `&yr=20` for a shorter period), a
-CSV download, and a link to the agency page. Data licence and attribution are shown per source.
+CSV download, an **Export for…** menu that writes the record as inputs for HEC-HMS, HEC-RAS,
+HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven ([engineering exports](engineering_exports.md)),
+and a link to the agency page. Data licence and attribution are shown per source.
 
 Click anywhere that is not a gauge and you get the **hydrology of that point**
 (`#p=<lat>,<lon>`): ERA5 rainfall and temperature, FAO-56 reference
@@ -90,9 +92,46 @@ which reads as an empty page rather than as a map.
 
 **Overlays**, each with an opacity slider and its own colour scale: GPM IMERG
 precipitation rate, SMAP root-zone soil moisture, MODIS snow cover, MODIS land
-surface temperature, GRACE water storage anomaly, and ESA WorldCover land cover.
-The time-driven ones share a single date control, so you can walk a flood or a
-snowmelt day by day.
+surface temperature, GRACE water storage anomaly, ESA WorldCover land cover, and
+JRC Global Surface Water (how often each 30 m pixel was water from 1984 to 2024).
+The time-driven ones follow one date, set in the time bar (below).
+
+## Time on the map
+
+The **time bar** sits at the bottom of the map whenever a dated layer is on (the
+clock button under the projection button opens it at any time). Every dated
+layer follows its one date: VIIRS true colour, IMERG rain, SMAP soil moisture,
+MODIS snow and land temperature, GRACE water storage.
+
+- **‹ ›** step back and forward, by a day, a week or a month.
+- **Play** walks a range and loops. Without a range it plays the twelve steps up
+  to the date.
+- **Click a day on a chart** (a hydrograph, a GR4J run, a comparison) and the
+  map jumps to that day, with a short "Map set to" note. If no dated layer is
+  on, rain comes on so the jump shows. Annual-maximum markers do not move the
+  map, because they are drawn at 1 July rather than on the day of the peak.
+- Behind **⋯**: the step, the range, **Compare** and **Make a GIF**.
+  **Compare** lays a second map over the first, cut by a handle you drag: the
+  right side shows another date, or one other dated layer. The gauges stay on
+  the left, where they can still be clicked. **Make a GIF** plays the range
+  (up to 40 frames, 640 px wide), waits for each day's tiles, stamps the date
+  and the NASA credit on every frame and downloads the file. It is all made in
+  the browser, with [gifenc](https://github.com/mattdesl/gifenc) (MIT).
+
+Each layer knows its first and last day (GRACE in GIBS stops in July 2022, SMAP
+starts in March 2015), and the bar says so when the date is outside one. GRACE
+also knows its missing months (the GRACE to GRACE-FO gap) and its images that
+start mid-month, so each month asks for the image GIBS really has.
+`aquascope layers list --live` shows the exact intervals and gaps from GIBS, and
+`aquascope layers frames LAYER --start --end --step` the dates and tile URLs of
+a time-lapse (the MCP tools `dated_layers` and `layer_frames` are the same
+functions).
+
+The date, the step, the range and the compare date go in the link
+(`d=2024-05-01&ts=week&r=2024-01-01..2024-06-30&cmp=2023-05-01`), so a
+time-lapse view can be shared. Other features can follow the same date: it is
+`state.date`, changed only through `setTime()` in `core.js`, with `onTime()` to
+subscribe.
 
 **The gauges themselves** carry their agency as a shape as well as a colour: a
 circle for USGS, a triangle for the Environment Agency, a square for Hub'Eau, a
@@ -103,7 +142,8 @@ European sources), so identity carries two channels. They can also be coloured
 by record length or by how recently they last reported, with a legend, and the
 shape goes on saying the agency underneath; a density heat map shows where the
 world is actually measured. **Select an area** drags a box and hands back
-the gauges inside it as CSV.
+the gauges inside it as CSV; its **Context** button lists what the box holds
+(see below) and puts its flood events on the map.
 
 The whole state (basemap, overlays, opacity, date, terrain, globe, colouring)
 lives in the URL, so a view is a link.
@@ -111,6 +151,32 @@ lives in the URL, so a view is a link.
 Google Maps and Google Earth tiles are deliberately absent: their terms forbid
 this use. Esri's legacy imagery answers without a token but Esri's own
 documentation requires one, so it is out too.
+
+## Context of a place
+
+Click a point, or open a gauge, and open the **Context** tab: one line per
+layer at that place, each read when the tab is opened, with the sources and
+licences at the foot and one small chart (flood events per year, or the rain
+gauge's yearly totals). The layers are read side by side in light workers (see
+[Speed](#speed)) and each line appears as it lands.
+
+| line | what it says | data (licence) |
+| --- | --- | --- |
+| Flood history | flood events in the news within 25 km, and the months Sentinel-1 radar saw flooding, 2014 to 2024 | Google Groundsource (CC BY 4.0); Microsoft AI for Good flood dataset (MIT) |
+| Surface water | how often this 30 m pixel was water from 1984 to 2024, and the change since 1984-1999 | JRC Global Surface Water v1.5 (Copernicus, free and without restriction) |
+| Flood depth | modelled river flood depth at the 10 to 500-year floods | JRC CEMS-GloFAS hazard maps v2.1.2, via a Source Cooperative COG mirror (CC BY 4.0) |
+| Dams | dams within 50 km, nearest first, with their storage | Global Dam Watch v1.0 (CC BY 4.0) |
+| Rain gauge | the nearest GHCN-Daily station with precipitation, its span and mean yearly total | NOAA NCEI GHCN-Daily (CC0) |
+| Evaporation | actual evapotranspiration and interception for the latest year, 300 m | FAO WaPOR v3 |
+| Soil | topsoil texture and plant-available water in the top metre, 1 km | ISRIC SoilGrids 2.0 (CC BY 4.0) |
+
+The same lines come from `aquascope context LAT LON` and the MCP tool
+`place_context`. Rasters are read a pixel at a time with HTTP range requests by
+a small pure-Python Cloud-Optimized GeoTIFF reader (`aquascope.utils.cog`), so
+nothing needs GDAL. Flood events and dams come from the Archive's `context/`
+mirror, built by the `mirror-context` workflow; until it is published those
+lines say so. Global Water Watch reservoir series are not used: their licence
+is not confirmed.
 
 ## Catchments
 
@@ -147,10 +213,158 @@ and `regionalization_skill.json`, computed weekly by the harvest; see
 [archive.md](archive.md#estimated-flow-regime-prediction-in-ungauged-basins-the-predictive-half)).
 Not a measurement, and it says so.
 
+A click on a hillside is not a river. Every point click is first snapped to the
+river network (see **Rivers** below), and when no stream runs within 1 km the
+card says so, rather than quoting the upstream area of the level-12 sub-basin
+the point sits in: that area belongs to the river at the bottom of the slope,
+which used to be reported as the point's own catchment.
+
 Why not HydroBASINS itself: the HydroSHEDS core licence forbids distributing
 the data "as a stand-alone product" and requires an end-user licence, so it
 cannot be hosted on the free-tier archive; HydroATLAS is CC BY 4.0, which is
 why BasinATLAS is what we mirror. MERIT-Basins is CC BY-NC.
+
+## Rivers
+
+A click lands on a river, not just a coordinate. The point is snapped to a
+reach of the GEOGLOWS v2 river network (about 6.8 million reaches, TDX-Hydro
+geometry) within 1 km: of the reaches in reach, the main channel (the highest
+stream order, the nearer on a tie), since a click beside a big river is often
+nearer a small stream than the river's mapped centreline. The marker moves onto
+the river, and a line under the title says how far it moved, which reach it is,
+and when a smaller stream was nearer (on the Jamuna: "Snapped 959 m to the main
+channel (order 8); a smaller stream is 925 m away."). With no stream within 1 km it says that
+instead and offers the nearest mapped reach, and when a river at least two
+orders bigger lies a little further off (a braided river's water can be
+kilometres from its centreline) it offers that too. A gauge takes the nearest
+line, since it sits on its own river; where the reaches near it differ in size
+and its catchment area is known, the reach whose upstream area matches it
+(the evidence ladder's rule).
+
+The **River** tab shows that reach's simulated daily discharge from 1940 to the
+latest weekly update, analysed the way a gauge is: the hydrograph with the
+annual maxima, the return-period table (GEV by L-moments and Log-Pearson III
+with 90 % intervals, downloadable as CSV), the flow-duration curve and the
+monthly regime with its 10th to 90th percentile band. It is a model (ERA5 runoff
+routed down the network), labelled modelled everywhere, and a gauge on the same
+river outranks it. The record comes from the GEOGLOWS REST API, under CC BY 4.0.
+
+**Trace to the sea** follows the reach downstream to its outlet with the
+model's own routing tables, draws the path on the map, and lists the gauges
+within 2 km of it in the order the water reaches them, with the length and the
+area that drains to the starting reach. Dams within 2 km of the path show as
+squares on the line and in a list with their storage, main use and the km where
+the water meets them (Global Dam Watch v1.0, CC BY 4.0, from the Archive's
+mirror). One line names the countries the river crosses (Natural Earth 1:50m,
+public domain) and another says whether dams upstream regulate the starting
+reach. Until the dam mirror is published the card says so and the rest of the
+trace stands. The **Rivers (GEOGLOWS)** layer in the
+rail draws the whole network by stream order, read in place from the 2.4 GB
+`streams.pmtiles` in the GEOGLOWS bucket. The network geometry is CC BY-SA 4.0:
+shown here, never republished.
+
+The same functions are `aquascope river snap|record|area|trace|dams` and the MCP
+tools `snap_to_river`, `reach_record`, `upstream_area`, `trace_downstream` and
+`upstream_dams`.
+
+## Evidence: the models against the gauge
+
+On a gauge with three or more years of daily discharge, the **Evidence** tab
+sets the record beside the global models on the same river: the gauge drawn
+bold, GEOGLOWS v2 and GloFAS thin, on one plot. A table scores each model (KGE
+with r, alpha and beta, NSE, bias, and the error at the 2-, 10- and 100-year
+flows) and grades it A to D, and one sentence says which fits best and where
+they disagree. GEOGLOWS and GloFAS are computed in the page for that gauge (about
+half a minute); NWM v3 (US) and Google GRRR come from the table the monthly CI
+run publishes. The best grade also shows as a small badge next to the gauge's
+dates, and **Best model skill** in the rail's gauge colouring paints every gauge
+by it, with a legend. Until the first monthly run publishes the table, that
+colouring is grey and the legend says why. How the grades work:
+[evidence.md](evidence.md).
+## Now and next
+
+The **Now** tab on a gauge says, in one sentence, where today's flow sits against
+normal for the date: its percentile against the values 7 days either side of the
+same date in every other year of the record, and one of the five classes the USGS
+National Water Dashboard and WMO HydroSOS use (much below normal, below, normal,
+above, much above). It needs 10 years in that window and says so when there are
+fewer. An Archive copy is first topped up with the agency's newest days.
+
+Under it, the next 15 days: the GEOGLOWS v2 ensemble for the gauge's river reach
+(the middle half and the full range shaded, the mean as a line), GloFAS v4 through
+Open-Meteo as a dotted line, the last 30 observed days and the return-period lines.
+On a discharge gauge the GEOGLOWS forecast is corrected to the gauge's own record
+by flow-duration quantile mapping (one curve per calendar month), and a line under
+the plot gives the skill of that correction, fitted on the first 60 % of the years
+the model and the gauge share and scored on the rest ("Corrected forecast: KGE 0.47
+on the 1992-2026 hindcast, raw 0.21."), then the bias and the days above the
+gauge's 2-year flow it caught, raw against corrected. When the reach's simulated
+mean flow is more than twice or under half the gauge's, a line says the gauge may
+be on another river than that reach. That is the skill of the simulation, not of
+the forecast at each lead time: the daily `forecast-archive` workflow keeps every
+forecast as issued so that skill can be measured as it builds up
+([details](archive.md#issued-forecasts-and-todays-status-forecasts)).
+
+On a clicked point the tab shows the reach's simulated status (against its own
+86 years) and the raw forecast. The map date moves a dotted marker across the plot.
+
+The forecast arrives in two steps: the GEOGLOWS ensemble and its sentence first,
+then (with a line saying what is still coming) GloFAS, the thresholds and the
+status, which need the reach's simulated record since 1940, and on a gauge the
+correction.
+
+### Speed
+
+Python in the browser reads one URL at a time, so a worker answers one call
+after another. Besides the main worker, the Explorer starts up to three light
+workers (one on a phone) without pandas or scipy, which boot in seconds and take
+the calls that only read the network: the river snap of a click, the quick
+forecast and the Context layers, quickest first. They run side by side and
+beside the main worker, and a browser that cannot start them sends those calls
+to the main worker as before. Forecasts and Context lines already read are kept
+for the session.
+
+**Today vs normal** in the gauge colouring of the layers panel colours the gauges
+from the daily status snapshot, with a legend that names the sources it covers and
+when it was made; gauges without a fresh record are grey. Until the first snapshot
+is published the gauges keep their agency colours and the legend says so.
+
+Both forecasts are model output under CC BY 4.0 (GEOGLOWS v2; Open-Meteo, free for
+non-commercial use). The same functions are `aquascope now` and the MCP tools
+`flow_status`, `flow_forecast` and `correct_to_gauge`.
+
+## The monthly bulletin
+
+**Bulletin** in the Tools menu opens last month's state of the rivers in a reader:
+the document the monthly workflow wrote (every Archive gauge's monthly mean against
+the same month in its other years, by country and river basin, with the new records
+and a map), with Print or save as PDF and the Markdown beside it. **Last month's
+status** in the gauge colouring colours the gauges by their class in that bulletin;
+gauges it did not class are light grey. Before the first bulletin is published, both
+say so and the gauges keep their agency colours. The numbers come from
+`aquascope.bulletin` ([details](bulletin.md)); the page only shows them.
+
+## Watch: since you were here
+
+**☆ Watch** on a gauge, on a clicked point's river reach and on a drawn area keeps it
+in a watch list in this browser (no account; the page still works when storage is
+blocked, it just forgets on reload). On a watched gauge one line asks where to flag
+the forecast: the 2-year flow by default, the 5- to 100-year flow from the gauge's own
+record, or a value.
+
+The next time the Explorer opens without a link to something else, a **Since you
+were here** panel checks each watched place in turn and says, in one line each, what
+changed since the last visit: new days of data and the latest value, today's class
+against normal and the one before, the forecast peak in the next 15 days against the
+threshold (from the daily forecast archive, else GEOGLOWS asked there and then;
+modelled), and flood events in the news nearby that started since. An area says how
+many of its gauges are above normal today. **Dismiss** closes it; **Watched** in the
+Tools menu opens it again, and each name jumps to the place.
+
+Every line comes from `aquascope.watch.watch_digest` in the worker, the same function
+as `aquascope watch ID... --since DATE` and the MCP tool `watch_digest`. A gauge with a
+live record also has **Follow (Atom)** in its ··· menu: a feed of its status changes
+and forecast alerts, written daily ([feeds](archive.md#per-gauge-feeds-feeds)).
 
 ## Ask ✨: the Analyst in the page
 
@@ -283,7 +497,8 @@ loop is nine times faster, same numbers to 1e-14), which is what makes
 
 - `index.html`, `style.css` and ES modules under `src/` (still no bundler):
   `map.js`, `layers.js` and `layer-ui.js` (MapLibre, the basemap and overlay
-  registry), `catalog.js` (DuckDB-WASM over the archive's GeoParquet, GeoJSON
+  registry), `timeline.js`, `time-ui.js`, `compare-map.js` and `gif.js` (the map
+  date, the time bar, swipe compare and the GIF), `catalog.js` (DuckDB-WASM over the archive's GeoParquet, GeoJSON
   fallback), `search.js`, `shell.js` and `url.js` (the map-first shell and
   URL-as-state), the `panel-*.js` inspectors, `charts.js` (Plotly), `ask.js`
   with `showcase.js` and `local-model.js`, `studio.js` with `intake.js`,

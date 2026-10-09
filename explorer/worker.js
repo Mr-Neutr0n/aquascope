@@ -5,16 +5,23 @@
 
 let pyodide = null;
 let ready = null;
+// A light worker (worker-client.js's pool) loads no pandas or scipy and answers only the calls that read the
+// network without them: a place's context layers, a click's river snap and the quick forecast. Several run at
+// once, so those reads no longer queue behind the main worker's record, one sync request after another.
+let lite = false;
+const LITE_TYPES = new Set(["context", "river", "now"]);
 
 function post(type, extra = {}) { self.postMessage({ type, ...extra }); }
 
-async function init({ pyodideIndexURL, wheelsJson }) {
+async function init({ pyodideIndexURL, wheelsJson, lite: light = false }) {
+  lite = Boolean(light);
   post("progress", { text: "Loading Python runtime (Pyodide)…" });
   importScripts(`${pyodideIndexURL}pyodide.js`);
   pyodide = await loadPyodide({ indexURL: pyodideIndexURL });
 
-  post("progress", { text: "Loading numpy, scipy, pandas…" });
-  await pyodide.loadPackage(["micropip", "numpy", "scipy", "pandas", "pydantic", "httpx"]);
+  post("progress", { text: lite ? "Loading numpy…" : "Loading numpy, scipy, pandas…" });
+  await pyodide.loadPackage(lite ? ["micropip", "numpy", "pydantic", "httpx"]
+    : ["micropip", "numpy", "scipy", "pandas", "pydantic", "httpx"]);
 
   post("progress", { text: "Installing aquascope…" });
   const wheels = await (await fetch(wheelsJson, { cache: "no-store" })).json();
@@ -34,16 +41,27 @@ async function init({ pyodideIndexURL, wheelsJson }) {
   } catch (err) {
     console.warn("could not pre-fetch the wheel, falling back to the URL:", err);
   }
-  await micropip.install(["pyodide-http", wheelSpec]);
+  if (lite) {
+    // Without the wheel's dependencies: pandas and scipy are what make the main worker heavy.
+    await micropip.install("pyodide-http");
+    await micropip.install.callKwargs(wheelSpec, { deps: false });
+  } else {
+    await micropip.install(["pyodide-http", wheelSpec]);
+  }
   pyodide.globals.set("_aq_build_revision", String(wheels.build || "unknown"));
+  pyodide.globals.set("_aq_lite", lite);
 
   await pyodide.runPythonAsync(`
 import json, logging, os
 os.environ["AQUASCOPE_REVISION"] = _aq_build_revision
 logging.basicConfig(level=logging.WARNING)
 import pyodide_http
-pyodide_http.patch_all()
-import aquascope.explore as analysis
+try:
+    pyodide_http.patch_all()
+except ImportError:  # no requests in a light worker
+    pyodide_http.patch_urllib()
+if not _aq_lite:
+    import aquascope.explore as analysis
 _STORE = {}
 `);
   post("ready");
@@ -80,6 +98,94 @@ json.dumps(_res)
   post("result", { id, result: JSON.parse(out) });
 }
 
+// Rivers as objects (#516): aquascope.rivers, the same functions as `aquascope river` and the MCP tools.
+// snap reads a few byte ranges of the GEOGLOWS stream tiles; record asks the GEOGLOWS API for the reach's
+// simulated daily flow since 1940; trace reads the processing unit's routing tables (a few MB, up to about
+// 30 MB for the largest basins), the catalog the page sent with "catalog", the Archive's Global Dam Watch
+// cells along the path and upstream, a few zoom-8 stream tiles, and Natural Earth's borders (750 kB, once).
+async function river({ id, op, args }) {
+  // The arguments travel inside the code as a JSON string literal, not through a shared global: two river
+  // calls can be in flight (a record still running when the next click snaps), and a global set by one
+  // and cleared by the other is read as null.
+  const payload = JSON.stringify(JSON.stringify({ op: String(op || ""), args: args || {} }));
+  const code = `
+import json
+from aquascope import rivers as _rivers
+_a = json.loads(${payload})
+_op, _k = _a["op"], _a["args"]
+if _op == "snap":
+    _res = _rivers.snap_to_river(_k["lat"], _k["lon"], max_distance_m=_k.get("max_distance_m") or 1000.0,
+                                 prefer=_k.get("prefer") or "main", area_km2=_k.get("area_km2"))
+elif _op == "record":
+    _res = _rivers.reach_record(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"))
+elif _op == "trace":
+    _res = _rivers.trace_downstream(_k.get("river_id"), lat=_k.get("lat"), lon=_k.get("lon"),
+                                    gauge_km=_k.get("gauge_km") or 2.0, max_points=3000)
+elif _op == "area":
+    _res = _rivers.upstream_area(_k["river_id"], lat=_k.get("lat"), lon=_k.get("lon"))
+else:
+    raise ValueError(f"unknown river operation {_op!r}")
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
+// The evidence ladder (#518): aquascope.evidence.model_skill on the record the page just analysed (the same
+// function as `aquascope evidence skill` and the MCP tool). GEOGLOWS and GloFAS are read here; the NWM and
+// Google GRRR rows come from the published skill table, which the page reads with DuckDB and passes in.
+async function evidence({ id, args }) {
+  const payload = JSON.stringify(JSON.stringify(args || {}));
+  const code = `
+import json
+from aquascope import evidence as _ev
+_k = json.loads(${payload})
+_same = (_STORE.get("source"), str(_STORE.get("station_id"))) == (_k.get("source"), str(_k.get("station_id")))
+_res = _ev.model_skill(_k.get("source"), _k.get("station_id"), series=_STORE.get("series") if _same else None,
+                       lat=_k.get("lat"), lon=_k.get("lon"), area_km2=_k.get("area_km2"),
+                       published=_k.get("published") or [], include_series=True)
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
+// Now and next (#517): aquascope.nownext, the same functions as `aquascope now` and the MCP tools. op "status"
+// places the stored gauge record's newest day (topped up from the agency) against the same days in other years;
+// op "forecast" reads GEOGLOWS and GloFAS for the reach and, with use_gauge, corrects GEOGLOWS to the stored
+// record. history false is the quick forecast (no 86-year simulated record, so no thresholds), which a light
+// worker answers first; known_geoglows hands the full call that answer's GEOGLOWS part so it is not read twice.
+// The gauge in the request must be the one in _STORE, so a reply for a gauge the reader has left is never
+// computed from the next one's record.
+async function nowNext({ id, op, args }) {
+  const payload = JSON.stringify(JSON.stringify({ op: String(op || ""), args: args || {} }));
+  const code = `
+import json
+from aquascope import nownext as _nn
+_a = json.loads(${payload})
+_op, _k = _a["op"], _a["args"]
+_mine = (_STORE.get("source"), _STORE.get("station_id")) == (_k.get("source"), _k.get("station_id"))
+_r = _STORE.get("result") or {}
+if _op == "status":
+    if not _mine or _STORE.get("series") is None:
+        _res = {"error": "This gauge's record is not loaded any more."}
+    else:
+        _res = _nn.station_status(_k["source"], _k["station_id"], series=_STORE["series"],
+                                  variable=_r.get("variable"), unit=_r.get("unit"))
+elif _op == "forecast":
+    _obs = _STORE.get("series") if (_k.get("use_gauge") and _mine) else None
+    _res = _nn.forecast(_k.get("lat"), _k.get("lon"), river_id=_k.get("river_id"), obs=_obs,
+                        match_mean_flow=_k.get("match_mean_flow"), snap=False,
+                        history=_k.get("history", True), glofas=_k.get("glofas", True),
+                        known_geoglows=_k.get("known_geoglows"))
+else:
+    raise ValueError(f"unknown now operation {_op!r}")
+json.dumps(_res, default=str)
+`;
+  const out = await pyodide.runPythonAsync(code);
+  post("result", { id, result: JSON.parse(out) });
+}
+
 async function floodCi({ id }) {
   const code = `
 import json
@@ -94,6 +200,37 @@ async function csv({ id }) {
 analysis.to_csv(_STORE["result"], series=_STORE.get("series"))
 `);
   post("result", { id, result: out });
+}
+
+// "Export for...": aquascope.io.engineering over the stored record. op "menu" lists the tools that take
+// this variable; op "export" returns one tool's files as a base64 zip (text formats only: DSS goes as the
+// CSV hecdss reads, since its native library cannot load here).
+async function engineering({ id, op, tool, name, lat, lon }) {
+  self.__aqEng = JSON.stringify({
+    op: op === "menu" ? "menu" : "export", tool: String(tool || ""), name: name ? String(name) : null,
+    lat: Number.isFinite(Number(lat)) && lat !== null ? Number(lat) : null,
+    lon: Number.isFinite(Number(lon)) && lon !== null ? Number(lon) : null,
+  });
+  const code = `
+import json
+from js import __aqEng
+from aquascope.io import engineering as _eng
+_a = json.loads(__aqEng)
+_r = _STORE.get("result") or {}
+if _a["op"] == "menu":
+    _out = _eng.menu(_r.get("variable"))
+else:
+    _out = _eng.export_series(_STORE["series"], _a["tool"], variable=_r.get("variable"), unit=_r.get("unit"),
+                              location=_STORE.get("station_id"), name=_a.get("name"), source=_STORE.get("source"),
+                              lat=_a.get("lat"), lon=_a.get("lon"), with_text=False, as_zip=True, dss_binary=False)
+json.dumps(_out)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqEng = null;
+  }
 }
 
 // "What can be answered here": aquascope.explore.assess_site over the catalog
@@ -588,6 +725,18 @@ def _studio_dispatch(a, on_event, on_artifact, store):
         if steer is None:
             return {"error": "adjusting a step is not available in this engine"}
         return _studio_reply(s, steer(str(a.get("step_id") or ""), dict(a.get("changes") or {})))
+    if op == "desk":   # the Study Desk: levers, sensitivity, revisions, review, sign-off (aquascope.studio.desk)
+        try:
+            from aquascope.studio.desk import studio_op as _desk_op
+        except ImportError:
+            return {"error": "the Study Desk is not available in this engine"}
+        out = _desk_op(s, a)
+        if "reply" in out:
+            res = _studio_reply(s, out.pop("reply"))
+            res["desk"] = out.get("desk")
+            return res
+        out["workspace"] = s.to_dict(with_artifacts=False)
+        return out
     if op == "narrate":
         narrate = getattr(s, "narrate", None)
         if narrate is None:
@@ -876,17 +1025,90 @@ _out
   }
 }
 
+// ── Place context (#520): aquascope.context, one layer per message so the card
+// fills line by line as each answers. op "point" reads a layer at (lat, lon),
+// op "area" over bbox [west, south, east, north]. Every layer reads open data
+// hosts that answer CORS (COG range reads, the Archive's context/ mirror).
+async function placeContext({ id, op, name, lat, lon, bbox }) {
+  self.__aqContext = JSON.stringify({
+    op: op || "point", name: String(name || ""), lat: Number(lat), lon: Number(lon),
+    bbox: Array.isArray(bbox) ? bbox.map(Number) : null,
+  });
+  const code = `
+import json
+from js import __aqContext
+from aquascope import context as _ctx
+_a = json.loads(__aqContext)
+try:
+    if _a["op"] == "point":
+        _out = _ctx.layer(_a["name"], _a["lat"], _a["lon"])
+    elif _a["op"] == "area":
+        _out = _ctx.area_layer(_a["name"], *_a["bbox"])
+    else:
+        _out = {"error": "unknown op"}
+except ValueError as exc:
+    _out = {"error": str(exc)}
+json.dumps(_out, default=str)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqContext = null;
+  }
+}
+
+// ── Watch (#521): aquascope.watch, the same function as `aquascope watch` and the MCP tool. op "digest"
+// checks the items it is given (the page sends one at a time, so the panel fills line by line) with the
+// Archive's daily status snapshot and newest forecast issue the page read with DuckDB; the records, the
+// top-up, a forecast the archive does not cover and the flood events are read here. op "summary" says the
+// whole digest in one line.
+async function watchDigest({ id, op, items, last_seen, snapshot, issued, today }) {
+  self.__aqWatch = JSON.stringify({
+    op: op || "digest", items: items || [], last_seen: last_seen || {}, snapshot: snapshot || [],
+    issued: issued || [], today: today || null,
+  });
+  const code = `
+import json
+from js import __aqWatch
+from aquascope import watch as _watch
+_a = json.loads(__aqWatch)
+try:
+    if _a["op"] == "digest":
+        _out = _watch.watch_digest(_a["items"], _a["last_seen"], today=_a["today"], snapshot=_a["snapshot"],
+                                   issued=_a["issued"], archive=False)
+    elif _a["op"] == "summary":
+        _out = {"summary": _watch.digest_summary(_a["items"], today=_a["today"])}
+    else:
+        _out = {"error": "unknown op"}
+except ValueError as exc:
+    _out = {"error": str(exc)}
+json.dumps(_out, default=str)
+`;
+  try {
+    const out = await pyodide.runPythonAsync(code);
+    post("result", { id, result: JSON.parse(out) });
+  } finally {
+    self.__aqWatch = null;
+  }
+}
+
 self.onmessage = async (e) => {
   const m = e.data;
   try {
     if (m.type === "init") { ready = init(m); await ready; return; }
     await ready;
+    if (lite && !LITE_TYPES.has(m.type)) throw new Error(`a light worker does not run ${m.type}`);
     if (m.type === "analyze") return await analyze(m);
     if (m.type === "anywhere") return await anywhere(m);
+    if (m.type === "river") return await river(m);
+    if (m.type === "evidence") return await evidence(m);
+    if (m.type === "now") return await nowNext(m);
     if (m.type === "assess") return await assess(m);
     if (m.type === "compare") return await compare(m);
     if (m.type === "flood_ci") return await floodCi(m);
     if (m.type === "csv") return await csv(m);
+    if (m.type === "engineering") return await engineering(m);
     if (m.type === "catalog") return await catalog(m);
     if (m.type === "ask") return await ask(m);
     if (m.type === "solve_plan") return await solvePlan(m);
@@ -899,6 +1121,8 @@ self.onmessage = async (e) => {
     if (m.type === "tool") return await runTool(m);
     if (m.type === "frame_from_station") return await frameFromStation(m);
     if (m.type === "area_study") return await areaStudy(m);
+    if (m.type === "context") return await placeContext(m);
+    if (m.type === "watch") return await watchDigest(m);
   } catch (err) {
     // Pyodide raises PythonError with the full traceback in .message; keep the
     // exception line (last non-empty) and log the whole thing for debugging.

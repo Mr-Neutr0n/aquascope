@@ -56,7 +56,7 @@ without ever hammering an agency. What is mirrored:
 
 | source | variables | where the daily value comes from |
 | --- | --- | --- |
-| `usgs` | discharge, water_level | NWIS daily values, 00060 and 00065 (gage height converted from feet to metres) |
+| `usgs` | discharge, water_level | USGS Water Data API (OGC v1) daily means, statistic 00003, parameters 00060 and 00065 (gage height converted from feet to metres) |
 | `uk_ea` | discharge, water_level, precipitation, groundwater_level | Hydrology API daily mean flow; daily max level where no daily mean is published; daily rainfall totals; borehole levels in metres above Ordnance Datum (manual dips or logger) |
 | `hubeau_hydrometrie` | discharge | obs_elab QmnJ, the elaborated daily mean discharge |
 | `taiwan_cwa` | precipitation | CODIS daily rainfall |
@@ -194,6 +194,76 @@ honest part, and they will move as the archive fills up (795 donors across
 three agencies at the first run; NSE in log space 0.3 to 0.5 for the flow
 magnitudes, lower for the shape signatures). This closes the loop opened
 in #53.
+
+## Place context mirrors (`context/`)
+
+The flood history, dams and rain-gauge index of the [place-context layers](explorer.md#context-of-a-place)
+(#520) live under `context/`. Only datasets whose licence allows redistribution are mirrored.
+
+| path | what | licence |
+| --- | --- | --- |
+| `context/floods/groundsource.parquet` | Google Groundsource flood events from news: dates, the centre and box of the affected area | CC BY 4.0 (Zenodo 18647054) |
+| `context/floods/microsoft.parquet` | Microsoft AI for Good Sentinel-1 floods, 2014-2024, as filtered monthly detection counts on a 0.05 degree grid (the dataset card's own false-positive filters) | MIT |
+| `context/dams/gdw_barriers.parquet` | Global Dam Watch v1.0 barriers: name, river, year, height, storage, main use | CC BY 4.0 (figshare 25988293) |
+| `context/ghcn/prcp_stations.csv.gz` | the NOAA GHCN-Daily stations that record precipitation, with their first and last year | CC0 |
+| `context/manifest.json` | what is published, row counts, licences, and the cells present | |
+
+Each Parquet is sorted by 2-degree cell, so DuckDB (in the browser too) or a range reader fetches a box
+without the whole file, and each dataset also has one small gzipped CSV per cell (`.../cells/n50_e006.csv.gz`)
+for the Explorer's Python worker, which has no Parquet reader. The manual `mirror-context` workflow builds and
+publishes them; each step is also `python -m aquascope.archive.context_mirror <step>`. Global Water Watch is
+not mirrored: its data licence is not confirmed.
+
+## Issued forecasts and today's status (`forecasts/`)
+
+Once a day the `forecast-archive` workflow (#517) looks at the Archive's discharge gauges with a live record: a
+mirrored series of 10 years or more whose last value, after asking the agency for its newest days, is at most 3
+days old. It writes only under `forecasts/`; the catalogue and the observations are never touched.
+
+| path | what | licence |
+| --- | --- | --- |
+| `forecasts/status/latest.parquet` | each live gauge's flow today against normal: `source`, `station_id`, `value_date`, `value`, `percentile`, `class`, `n_years` (the Explorer's "Today vs normal" colouring) | derived from the mirrored observations |
+| `forecasts/status/latest.json` | when the snapshot was made, the sources it covers, the count per class | |
+| `forecasts/status/<date>.parquet` | the same snapshot, kept by date | |
+| `forecasts/issued/<date>.parquet` | for up to 250 of those gauges with a snapped GEOGLOWS reach: the GEOGLOWS and GloFAS forecasts as issued that day, one row per gauge, model and valid day, the ensemble statistics raw and (GEOGLOWS) corrected to the gauge, the GEOGLOWS run's start date (`init_date`) and the lead day from it, the correction's hindcast KGE, the reach-to-gauge mean-flow ratio, and the gauge's own 2- to 100-year flows (`gauge_q2` to `gauge_q100`) | GEOGLOWS v2 and Open-Meteo (GloFAS v4) output, both CC BY 4.0 |
+| `forecasts/reaches.parquet` | each gauge's GEOGLOWS `river_id`, the snap distance and the GloFAS cell used; IDs only, no geometry | |
+| `forecasts/manifest.json` | every issue date, how many gauges, and how many were dropped and why (the daily cap, the time budget, no fresh value, no river reach) | |
+
+The point of keeping what was issued is forecast skill at each lead time, measured later against what the gauge
+then recorded; the skill the Explorer shows today is the correction's skill on the simulation. Every step is also
+`python -m aquascope.archive.forecasts run|publish --out build`. A run with `max_items` set is a smoke run and
+never publishes.
+
+## Monthly bulletins (`bulletins/`)
+
+On the 3rd of every month the `bulletin` workflow (#523) writes last month's state of
+the rivers: each gauge's monthly mean against the same month in its other years, in the
+HydroSOS classes, rolled up per country and per river basin. It writes only under
+`bulletins/`; the catalogue and the observations are never touched.
+
+| path | what | licence |
+| --- | --- | --- |
+| `bulletins/<YYYY-MM>/bulletin.html`, `bulletin.md`, `map.png` | the bulletin, print-ready, and its map | derived from the mirrored observations; sources listed in each bulletin |
+| `bulletins/<YYYY-MM>/bulletin.json` | every number, the per-gauge list included | |
+| `bulletins/<YYYY-MM>/status.parquet` | one row per classed gauge: `source`, `station_id`, `month`, `value`, `n_days`, `percentile`, `class`, `n_years`, `median`, `ratio`, `record`, `country`, `basin_id` | |
+| `bulletins/index.json` | every month published, newest first | |
+
+Share-alike sources are left out of it. See [the bulletin](bulletin.md) for the method.
+
+## Per-gauge feeds (`feeds/`)
+
+After the forecasts, the same daily workflow (#521) keeps an Atom feed for every gauge in the status snapshot,
+so a feed reader can follow a river. It reads the files the forecast step just wrote and writes only under
+`feeds/`.
+
+| path | what |
+| --- | --- |
+| `feeds/<source>/<station_id>.xml` | an Atom 1.0 feed: an entry when the gauge's class against normal changes, and one when the GEOGLOWS forecast corrected to the gauge passes the gauge's own 2-year flow (or a rarer one) in the next 15 days, at most once in 3 days unless a rarer flow is passed; the newest 20 entries. Characters other than letters, digits, `.`, `_` and `-` in the station id become `_` |
+| `feeds/index.json` | every gauge with a feed and its path, when the feeds were made, how many entries were new |
+| `feeds/state.parquet` | the entries kept per gauge, which the next run continues |
+
+Forecast entries are model output (GEOGLOWS v2, CC BY 4.0) and say they are not flood warnings. Every step is
+also `python -m aquascope.archive.feeds run|publish --out build`.
 
 ## Caravan-format export
 

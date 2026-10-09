@@ -1,22 +1,26 @@
 // The layer panel in the left rail: basemap, terrain, overlays with opacity
-// and legends, the shared date for the time-driven layers, how the gauges are
-// coloured, and "select an area".
+// and legends, how the gauges are coloured, and "select an area". The date the
+// dated layers follow is not here: it is the time bar on the map (time-ui.js).
 
-import { $, downloadBlob, escapeHtml, sourceStyle, state, stationKey, toCsv } from "./core.js?v=__BUILD__";
+import { $, actions, downloadBlob, escapeHtml, state, toCsv } from "./core.js?v=__BUILD__";
 import {
   BASEMAPS, GAUGE_STYLES, OVERLAYS, OVERLAY_GROUPS, RECENT_BREAKS, RECORD_BREAKS,
   basemapById, creditLines, defaultDate, overlayById, recordYears, yearsSinceLast,
 } from "./layers.js?v=__BUILD__";
 import {
-  applyDate, areaSelectActive, currentBasemap, globeSupported, setBasemap, setGaugeStyle, setGlobe,
+  areaSelectActive, currentBasemap, globeSupported, refreshMapData, setBasemap, setGaugeStyle, setGlobe,
   setHeatmap, setHillshade, setOverlay, setOverlayOpacity, setTerrain, startAreaSelect,
 } from "./map.js?v=__BUILD__";
+import { syncTimeBar } from "./time-ui.js?v=__BUILD__";
 import { openModal } from "./shell.js?v=__BUILD__";
+import { RIVERS_CREDIT } from "./river-core.js?v=__BUILD__";
 import { writeUrl } from "./url.js?v=__BUILD__";
 import { openAreaStudy } from "./area-study.js?v=__BUILD__";
-
-const anyTimeLayer = () =>
-  [...state.overlays].some((id) => (overlayById(id) || {}).time) || Boolean(basemapById(state.basemap).time);
+import { cancelAreaContext, openAreaContext } from "./context.js?v=__BUILD__";
+import { loadSkillGrades, skillLegendHtml } from "./evidence.js?v=__BUILD__";
+import { ensureNowStatus, nowLegendHtml } from "./now-map.js?v=__BUILD__";
+import { bulletinLegendHtml, ensureBulletinStatus } from "./bulletin.js?v=__BUILD__";
+import { areaWatchButton } from "./watch.js?v=__BUILD__";
 
 // A tiny swatch standing in for each basemap, so eight radio rows become two
 // columns of chips you can pick from at a glance.
@@ -49,19 +53,24 @@ function basemapChip(b) {
   return row;
 }
 
+// Switch the basemap exactly as its chip would (the time bar's "Satellite" uses it too).
+export function chooseBasemap(id) {
+  const b = basemapById(id);
+  state.basemap = b.id;
+  for (const input of document.querySelectorAll('#rail-basemaps input[type=radio]')) input.checked = input.value === b.id;
+  reflectBasemap();
+  setBasemap(b.id, { date: state.date });
+  renderCredits();
+  syncTimeBar({ layersChanged: true });
+  writeUrl();
+}
+
 function buildBasemaps() {
   const box = $("rail-basemaps");
   box.innerHTML = "";
   for (const b of BASEMAPS) {
     const row = basemapChip(b);
-    row.querySelector("input").addEventListener("change", () => {
-      state.basemap = b.id;
-      reflectBasemap();
-      setBasemap(b.id, { date: state.date });
-      renderCredits();
-      syncDateRow();
-      writeUrl();
-    });
+    row.querySelector("input").addEventListener("change", () => chooseBasemap(b.id));
     box.appendChild(row);
   }
   reflectBasemap();
@@ -99,14 +108,7 @@ function overlayRow(o) {
     `</div>`;
   const check = wrap.querySelector("input[type=checkbox]");
   const controls = wrap.querySelector(".overlay-controls");
-  check.addEventListener("change", (e) => {
-    if (e.target.checked) state.overlays.add(o.id); else state.overlays.delete(o.id);
-    controls.hidden = !e.target.checked;
-    setOverlay(o.id, e.target.checked, { date: state.date, opacity: state.opacity[o.id] ?? null });
-    renderCredits();
-    syncDateRow();
-    writeUrl();
-  });
+  check.addEventListener("change", (e) => toggleOverlay(o.id, e.target.checked));
   wrap.querySelector("input[type=range]").addEventListener("input", (e) => {
     const v = Number(e.target.value);
     state.opacity[o.id] = v;
@@ -138,36 +140,21 @@ function buildOverlays() {
   }
 }
 
-// ── the shared date ─────────────────────────────────────────────────────────
-
-function syncDateRow() {
-  const row = $("rail-date");
-  row.hidden = !anyTimeLayer();
-  $("date-input").value = state.date;
-}
-
-function stepDate(days) {
-  const d = new Date(`${state.date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  const iso = d.toISOString().slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  state.date = iso > today ? today : iso;
-  $("date-input").value = state.date;
-  applyDate(state.date, [...state.overlays], state.basemap);
+// Turn an overlay on or off exactly as its checkbox would. The time bar uses it
+// for "show rain" when the reader picks a date with no dated layer on.
+export function toggleOverlay(id, on) {
+  const o = overlayById(id);
+  if (!o) return;
+  if (on) state.overlays.add(id); else state.overlays.delete(id);
+  const check = $(`ov-${id}`);
+  if (check) {
+    check.checked = on;
+    check.closest(".overlay-row").querySelector(".overlay-controls").hidden = !on;
+  }
+  setOverlay(id, on, { date: state.date, opacity: state.opacity[id] ?? null });
+  renderCredits();
+  syncTimeBar({ layersChanged: true });
   writeUrl();
-}
-
-function buildDate() {
-  $("date-input").value = state.date;
-  $("date-input").max = new Date().toISOString().slice(0, 10);
-  $("date-input").addEventListener("change", (e) => {
-    state.date = e.target.value;
-    applyDate(state.date, [...state.overlays], state.basemap);
-    writeUrl();
-  });
-  $("date-prev").addEventListener("click", () => stepDate(-1));
-  $("date-next").addEventListener("click", () => stepDate(1));
-  syncDateRow();
 }
 
 // ── gauge styling ───────────────────────────────────────────────────────────
@@ -176,7 +163,20 @@ function gaugeLegendHtml(mode) {
   const swatch = (c, l) => `<span class="sw"><i style="background:${c}"></i>${escapeHtml(l)}</span>`;
   if (mode === "record") return RECORD_BREAKS.map((b) => swatch(b.color, b.label)).join("");
   if (mode === "recent") return RECENT_BREAKS.map((b) => swatch(b.color, b.label)).join("");
+  if (mode === "skill") return skillLegendHtml();
+  if (mode === "now") return nowLegendHtml();
+  if (mode === "bulletin") return bulletinLegendHtml();
   return "";
+}
+
+// "Best model skill" (#518) reads skill/model_skill.parquet on first use; the dots are grey until it has
+// loaded, and stay grey (with a legend that says why) when the table is not published yet.
+function ensureSkillColours() {
+  if (state.gaugeStyle !== "skill") return;
+  loadSkillGrades().then(() => {
+    actions.refreshMapData();
+    if (state.gaugeStyle === "skill" && $("gauge-legend")) $("gauge-legend").innerHTML = gaugeLegendHtml("skill");
+  });
 }
 
 function buildGaugeStyle() {
@@ -188,6 +188,25 @@ function buildGaugeStyle() {
     $("gauge-legend").innerHTML = gaugeLegendHtml(state.gaugeStyle);
     $("gauge-legend").hidden = state.gaugeStyle === "source";
     $("rail-sources").classList.toggle("dimmed", state.gaugeStyle !== "source");
+    ensureSkillColours();
+    // Today vs normal reads the daily snapshot the first time it is picked, then colours the dots.
+    if (state.gaugeStyle === "now" && !state.nowStatus) {
+      ensureNowStatus().then(() => {
+        if (state.gaugeStyle !== "now") return;
+        refreshMapData();
+        setGaugeStyle("now");
+        $("gauge-legend").innerHTML = gaugeLegendHtml("now");
+      });
+    }
+    // Last month's status reads the latest bulletin the first time it is picked (#523).
+    if (state.gaugeStyle === "bulletin" && !state.bulletinStatus) {
+      ensureBulletinStatus().then(() => {
+        if (state.gaugeStyle !== "bulletin") return;
+        refreshMapData();
+        setGaugeStyle("bulletin");
+        $("gauge-legend").innerHTML = gaugeLegendHtml("bulletin");
+      });
+    }
   };
   select.addEventListener("change", (e) => { state.gaugeStyle = e.target.value; apply(); writeUrl(); });
   const heat = $("toggle-heat");
@@ -211,6 +230,7 @@ function showSelection(bbox) {
   const btn = $("btn-area");
   btn.classList.remove("active");
   btn.textContent = "Select an area";
+  cancelAreaContext();
   if (!bbox) { $("area-result").hidden = true; return; }
   const rows = stationsIn(bbox);
   const box = $("area-result");
@@ -241,14 +261,24 @@ function showSelection(bbox) {
   study.disabled = rows.length === 0;
   study.addEventListener("click", () => openAreaStudy(rows, bbox));
   box.appendChild(study);
+  // Place context (#520): flood history, surface water, flood depth, dams, rain gauges, ET and soil in the box.
+  const ctx = document.createElement("button");
+  ctx.className = "btn tiny";
+  ctx.textContent = "Context";
+  ctx.title = "Flood history, surface water, flood depth, dams, rain gauges, evaporation and soil in this box";
+  ctx.addEventListener("click", () => { void openAreaContext(bbox, box); });
+  box.appendChild(ctx);
+  // Watch (#521): new flood events and gauges above normal here, on the next visit.
+  box.appendChild(areaWatchButton(bbox));
   const clear = document.createElement("button");
   clear.className = "btn tiny";
   clear.textContent = "Clear";
-  clear.addEventListener("click", () => { box.hidden = true; });
+  clear.addEventListener("click", () => { box.hidden = true; cancelAreaContext(); });
   box.appendChild(clear);
 }
 
 function buildAreaSelect() {
+  actions.showArea = showSelection;  // a watched area, opened from the Watched list (watch.js)
   const btn = $("btn-area");
   btn.addEventListener("click", () => {
     if (areaSelectActive()) return;
@@ -262,6 +292,7 @@ function buildAreaSelect() {
 
 export function renderCredits() {
   const lines = creditLines(state.basemap, [...state.overlays], { terrain: state.terrain || state.hillshade });
+  if (state.riversOn) lines.push(RIVERS_CREDIT);
   $("rail-credits").innerHTML = lines
     .map((l) => `<div><b>${escapeHtml(l.label)}</b>: ${l.attribution} <span class="muted">(${escapeHtml(l.licence)})</span></div>`)
     .join("");
@@ -298,7 +329,8 @@ export function initLayerUI() {
   buildGlobeButton();
   buildTerrain();
   buildOverlays();
-  buildDate();
+  actions.setOverlay = toggleOverlay;
+  actions.setBasemap = chooseBasemap;
   buildGaugeStyle();
   buildAreaSelect();
   renderCredits();
@@ -318,9 +350,10 @@ export function applyLayerState() {
     if (state.globe) state.globe = setGlobe(true); else setGlobe(false);
     setHeatmap(state.heat);
     setGaugeStyle(state.gaugeStyle);
+    ensureSkillColours();
     syncRailControls();
     renderCredits();
-    syncDateRow();
+    syncTimeBar({ layersChanged: true });
   };
   if (currentBasemap() === state.basemap) rest();
   else setBasemap(state.basemap, { date: state.date, then: rest });

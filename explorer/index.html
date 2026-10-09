@@ -50,7 +50,9 @@
       <button id="btn-open-study" class="btn">Open saved study</button>
       <input id="open-study-file" type="file" accept=".json" hidden />
       <button id="btn-places" class="btn" title="Gauges you saved in this browser; compare two to five of them">My places<span id="places-count" class="tab-badge" hidden></span></button>
+      <button id="btn-watched" class="btn" title="What changed at the gauges, reaches and areas you watch">Watched<span id="watched-count" class="tab-badge" hidden></span></button>
       <button id="btn-usage" class="btn">Optional usage log</button>
+      <button id="btn-bulletin" class="btn" title="Last month's state of the rivers: every Archive gauge against normal">Bulletin</button>
       <button id="btn-cite-top" class="btn" title="How to cite AquaScope and the data">Cite</button>
       <button id="btn-ask" class="btn ask-toggle" aria-expanded="false" aria-controls="drawer"
               title="Ask a question in plain language; answered from real gauges by aquascope's tools, in your browser">Ask ✨</button>
@@ -105,17 +107,17 @@
 
       <details class="rail-group">
         <summary>Overlays</summary>
-        <div id="rail-date" class="rail-date" hidden>
-          <button id="date-prev" class="icon-btn tiny" type="button" title="Previous day">‹</button>
-          <input type="date" id="date-input" aria-label="Date for the time-driven layers" />
-          <button id="date-next" class="icon-btn tiny" type="button" title="Next day">›</button>
-        </div>
         <div id="rail-overlays" class="rail-list"></div>
         <div class="rail-list">
           <label class="rail-row">
             <input type="checkbox" id="toggle-basins" />
             <i style="background:#6a3ab2;border-radius:2px"></i>
             <span class="rail-label">Catchments (BasinATLAS)</span>
+          </label>
+          <label class="rail-row" title="GEOGLOWS v2 stream network (TDX-Hydro, CC BY-SA 4.0), from zoom 3">
+            <input type="checkbox" id="toggle-rivers" />
+            <i style="background:#1e88e5;border-radius:2px;height:3px"></i>
+            <span class="rail-label">Rivers (GEOGLOWS)</span>
           </label>
         </div>
       </details>
@@ -145,6 +147,62 @@
             <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><ellipse cx="12" cy="12" rx="4.2" ry="9" />
           </svg>
         </button>
+        <button id="btn-time" class="map-tool" type="button" aria-pressed="false" aria-controls="timebar" hidden
+                title="Map date" aria-label="Map date">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.2 2" />
+          </svg>
+        </button>
+      </div>
+      <!-- swipe compare (#522): a second map over the first, cut by the handle -->
+      <div id="compare" class="compare" hidden>
+        <div class="compare-map"></div>
+        <span id="compare-left" class="compare-label left"></span>
+        <span id="compare-right" class="compare-label right"></span>
+        <div id="compare-handle" class="compare-handle" role="slider" tabindex="0" aria-label="Compare divider"
+             aria-valuemin="5" aria-valuemax="95" aria-valuenow="50"><span aria-hidden="true">‹ ›</span></div>
+      </div>
+      <!-- the map date (#522): one control that every dated layer follows -->
+      <div id="timebar-wrap" class="timebar-wrap">
+        <div id="timebar" class="timebar" role="group" aria-label="Map date" hidden>
+          <div id="tb-panel" class="tb-panel" hidden>
+            <div class="tb-row">
+              <span class="tb-key">Step</span>
+              <div id="tb-steps" class="tb-seg" role="radiogroup" aria-label="Step">
+                <label><input type="radio" name="tb-step" value="day" checked /><span>Day</span></label>
+                <label><input type="radio" name="tb-step" value="week" /><span>Week</span></label>
+                <label><input type="radio" name="tb-step" value="month" /><span>Month</span></label>
+              </div>
+            </div>
+            <div class="tb-row">
+              <span class="tb-key">Range</span>
+              <input type="date" id="tb-from" aria-label="Play from" />
+              <span class="muted">to</span>
+              <input type="date" id="tb-to" aria-label="Play to" />
+            </div>
+            <div class="tb-row">
+              <label class="tb-key tb-check"><input type="checkbox" id="tb-compare" /> Compare</label>
+              <input type="date" id="tb-cmp-date" aria-label="Date on the right of the divider" />
+              <select id="tb-cmp-layer" aria-label="Layer on the right of the divider"></select>
+            </div>
+            <div class="tb-row">
+              <button id="tb-gif" class="btn tiny" type="button">Make a GIF</button>
+              <span id="tb-gif-status" class="muted" role="status"></span>
+            </div>
+          </div>
+          <div class="tb-main">
+            <button id="tb-prev" class="tb-btn" type="button" title="Back one step" aria-label="Back one step">‹</button>
+            <input type="date" id="tb-date" aria-label="Map date" />
+            <button id="tb-next" class="tb-btn" type="button" title="Forward one step" aria-label="Forward one step">›</button>
+            <button id="tb-play" class="tb-btn tb-play" type="button" aria-pressed="false" title="Play" aria-label="Play">
+              <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" /></svg>
+              <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" fill="currentColor" /></svg>
+            </button>
+            <button id="tb-more" class="tb-btn" type="button" aria-expanded="false" aria-controls="tb-panel"
+                    title="Step, range, compare and GIF" aria-label="Step, range, compare and GIF">⋯</button>
+          </div>
+          <div id="tb-note" class="tb-note" role="status" hidden></div>
+        </div>
       </div>
       <section id="area-study" class="area-study" aria-label="Study this area" hidden></section>
       <div id="map-fallback" class="map-fallback" hidden>
@@ -189,6 +247,7 @@
           <h2 id="st-name">Station</h2>
           <div class="st-meta">
             <span id="st-id"></span> · <span id="st-vars"></span><span id="st-period"></span>
+            <span id="st-grade" class="grade-badge" hidden></span>
           </div>
           <label id="st-site-records" class="site-records" hidden>
             <span id="st-site-count"></span>
@@ -197,17 +256,26 @@
           <div class="st-actions">
             <button id="btn-study-st" class="btn" title="A complete study at this gauge, planned and checked, with a report">Study this place</button>
             <button id="btn-place" class="btn" aria-pressed="false" title="Add this gauge to My places">☆ Save</button>
+            <button id="btn-watch-st" class="btn" aria-pressed="false" title="Watch this gauge: what changed shows the next time you open the Explorer">☆ Watch</button>
             <button id="btn-csv" class="btn" disabled title="Download the observed record as CSV">Download CSV</button>
+            <select id="st-export" class="btn export-select" hidden aria-label="Export the record for an engineering tool" title="Inputs for HEC-HMS, HEC-RAS, HEC-SSP, SWMM, MODFLOW 6, Delft-FEWS or Raven, as a zip"></select>
             <button id="btn-unit" class="btn" hidden title="Switch the displayed discharge unit. Analyses and CSV downloads stay in m³/s.">Show ft³/s</button>
             <details class="more">
               <summary class="btn" title="More actions" aria-label="More actions">···</summary>
               <div class="more-menu">
                 <a id="st-agency" href="#" target="_blank" rel="noopener" title="Open this gauge on the agency’s own site">Agency page ↗</a>
+                <a id="st-feed" href="#" target="_blank" rel="noopener" hidden title="An Atom feed of this gauge's status changes and forecast alerts, for a feed reader">Follow (Atom) ↗</a>
                 <button id="btn-share" title="Copy a link to exactly this view">Copy link</button>
                 <button id="btn-to-workbench" title="Analyse this record with the workbench tools">Send to workbench</button>
                 <button id="btn-cite" title="How to cite this">Cite</button>
               </div>
             </details>
+          </div>
+          <div id="st-watch-row" class="watch-row" hidden>
+            <label for="st-watch-threshold">Watching. Flag the forecast above</label>
+            <select id="st-watch-threshold"></select>
+            <input id="st-watch-value" type="number" step="any" inputmode="decimal" aria-label="Threshold value" hidden />
+            <span id="st-watch-unit" class="muted"></span>
           </div>
           <p id="st-export-help" class="muted" hidden>Useful in your work? <a href="https://github.com/Rekin226/aquascope" target="_blank" rel="noopener">Star AquaScope on GitHub</a> or <a href="https://github.com/Rekin226/aquascope/issues" target="_blank" rel="noopener">report a problem</a>.</p>
           <div id="status" class="status" hidden></div>
@@ -219,9 +287,13 @@
 
         <div class="tabs" role="tablist" aria-label="Station analyses">
           <button role="tab" data-tab="overview" aria-controls="tab-overview" aria-selected="true" id="t-overview">Overview</button>
+          <button role="tab" data-tab="now" aria-controls="tab-now" aria-selected="false" tabindex="-1" id="t-now">Now</button>
           <button role="tab" data-tab="floods" aria-controls="tab-floods" aria-selected="false" tabindex="-1" id="t-floods">Floods</button>
           <button role="tab" data-tab="flows" aria-controls="tab-flows" aria-selected="false" tabindex="-1" id="t-flows">Flows</button>
           <button role="tab" data-tab="model" aria-controls="tab-model" aria-selected="false" tabindex="-1" id="t-model">Model</button>
+          <button role="tab" data-tab="river" aria-controls="tab-river" aria-selected="false" tabindex="-1" id="t-river">River</button>
+          <button role="tab" data-tab="context" aria-controls="tab-context" aria-selected="false" tabindex="-1" id="t-context">Context</button>
+          <button role="tab" data-tab="evidence" aria-controls="tab-evidence" aria-selected="false" tabindex="-1" id="t-evidence">Evidence</button>
           <button role="tab" data-tab="catchment" aria-controls="tab-catchment" aria-selected="false" tabindex="-1" id="t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="tab-similar" aria-selected="false" tabindex="-1" id="t-similar">Similar<span class="tab-badge" hidden></span></button>
           <button role="tab" data-tab="methods" aria-controls="tab-methods" aria-selected="false" tabindex="-1" id="t-methods">Methods</button>
@@ -258,6 +330,10 @@
               <div class="card-title"><h3>Notes</h3></div>
               <div class="card-body"><ul id="notes"></ul></div>
             </div>
+          </section>
+
+          <section id="tab-now" role="tabpanel" aria-labelledby="t-now" tabindex="0" hidden>
+            <div id="st-now" class="now"></div>
           </section>
 
           <section id="tab-floods" role="tabpanel" aria-labelledby="t-floods" tabindex="0" hidden>
@@ -312,6 +388,40 @@
             </div>
           </section>
 
+          <section id="tab-river" role="tabpanel" aria-labelledby="t-river" tabindex="0" hidden>
+            <div id="st-river" class="river"></div>
+          </section>
+
+          <section id="tab-context" role="tabpanel" aria-labelledby="t-context" tabindex="0" hidden>
+            <div id="st-context" class="card ctx" hidden>
+              <div class="card-title"><h3>What this place has seen</h3></div>
+              <div class="card-body">
+                <ul id="st-context-lines" class="ctx-lines" aria-live="polite"></ul>
+                <div id="st-context-chart" hidden>
+                  <h4 id="st-context-chart-title"></h4>
+                  <div id="plot-st-context" class="plot small"></div>
+                </div>
+                <div id="st-context-credits" class="ctx-credits muted"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="tab-evidence" role="tabpanel" aria-labelledby="t-evidence" tabindex="0" hidden>
+            <div id="st-evidence" class="card evidence" hidden>
+              <div class="card-title">
+                <h3>Models against this gauge</h3>
+                <span id="ev-actions" class="card-tools"></span>
+              </div>
+              <div class="card-body">
+                <p id="ev-sentence" class="ev-sentence"></p>
+                <div id="plot-evidence" class="plot"></div>
+                <div class="table-scroll"><table class="ffa" id="ev-table"></table></div>
+                <div id="ev-status" class="status" hidden></div>
+                <div id="ev-foot" class="basin-foot muted"></div>
+              </div>
+            </div>
+          </section>
+
           <section id="tab-catchment" role="tabpanel" aria-labelledby="t-catchment" tabindex="0" hidden>
             <div id="st-catchment" class="card catchment" hidden><div class="card-body"></div></div>
             <div id="st-basin" class="card basin" hidden><div class="card-body"></div></div>
@@ -343,8 +453,10 @@
           <span class="badge" style="background:#455a64">Anywhere</span>
           <h2 id="pt-title">Point</h2>
           <div class="st-meta"><span id="pt-coords"></span> · ERA5 climate + GloFAS modelled discharge, last 10 years</div>
+          <div id="pt-snap" class="st-meta pt-snap" role="status" hidden></div>
           <div class="st-actions">
             <button id="btn-study-pt" class="btn" title="A complete study at this point, planned and checked, with a report">Study this place</button>
+            <button id="btn-watch-pt" class="btn" aria-pressed="false" hidden title="Watch this river reach">☆ Watch</button>
             <button id="btn-share-pt" class="btn" title="Copy a link to exactly this view">Copy link</button>
             <button id="btn-cite-pt" class="btn" title="How to cite this">Cite</button>
           </div>
@@ -352,6 +464,9 @@
 
         <div class="tabs" role="tablist" aria-label="Point analyses">
           <button role="tab" data-tab="overview" aria-controls="pt-tab-overview" aria-selected="true" id="pt-t-overview">Overview</button>
+          <button role="tab" data-tab="now" aria-controls="pt-tab-now" aria-selected="false" tabindex="-1" id="pt-t-now">Now</button>
+          <button role="tab" data-tab="river" aria-controls="pt-tab-river" aria-selected="false" tabindex="-1" id="pt-t-river">River</button>
+          <button role="tab" data-tab="context" aria-controls="pt-tab-context" aria-selected="false" tabindex="-1" id="pt-t-context">Context</button>
           <button role="tab" data-tab="modelled" aria-controls="pt-tab-modelled" aria-selected="false" tabindex="-1" id="pt-t-modelled">Modelled</button>
           <button role="tab" data-tab="catchment" aria-controls="pt-tab-catchment" aria-selected="false" tabindex="-1" id="pt-t-catchment">Catchment</button>
           <button role="tab" data-tab="similar" aria-controls="pt-tab-similar" aria-selected="false" tabindex="-1" id="pt-t-similar">Similar<span class="tab-badge" hidden></span></button>
@@ -388,6 +503,14 @@
             </div>
           </section>
 
+          <section id="pt-tab-now" role="tabpanel" aria-labelledby="pt-t-now" tabindex="0" hidden>
+            <div id="pt-now" class="now"></div>
+          </section>
+
+          <section id="pt-tab-river" role="tabpanel" aria-labelledby="pt-t-river" tabindex="0" hidden>
+            <div id="pt-river" class="river"></div>
+          </section>
+
           <section id="pt-tab-modelled" role="tabpanel" aria-labelledby="pt-t-modelled" tabindex="0" hidden>
             <div id="pt-glofas-card" class="card" hidden>
               <div class="card-title">
@@ -397,6 +520,20 @@
               <div class="card-body">
                 <div id="pt-glofas-kpis" class="kpis"></div>
                 <table class="ffa" id="pt-ffa-table"></table>
+              </div>
+            </div>
+          </section>
+
+          <section id="pt-tab-context" role="tabpanel" aria-labelledby="pt-t-context" tabindex="0" hidden>
+            <div id="pt-context" class="card ctx" hidden>
+              <div class="card-title"><h3>What this place has seen</h3></div>
+              <div class="card-body">
+                <ul id="pt-context-lines" class="ctx-lines" aria-live="polite"></ul>
+                <div id="pt-context-chart" hidden>
+                  <h4 id="pt-context-chart-title"></h4>
+                  <div id="plot-context" class="plot small"></div>
+                </div>
+                <div id="pt-context-credits" class="ctx-credits muted"></div>
               </div>
             </div>
           </section>
@@ -427,6 +564,25 @@
       </div>
 
       <!-- my places and compare (places.js, compare.js) -->
+      <!-- Watch (#521): what changed at the watched gauges, reaches and areas (watch.js) -->
+      <div id="panel-watch" hidden>
+        <div class="head">
+          <h2 id="watch-title">Since you were here</h2>
+          <div id="watch-summary" class="st-meta" aria-live="polite"></div>
+          <div class="st-actions">
+            <button id="watch-refresh" class="btn" type="button">Check again</button>
+            <button id="watch-close" class="btn" type="button">Dismiss</button>
+          </div>
+          <div id="watch-status" class="status" hidden></div>
+        </div>
+        <div class="panes">
+          <p id="watch-empty" class="muted" hidden>Nothing watched yet. Press ☆ Watch on a gauge, a river reach or a drawn area.</p>
+          <ul id="watch-list" class="watch-list"></ul>
+          <p class="muted watch-foot">Kept in this browser only, no account. Forecasts are model output (GEOGLOWS v2, CC BY 4.0).
+            Flood events in the news: Google Groundsource (CC BY 4.0).</p>
+        </div>
+      </div>
+
       <div id="panel-places" hidden>
         <div class="head">
           <h2>My places</h2>

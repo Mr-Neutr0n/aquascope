@@ -20,8 +20,9 @@ export function whenMapLoadsLate(cb) { onLate = cb; }
 const OUR_SOURCES = ["stations", "catchment", "basins6", "basins12", "terrain-dem"];
 const OUR_LAYERS = ["catchment-fill", "catchment-line", "basins6-line", "basins12-line", "basins12-up",
   "gauge-heat", "clusters", "cluster-count", "points", "selected", "hillshade"];
-const isOurs = (id) => OUR_SOURCES.includes(id) || id.startsWith("ov-") || id.startsWith("study-");
-const isOurLayer = (id) => OUR_LAYERS.includes(id) || id.startsWith("ov-") || id.startsWith("study-");
+// river- is the stream network and the trace to the sea (river-map.js, #516).
+const isOurs = (id) => OUR_SOURCES.includes(id) || id.startsWith("ov-") || id.startsWith("study-") || id.startsWith("river-");
+const isOurLayer = (id) => OUR_LAYERS.includes(id) || id.startsWith("ov-") || id.startsWith("study-") || id.startsWith("river-");
 
 // WebGL is what the map actually needs; test it directly instead of blaming it
 // for every slow style load (the old code said "WebGL is off" after a 12 s
@@ -154,7 +155,7 @@ const FALLBACK_STYLE = {
   layers: [{ id: "base", type: "raster", source: "base" }],
 };
 
-function styleFor(basemapId, date) {
+export function styleFor(basemapId, date) {
   const b = basemapById(basemapId);
   return b.kind === "style" ? b.url : rasterStyle(b, date);
 }
@@ -335,6 +336,37 @@ export function applyDate(date, activeOverlays, basemapId) {
   }
 }
 
+// ── time (#522) ─────────────────────────────────────────────────────────────
+
+/** Resolves once the map has drawn every tile it asked for (true), or after `timeoutMs` (false). */
+export function whenSettled(timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!state.mapOk || !map) { resolve(false); return; }
+    let timer = null;
+    const finish = (ok) => { clearTimeout(timer); map.off("idle", onIdle); resolve(ok); };
+    const onIdle = () => finish(true);
+    timer = setTimeout(() => finish(false), timeoutMs);
+    map.on("idle", onIdle);
+    map.triggerRepaint();
+  });
+}
+
+/**
+ * Hand the map's canvas to `draw` while its pixels are still there. WebGL clears
+ * the drawing buffer once a frame is shown, so reading it later gives a blank
+ * image; inside the render event of the same frame it is intact, which saves
+ * turning on preserveDrawingBuffer (a cost on every frame) for an occasional GIF.
+ */
+export function captureMap(draw) {
+  return new Promise((resolve) => {
+    if (!state.mapOk || !map) { resolve(false); return; }
+    map.once("render", () => {
+      try { draw(map.getCanvas()); resolve(true); } catch (err) { console.warn("capture failed", err); resolve(false); }
+    });
+    map.triggerRepaint();
+  });
+}
+
 export function ensureTerrainSource() {
   if (!state.mapOk || map.getSource("terrain-dem")) return;
   map.addSource("terrain-dem", {
@@ -384,7 +416,10 @@ export function globeSupported() {
 
 // ── how the gauges are drawn ────────────────────────────────────────────────
 
-const COLOR_FIELD = { source: "color", record: "colorRecord", recent: "colorRecent" };
+const COLOR_FIELD = {
+  source: "color", record: "colorRecord", recent: "colorRecent", skill: "colorSkill", now: "colorNow",
+  bulletin: "colorBulletin",
+};
 
 export function setGaugeStyle(mode) {
   if (!state.mapOk || !map.getLayer("points")) return;

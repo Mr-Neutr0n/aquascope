@@ -29,7 +29,19 @@ export const VAR_LABEL = {
   groundwater_level: "groundwater", climate: "climate", water_quality: "water quality",
 };
 
-export const sourceStyle = (src) => SOURCE_STYLE[src] || { label: src, color: FALLBACK_COLOR, shape: FALLBACK_SHAPE };
+// Names for the catalogue's other sources, in the same "agency (country)" form, so the legend and the panel never
+// show a registry key like "brazil_ana". They keep the neutral colour and the circle; the keys must be in
+// aquascope.registry.SOURCES (tests/test_explorer/test_explorer_assets.py checks).
+export const SOURCE_LABEL = {
+  bom: "BOM (AU)",
+  brazil_ana: "ANA (BR)",
+  greece_hydroscope: "Hydroscope (GR)",
+  greece_openhi: "OpenHi (GR)",
+  poland_imgw: "IMGW-PIB (PL)",
+};
+
+export const sourceStyle = (src) => SOURCE_STYLE[src] ||
+  { label: SOURCE_LABEL[src] || src, color: FALLBACK_COLOR, shape: FALLBACK_SHAPE };
 export const stationKey = (r) => `${r.source}/${r.station_id}`;
 
 // Debug hooks (harmless in production): window.__aq.state, window.__aq.log.
@@ -59,9 +71,16 @@ export const state = {
   selected: null, result: null, point: null,
   period: null,   // the station's analysis period (#270): null = full record, else the last N years
   workerReady: false, booting: true, pending: new Map(), reqId: 0,
-  mapOk: false, marker: null, basinsOn: false,
+  mapOk: false, marker: null, basinsOn: false, riversOn: false,
   // layers (#232)
   overlays: new Set(), opacity: {}, date: null,
+  // time (#522): the map date above is the one every dated layer follows; these
+  // say how it moves. Change any of them through setTime(), never directly.
+  timeStep: "day", timeRange: null, compare: null, playing: false,
+  // today against normal (#517): the daily status snapshot, read when the gauges are coloured by it
+  nowStatus: null, nowMeta: null,
+  // last month's status (#523): the monthly bulletin's status.parquet, read when the gauges are coloured by it
+  bulletinStatus: null, bulletinMeta: null,
   ...LAYER_DEFAULTS,
   ask: { running: false, catalogSent: false, markdown: null, run: 0 },
   // One drawer, two modes (Ask, Study); an open Study drawer is part of the URL.
@@ -69,6 +88,44 @@ export const state = {
   study: { running: false, recorded: null },
 };
 dbg.state = state;
+
+// ── the map date (#522) ─────────────────────────────────────────────────────
+// One date drives every dated layer. It is state.date, and it changes only
+// through setTime(), which tells every subscriber: the time bar and the map
+// layers today; the forecast (#517) and the "now" colouring of the gauges can
+// subscribe the same way. `source` says who moved it ("bar", "play", "chart",
+// "url", "gif", "agent"), so a listener can react to a chart click differently
+// from a play tick.
+const timeListeners = new Set();
+
+export function onTime(fn) {
+  timeListeners.add(fn);
+  return () => timeListeners.delete(fn);
+}
+
+export const timeState = () => ({
+  date: state.date, step: state.timeStep, range: state.timeRange, compare: state.compare, playing: state.playing,
+});
+
+const sameRange = (a, b) => (a && b ? a.from === b.from && a.to === b.to : a === b);
+const sameCompare = (a, b) => (a && b ? a.date === b.date && (a.layer || null) === (b.layer || null) : a === b);
+
+export function setTime(patch = {}, { source = "bar" } = {}) {
+  const prev = timeState();
+  if ("date" in patch && patch.date) state.date = patch.date;
+  if ("step" in patch && patch.step) state.timeStep = patch.step;
+  if ("range" in patch) state.timeRange = patch.range || null;
+  if ("compare" in patch) state.compare = patch.compare || null;
+  if ("playing" in patch) state.playing = Boolean(patch.playing);
+  const next = timeState();
+  const changed = next.date !== prev.date || next.step !== prev.step || next.playing !== prev.playing ||
+    !sameRange(next.range, prev.range) || !sameCompare(next.compare, prev.compare);
+  if (!changed) return false;
+  for (const fn of timeListeners) {
+    try { fn({ ...next, prev, source }); } catch (err) { console.error("time listener failed", err); }
+  }
+  return true;
+}
 
 // Filled in by the modules that own each behaviour (breaks import cycles).
 export const actions = {
@@ -78,6 +135,9 @@ export const actions = {
   openStudy: () => {},
   applyUrl: () => {},
   refreshMapData: () => {},
+  setOverlay: () => {},       // layer-ui.js: turn an overlay on or off as if from the rail
+  setBasemap: () => {},       // layer-ui.js: switch the basemap as if from the rail
+  showArea: () => {},         // layer-ui.js: show a box's result in the rail, as if just drawn
 };
 
 export function escapeHtml(s) {

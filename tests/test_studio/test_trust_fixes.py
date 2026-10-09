@@ -265,7 +265,7 @@ def test_a_short_archive_copy_is_replaced_by_the_agencys_full_record():
         out = explore.fetch_series("usgs", "USGS-01013500", period_start="1903-07-29")
     assert out["series"].index.min().date() == date(1903, 10, 1)
     assert agency.calls[0]["days"] == (_today() - date(1903, 7, 29)).days
-    assert "USGS daily values (NWIS); full record requested (from 1903-07-29" in out["note"]
+    assert "USGS daily values (Water Data API, daily mean); full record requested (from 1903-07-29" in out["note"]
     assert "archive holds only" in out["note"] and "full record came from the agency" in out["note"]
 
 

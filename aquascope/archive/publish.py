@@ -49,8 +49,13 @@ def publish_folder(
     token: str | None = None,
     commit_message: str | None = None,
     create: bool = True,
+    allow_patterns: list[str] | tuple[str, ...] | None = None,
 ) -> str:
     """Upload ``folder`` to the ``repo_id`` dataset and return the commit URL.
+
+    Only files matching ``allow_patterns`` are uploaded (by default the Archive's parquet, GeoJSON, JSON,
+    csv.gz, FlatGeobuf, PMTiles and README; the feeds add ``*.xml`` and the monthly bulletin its HTML,
+    Markdown and PNG).
 
     The token comes from ``token``, then ``HF_TOKEN`` / ``HUGGING_FACE_HUB_TOKEN``,
     then the local ``huggingface_hub`` login. Nothing is ever bundled in the
@@ -75,7 +80,9 @@ def publish_folder(
             repo_id=repo_id,
             repo_type="dataset",
             commit_message=commit_message or "aquascope harvest",
-            allow_patterns=["*.parquet", "*.geojson", "*.json", "*.csv.gz", "*.fgb", "*.pmtiles", "README.md"],
+            allow_patterns=list(allow_patterns)
+            if allow_patterns
+            else ["*.parquet", "*.geojson", "*.json", "*.csv.gz", "*.fgb", "*.pmtiles", "README.md"],
         )
     except Exception as exc:  # noqa: BLE001 - re-raised below, with the cause named
         raise _explain(exc, repo_id, token) from exc

@@ -33,8 +33,7 @@ To request a new source, open an [issue](https://github.com/Rekin226/aquascope/i
 
 | Source | Raw field(s) | Maps to |
 | :--- | :--- | :--- |
-| USGS (OGC API) | `approval_status` ("Approved"/"Provisional"), `qualifier` (free text) | `approved` / `provisional`; a qualifier mentioning ice or estimation overrides to `suspect` / `estimated` |
-| USGS (legacy keyless API) | `qualifiers` (e.g. "A", "P", "P Ice") | same idea, letter-code based — see `usgs.py` |
+| USGS (Water Data OGC API v1, keyed or keyless) | `approval_status` ("Approved"/"Provisional"), `qualifier` (a list such as `["ESTIMATED"]` or `["ICE"]`) | `approved` / `provisional`; a qualifier mentioning ice or estimation overrides to `suspect` / `estimated`. Older single-letter codes ("A", "P", "e") still map the same way |
 | Environment Agency (England) | not yet mapped | `unknown` |
 | BoM Water Data Online | not yet mapped | `unknown` |
 | Hub'Eau | not yet mapped | `unknown` |
@@ -93,7 +92,7 @@ To request a new source, open an [issue](https://github.com/Rekin226/aquascope/i
 | :--- | :---: | :--- |
 | Taiwan MOENV | Recommended | [Register](https://data.moenv.gov.tw/en/apikey) — free |
 | Taiwan WRA / Civil IoT | No | Open access |
-| USGS | Optional | [Request](https://api.waterdata.usgs.gov/docs/ogcapi/#api-keys) — free |
+| USGS | Optional (raises the rate limit) | [Request](https://api.waterdata.usgs.gov/signup/), free |
 | NOAA NWPS | No | Open access |
 | Water Quality Portal | No | Open access |
 | GEMStat | No | Open access via Zenodo |

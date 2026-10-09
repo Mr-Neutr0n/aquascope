@@ -39,8 +39,13 @@ INSTRUCTIONS = (
     "Greece Hydroscope, Taiwan CWA and more) behind one schema. Start with find_stations (no agency call), "
     "then get_timeseries or "
     "analyze_station for a specific station. For a place or a station, assess_site(lat, lon) first says which "
-    "methods the record there supports; do not run one it marks not_defensible. Flood frequency needs at least "
-    "10 complete years of daily flow. Always show the licence/attribution returned with the data."
+    "methods the record there supports; do not run one it marks not_defensible. place_context(lat, lon) gives "
+    "the flood history, surface water, flood hazard, dams, soil, evapotranspiration and nearest rain gauge of a "
+    "place. Flood frequency needs at least "
+    "10 complete years of daily flow. For a river with no gauge, snap_to_river then reach_record gives 86 years "
+    "of simulated flow, labelled modelled; model_skill says how well each global model reproduces a gauge (graded "
+    "A to D) and model_to_lean_on which one to trust near a site. Always show the licence/attribution returned "
+    "with the data."
 )
 
 MAX_STATIONS = 200
@@ -223,11 +228,12 @@ def water_quality_samples(
 
 def analyze_station(
     source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False, variable: str | None = None,
-    return_periods: list[float] | None = None,
+    return_periods: list[float] | None = None, exclude_years: list[int] | None = None,
 ) -> dict[str, Any]:
     """Fetch and analyse one station: record summary, annual maxima, flood frequency (GEV L-moments and
     Log-Pearson III with 90 % CI; optional bootstrap GEV band), flow-duration percentiles, Mann-Kendall
     trend, and the method citations. Raw daily arrays are omitted; use get_timeseries for those.
+    exclude_years drops those years' annual maxima from the flood fit and its tests.
     variable picks one of the station's variables (discharge by default; water_level, precipitation,
     groundwater_level where the station has them). By default the full record is requested, from the
     catalog's first date for the station; years caps it to the last N years. fetch_note in the result says
@@ -242,13 +248,13 @@ def analyze_station(
         return {"error": f"unknown variable {variable!r}; allowed: {list(VARIABLES)}"}
     store: dict[str, Any] = {}
     res = _analyze(source, station_id, years=int(years) if years else None, store=store, variable=variable,
-                   return_periods=return_periods)
+                   return_periods=return_periods, exclude_years=exclude_years)
     res.pop("series", None)
     if "fdc" in res:
         res["fdc"] = {k: res["fdc"][k] for k in ("q95", "q50", "q10")}
     if bootstrap_ci and res.get("ffa") and store.get("series") is not None:
         try:
-            ci = flood_ci(store["series"], return_periods=return_periods)
+            ci = flood_ci(store["series"], return_periods=return_periods, exclude_years=exclude_years)
             res["ffa"]["fits"]["gev_bootstrap"] = {
                 k: ci[k] for k in ("q", "ci", "params", "n_bootstrap", "n_bootstrap_discarded",
                                      "estimator", "interval_method", "ci_level") if k in ci
@@ -261,13 +267,14 @@ def analyze_station(
 
 def flood_frequency(
     source: str, station_id: str, years: int | None = None, bootstrap_ci: bool = False,
-    return_periods: list[float] | None = None,
+    return_periods: list[float] | None = None, exclude_years: list[int] | None = None,
 ) -> dict[str, Any]:
     """Return levels for T = 2, 5, 10, 25, 50, 100 years at a station (subset of analyze_station); pass
     return_periods to add others (a 200-year design). years caps the record to the last N years; by default the
-    full record is requested.
+    full record is requested. exclude_years drops those years' annual maxima from the fit.
     """
-    res = analyze_station(source, station_id, years=years, bootstrap_ci=bootstrap_ci, return_periods=return_periods)
+    res = analyze_station(source, station_id, years=years, bootstrap_ci=bootstrap_ci, return_periods=return_periods,
+                          exclude_years=exclude_years)
     return _flood_result(res)
 
 
@@ -278,7 +285,13 @@ def _flood_result(res: dict[str, Any]) -> dict[str, Any]:
     keep = {k: res.get(k) for k in ("source", "station_id", "agency", "license", "attribution", "unit",
                                     "start", "end", "years", "n", "stats", "ffa", "notes", "methods",
                                     "fetch_note", "requested", "variable", "data_snapshot", "archive_revision",
-                                    "software_revision", "eligibility")}
+                                    "software_revision", "eligibility", "annual_max",
+                                    "annual_max_excluded")}
+    # The annual maxima are the fitted sample (complete years only): the frequency curve plots them at their
+    # plotting positions, without which the fit cannot be checked by eye.
+    for key in ("annual_max", "annual_max_excluded"):
+        if keep.get(key) is None:
+            keep.pop(key, None)
     if not keep.get("ffa"):
         keep["error"] = "flood frequency not available (see notes)"
     return keep
@@ -336,11 +349,225 @@ def study_area(
         return {"error": str(exc)}
 
 
+def snap_to_river(lat: float, lon: float, max_distance_m: float = 1000.0, prefer: str = "main",
+                  area_km2: float | None = None) -> dict[str, Any]:
+    """Snap a point to its GEOGLOWS v2 river reach (about 6.8 million worldwide): its river_id, Strahler order and
+    how far it is. Among the reaches within max_distance_m the main channel wins (the highest stream order, the
+    nearer on a tie), and the answer names a smaller stream that was nearer; prefer="nearest" takes the nearest
+    line. Give area_km2 (a gauge's catchment area) to take the reach whose upstream area matches it. Beyond
+    max_distance_m it says there is no stream within that distance and names the nearest reach found, so a
+    hillside is not taken for a river. Call it before reach_record or trace_downstream when you only have a
+    place."""
+    from aquascope import rivers
+
+    try:
+        return rivers.snap_to_river(lat, lon, max_distance_m=max_distance_m, prefer=prefer, area_km2=area_km2)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
+def reach_record(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
+                 years: int | None = None, return_periods: list[float] | None = None) -> dict[str, Any]:
+    """The simulated daily discharge of a river reach since 1940 (GEOGLOWS v2, MODELLED, not measured), analysed
+    the way a gauge is: annual maxima, return periods (GEV L-moments and Log-Pearson III with 90 % CI),
+    flow-duration percentiles, the monthly regime and a Mann-Kendall trend. Give the river_id from snap_to_river,
+    or lat/lon to snap here (a point with no stream within 1 km gets an error, not a record). A gauge on the
+    same river outranks it; say it is modelled whenever you quote it. The daily arrays are left out here."""
+    from aquascope import rivers
+
+    return rivers.reach_summary(river_id, lat=lat, lon=lon, years=years, return_periods=return_periods)
+
+
+def model_skill(source: str | None = None, station_id: str | None = None, lat: float | None = None,
+                lon: float | None = None, area_km2: float | None = None, models: list[str] | None = None,
+                years: int = 30) -> dict[str, Any]:
+    """How well each global model reproduces a gauge (the evidence ladder): GEOGLOWS v2 and GloFAS scored live,
+    NWM v3 (US) and Google GRRR from the published monthly table. Per model: KGE with r, alpha and beta, NSE,
+    percent bias, the 2-, 10- and 100-year flows of gauge and model (each from its own GEV fit) with the error in
+    %, and a grade A to D (A: KGE >= 0.75, B >= 0.5, C > -0.41, else D; one letter lower when the 100-year flow is
+    off by more than 50 %). Give the station's source and station_id (lat/lon/area_km2 are then optional).
+    `sentence` says which model fits best and where they disagree; quote it, and say models are modelled."""
+    from aquascope import evidence
+
+    res = evidence.model_skill(source, station_id, lat=lat, lon=lon, area_km2=area_km2, models=models,
+                               years=years or None)
+    res.pop("series", None)
+    return res
+
+
+def model_to_lean_on(lat: float, lon: float, radius_km: float = 150.0) -> dict[str, Any]:
+    """Which global model (GEOGLOWS, NWM, Google GRRR) tracked the gauges near a site best, from the published
+    monthly skill table: the median KGE of each over the nearest graded gauges within radius_km. For an ungauged
+    site, it says which model's numbers to lean on and why."""
+    from aquascope import evidence
+
+    return evidence.lean_on(lat, lon, radius_km=radius_km)
+
+
+def upstream_area(river_id: int, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
+    """The area draining to a GEOGLOWS v2 river reach (km2) and how many reaches lie upstream, summed from the
+    model's unit catchments (within about 7 % of four agency-published gauge areas in our checks). lat/lon,
+    where the reach roughly is (snap_to_river gives them), only pick which processing unit is read first."""
+    from aquascope import rivers
+
+    return rivers.upstream_area(river_id, lat=lat, lon=lon)
+
+
+def trace_downstream(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
+                     gauge_km: float = 2.0, dam_km: float = 2.0) -> dict[str, Any]:
+    """Follow a river reach (or the reach a point snaps to) down to its outlet: how many reaches, how many km,
+    where it ends, the catalog gauges within gauge_km of the path in the order the water reaches them, the
+    Global Dam Watch dams within dam_km of it (name, capacity in million m3, purpose, degree of regulation where
+    GDW gives it, km along the path), the countries it crosses (Natural Earth) and the dams upstream of the
+    first reach. The path geometry is thinned to 400 points (TDX-Hydro, CC BY-SA 4.0: for display)."""
+    from aquascope import rivers
+
+    res = rivers.trace_downstream(river_id, lat=lat, lon=lon, gauge_km=gauge_km, dam_km=dam_km, max_points=400)
+    reaches = res.get("reaches") or []
+    if len(reaches) > 40:
+        res["reaches"] = reaches[:20] + reaches[-20:]
+        res["reaches_note"] = f"{len(reaches)} reaches; the first and last 20 are listed."
+    dams = res.get("dams") or []
+    if len(dams) > 30:
+        res["dams"] = sorted(dams, key=lambda d: d.get("capacity_mcm") or 0.0, reverse=True)[:30]
+        res["dams"].sort(key=lambda d: d.get("along_km") or 0.0)
+        res["dams_note"] = f"{len(dams)} dams on the path; the 30 with the most storage are listed."
+    return res
+
+
+def upstream_dams(river_id: int | None = None, lat: float | None = None, lon: float | None = None,
+                  with_flow: bool = True) -> dict[str, Any]:
+    """Is a river regulated upstream of a reach (or of the reach a point snaps to)? The Global Dam Watch dams that
+    drain to it (largest storage first), their total storage in million m3, and with_flow the degree of
+    regulation: that storage as a % of a year's mean flow at the reach (GEOGLOWS v2, modelled; one more 10 s
+    request). Approximate: each dam is matched to its nearest river reach. Very large basins are not searched."""
+    from aquascope import rivers
+
+    return rivers.upstream_dams(river_id, lat=lat, lon=lon, with_flow=with_flow)
+def flow_status(source: str, station_id: str, date: str | None = None) -> dict[str, Any]:
+    """Today against normal at a gauge: where its latest flow (or level) sits against the same days of the year
+    (7 either side) in every other year of its record, as a percentile and one of the five classes the USGS
+    dashboard and WMO HydroSOS use (much below normal, below, normal, above, much above). The Archive copy is
+    topped up with the agency's newest days first. date (YYYY-MM-DD) asks about another day. Needs 10 years in
+    that window; quote the sentence it returns, which says the date and how many years it rests on."""
+    from aquascope import nownext
+
+    try:
+        res = nownext.station_status(source, station_id, date=date)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    res.pop("recent", None)
+    return res
+
+
+def status_bulletin(month: str | None = None, sources: list[str] | None = None,
+                    country: str | None = None) -> dict[str, Any]:
+    """The month's state of the rivers in the WMO HydroSOS style: every Archive gauge's monthly mean flow placed
+    against the same month in its other years (25 days a month, 10 years, else left out and counted) in the five
+    classes (much below normal to much above normal), rolled up per country and per BasinATLAS river basin, with
+    the new monthly records, the gauges furthest from normal, the coverage and a summary paragraph written by rules.
+    month is YYYY-MM (default the latest published bulletin, else the last full month); the published bulletin is
+    read when there is one, else it is built from the Archive's discharge records (slow the first time). country
+    (ISO3, e.g. GBR) lists that country's classed gauges. Quote the summary; it says how many gauges it rests on."""
+    from aquascope import bulletin
+
+    try:
+        res = bulletin.status_bulletin(month, sources)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    gauges = res.pop("gauges", None) or []
+    res["basins"] = (res.get("basins") or [])[:15]
+    if country:
+        code = country.strip().upper()
+        res["gauges"] = [g for g in gauges if (g.get("country") or "").upper() == code][:200]
+    return res
+
+
+def flow_forecast(lat: float | None = None, lon: float | None = None, river_id: int | None = None,
+                  station: str | None = None, days: int = 15, quick: bool = False) -> dict[str, Any]:
+    """The next 15 days of river flow from two global models, MODELLED: GEOGLOWS v2 (ECMWF 51-member ensemble
+    statistics for the river reach: mean, median, 25-75 and min-max bands, high-res run) and GloFAS v4 via
+    Open-Meteo (daily ensemble statistics for the 5 km cell), with the reach's 2- to 100-year flows from its
+    simulated record since 1940. Give a point (snapped to its reach), a river_id, or station "source/station_id":
+    a gauge also gets today's status and the forecast corrected to its own record, with the correction's
+    hindcast skill. quick=True returns only the two forecasts, without the thresholds and the correction (it
+    skips the 86-year simulated record, the slow read). Say it is a model forecast whenever you quote it."""
+    from aquascope import nownext
+
+    try:
+        return nownext.now(lat, lon, station=station, river_id=river_id, days=days, history=not quick)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
+def correct_to_gauge(source: str, station_id: str, river_id: int | None = None, days: int = 15) -> dict[str, Any]:
+    """The GEOGLOWS forecast at a gauge's river reach corrected to the gauge's own record (flow-duration quantile
+    mapping per calendar month, the MFDC-QM / SABER family), and how much to trust it: KGE (with r, alpha, beta),
+    percent bias, and the hit rate and false alarms above the gauge's 2-year flow, raw against corrected, scored
+    on the later part of the overlap after fitting on the earlier part. Quote the skill_line with the forecast."""
+    from aquascope import nownext
+
+    try:
+        res = nownext.now(station=f"{source}/{station_id}", river_id=river_id, days=days)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    fc = res.get("forecast") or {}
+    corr = fc.get("correction") or {"error": fc.get("error") or "No forecast to correct at this gauge."}
+    return {"station": res.get("station"), "river_id": fc.get("river_id"), "raw": fc.get("geoglows"),
+            "correction": corr, "gauge_thresholds": fc.get("gauge_thresholds"), "sentence": fc.get("sentence"),
+            "notes": fc.get("notes"), "attribution": fc.get("attribution")}
+
+
+def watch_digest(items: list[Any], since: str | None = None, thresholds: dict[str, Any] | None = None,
+                 forecast: str = "auto") -> dict[str, Any]:
+    """What changed at watched places since a date (#521). items: gauges "source/station_id", river reaches
+    "river:<id>", areas "area:west,south,east,north" (or dicts with kind and those fields). since: YYYY-MM-DD
+    (default a week ago). thresholds: per item id, a value in the record's unit (300) or a return period ("10y");
+    without one, forecasts are checked against the 2-year flow. Per item: new days of data and the latest value,
+    today's status class against the one on the since date, the forecast peak in the next 15 days against the
+    threshold (modelled; corrected to the gauge where possible), and flood events in the news nearby since then;
+    one line each and a summary. forecast: auto, archive, live or off."""
+    from aquascope import watch
+
+    specs = []
+    for it in items or []:
+        spec = dict(it) if isinstance(it, dict) else it
+        try:
+            key = watch.parse_item(spec)["id"]
+        except ValueError:
+            specs.append(spec)
+            continue
+        if thresholds and key in thresholds:
+            spec = {**(spec if isinstance(spec, dict) else {"id": key}), "threshold": thresholds[key]}
+        specs.append(spec)
+    try:
+        return watch.watch_digest(specs, since, forecast=forecast)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+
 def describe_methods() -> dict[str, Any]:
     """What each analysis computes and the reference to cite."""
     from aquascope.explore import METHODS, MIN_YEARS_FOR_FFA, RETURN_PERIODS
 
     return {"return_periods": RETURN_PERIODS, "min_years_for_ffa": MIN_YEARS_FOR_FFA, "methods": METHODS}
+
+
+def dated_layers(live: bool = False) -> dict[str, Any]:
+    """The map layers that change with the date (NASA GIBS satellite imagery, IMERG rain, SMAP soil
+    moisture, MODIS snow and land temperature, GRACE water storage): their cadence, first and last day,
+    licence and tile template. live=True reads the exact intervals, gaps included, from GIBS."""
+    from aquascope.map_time import dated_layers as _dated
+
+    return _dated(live=bool(live))
+
+
+def layer_frames(layer: str, start: str, end: str, step: str = "day", max_frames: int = 60) -> dict[str, Any]:
+    """The frames of a time-lapse of one dated map layer: each date from start to end (YYYY-MM-DD) at a
+    step of day, week or month, with its XYZ tile URL, skipping dates the layer cannot show (at most 60)."""
+    from aquascope.map_time import layer_frames as _frames
+
+    return _frames(layer, start, end, step=step, max_frames=max_frames)
 
 
 def archive_health() -> dict[str, Any]:
@@ -370,6 +597,39 @@ def describe_catchment(lat: float, lon: float, upstream: bool = True) -> dict[st
         return {"error": f"{exc}"}
     except Exception as exc:  # noqa: BLE001 - the model gets to see it
         return {"error": f"catchment lookup failed: {type(exc).__name__}: {exc}"}
+
+
+def place_context(lat: float, lon: float, layers: list[str] | None = None) -> dict[str, Any]:
+    """What a hydrologist asks first about a point, from open global datasets, each with its licence: flood
+    history (flood events in the news from Google Groundsource, and Sentinel-1 radar flood detections
+    2014-2024), surface water since 1984 (JRC Global Surface Water: how often this 30 m pixel was water, and
+    the change), modelled flood depth at the 10 to 500-year floods (JRC CEMS-GloFAS hazard maps), dams nearby
+    (Global Dam Watch), soil texture and plant-available water (SoilGrids), actual evapotranspiration (FAO
+    WaPOR v3) and the nearest real rain gauge with a summary of its record (NOAA GHCN-Daily). layers picks
+    some of: flood_history, surface_water, flood_hazard, dams, rain_gauge, actual_et, soil (default all).
+    Every layer has a one-line summary; quote the attribution with the numbers.
+    """
+    from aquascope import context
+
+    try:
+        return context.place_context(float(lat), float(lon), layers=layers)
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"place context failed: {type(exc).__name__}: {exc}"}
+
+
+def area_context(west: float, south: float, east: float, north: float,
+                 layers: list[str] | None = None) -> dict[str, Any]:
+    """The place-context layers over a box (west, south, east, north in degrees): flood events from the news
+    and radar flood months inside it, dams and their combined storage, rain gauges, and surface water, flood
+    depth, soil and actual evapotranspiration sampled on a small grid. Keep the box under about 16 x 16
+    degrees. Same layer names as place_context.
+    """
+    from aquascope import context
+
+    try:
+        return context.area_context(float(west), float(south), float(east), float(north), layers=layers)
+    except Exception as exc:  # noqa: BLE001 - the model gets to see it
+        return {"error": f"area context failed: {type(exc).__name__}: {exc}"}
 
 
 def similar_basins(
@@ -862,6 +1122,46 @@ def studio_export(workspace: dict[str, Any], out_dir: str) -> dict[str, Any]:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
+MAX_EXPORT_CHARS = 60_000
+
+
+def engineering_export(
+    source: str, station_id: str, tool: str, years: int | None = None, variable: str | None = None,
+    regional_skew: float | None = None, regional_skew_mse: float | None = None, out_dir: str | None = None,
+    max_chars: int = MAX_EXPORT_CHARS,
+) -> dict[str, Any]:
+    """Inputs for an engineering tool from a gauge's record: tool is one of hec-hms, hec-ras, hec-ssp, dss,
+    swmm, modflow6, fews, raven (or "all"). Returns each file's text (a long file is cut at max_chars and marked
+    truncated) and the notes to read before using it; pass out_dir to also write the files there. hec-ssp adds
+    the Bulletin 17C settings and AquaScope's own result to compare; regional_skew weights its skew. DSS is a
+    real .dss where HEC's hecdss loads, else the CSV hecdss reads.
+    """
+    from aquascope.io import engineering as eng
+
+    if source not in SOURCES:
+        return {"error": f"unknown source {source!r}"}
+    if tool != "all" and tool not in eng.TOOLS:
+        return {"error": f"unknown tool {tool!r}; choose from {', '.join(eng.TOOLS)} or all"}
+    try:
+        res = eng.export_station(source, station_id, tool, years=int(years) if years else None, variable=variable,
+                                 regional_skew=regional_skew, regional_skew_mse=regional_skew_mse)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    if "error" in res:
+        return res
+    if out_dir:
+        res["written"] = eng.write_files(eng.files_from(res), out_dir)
+    for f in res["files"]:
+        f.pop("base64", None)  # a binary .dss stays on disk (out_dir), never in the reply
+        text = f.get("text")
+        if isinstance(text, str) and len(text) > max_chars:
+            f["text"] = text[:max_chars]
+            f["truncated"] = True
+    meta = SOURCES[source]
+    res.update({"license": meta.license, "attribution": meta.attribution})
+    return res
+
+
 def _sparkline(values: list[float], width: int = 560, height: int = 120) -> str:
     """A dependency-free hydrograph: the shape of a record, in an inline SVG."""
     clean = [v for v in values if isinstance(v, (int, float))]
@@ -939,6 +1239,20 @@ def build_server():
     server.tool()(assess_site)
     server.tool()(study_area)
     server.tool()(describe_catchment)
+    server.tool()(snap_to_river)
+    server.tool()(reach_record)
+    server.tool()(upstream_area)
+    server.tool()(trace_downstream)
+    server.tool()(upstream_dams)
+    server.tool()(model_skill)
+    server.tool()(model_to_lean_on)
+    server.tool()(flow_status)
+    server.tool()(flow_forecast)
+    server.tool()(status_bulletin)
+    server.tool()(correct_to_gauge)
+    server.tool()(watch_digest)
+    server.tool()(place_context)
+    server.tool()(area_context)
     server.tool()(similar_basins)
     server.tool()(regionalize_signatures)
     from aquascope.archive.signatures import filter_gauges  # the map's signature filter (signatures.parquet)
@@ -956,9 +1270,12 @@ def build_server():
                advanced.climate_projection, advanced.regional_flood, advanced.compare_gauges):
         server.tool()(fn)
     server.tool()(archive_health)
+    server.tool()(dated_layers)
+    server.tool()(layer_frames)
     server.tool()(list_analyses)
     server.tool()(analyse_table)
     server.tool()(station_view)
+    server.tool()(engineering_export)
     server.tool()(list_playbooks)
     server.tool()(describe_playbook)
     server.tool()(solve_plan)

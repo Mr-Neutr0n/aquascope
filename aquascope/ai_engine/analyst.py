@@ -72,6 +72,8 @@ Rules:
   table: do not run a method it marks not_defensible, say why, and offer what it marks defensible instead.
 - Find stations with find_stations before analysing; prefer stations with long records for flood questions.
 - Use analyze_station / flood_frequency for numbers; use anywhere(lat, lon) when the user names a place with no gauge.
+- reach_record(lat, lon) gives the river reach at a point and 86 years of SIMULATED daily flow (GEOGLOWS v2):
+  use it where no gauge is on the river, and call it modelled whenever you quote it.
 - Use describe_catchment(lat, lon) for the catchment itself: area, elevation, climate, land cover, soils, dams.
 - For an ungauged place, use similar_basins to find donor gauges, then analyze_station on the best donors.
 - For "what flow to expect" at an ungauged place, use regionalize_signatures (mm/d estimates with a band and
@@ -208,12 +210,22 @@ def _advanced_specs(num: dict[str, str]) -> list[ToolSpec]:
     ]
 
 
+def _reach_record_tool(lat: float | None = None, lon: float | None = None, river_id: int | None = None,
+                       years: int | None = None) -> dict[str, Any]:
+    """The reach_record tool: aquascope.rivers.reach_summary (lazy, so the module loads only when called)."""
+    from aquascope import rivers
+
+    return rivers.reach_summary(river_id, lat=lat, lon=lon, years=years)
+
+
 def _tool_specs() -> list[ToolSpec]:
     from aquascope import mcp_server as t
     from aquascope.explore import anywhere
 
     num = {"type": "number"}
     years_cap = "Optional cap on the record: the last N years. Leave it out for the full record (the default)."
+    exclude_years = {"type": "array", "items": {"type": "integer"},
+                     "description": "years whose annual maximum is left out of the flood fit"}
     return [
         ToolSpec(
             "list_sources", "Every data source with agency, country, variables and licence.",
@@ -253,6 +265,7 @@ def _tool_specs() -> list[ToolSpec]:
                                               "bootstrap_ci": {"type": "boolean"},
                                               "return_periods": {"type": "array", "items": num, "description":
                                                                  "the T in years to report (default 2 to 100)"},
+                                              "exclude_years": exclude_years,
                                               "variable": {"type": "string"}},
              "required": ["source", "station_id"]},
             t.analyze_station,
@@ -264,7 +277,8 @@ def _tool_specs() -> list[ToolSpec]:
                                               "years": {"type": "integer", "description": years_cap},
                                               "bootstrap_ci": {"type": "boolean"},
                                               "return_periods": {"type": "array", "items": num, "description":
-                                                                 "the T in years to report (default 2 to 100)"}},
+                                                                 "the T in years to report (default 2 to 100)"},
+                                              "exclude_years": exclude_years,},
              "required": ["source", "station_id"]},
             t.flood_frequency,
         ),
@@ -300,6 +314,16 @@ def _tool_specs() -> list[ToolSpec]:
              "required": ["lat", "lon"]},
             lambda lat, lon, years=10, match_mean_flow=None, area_km2=None: anywhere(
                 lat, lon, years=years, match_mean_flow=match_mean_flow, area_km2=area_km2),
+        ),
+        ToolSpec(
+            "reach_record",
+            "The river reach at a point (snapped to the GEOGLOWS v2 network, or 'no stream within 1 km') and its "
+            "simulated daily discharge since 1940, analysed like a gauge: return periods with 90 % CI, Q95/Q50/Q10, "
+            "the monthly regime, the trend. MODELLED, not measured: a gauge on the same river outranks it, and "
+            "every number quoted from it must say so.",
+            {"type": "object", "properties": {"lat": num, "lon": num, "river_id": {"type": "integer"},
+                                              "years": {"type": "integer"}}},
+            _reach_record_tool,
         ),
         ToolSpec(
             "describe_catchment",
@@ -605,6 +629,11 @@ def _harvest_provenance(name: str, args: dict[str, Any], result: Any, res: AskRe
         if not any(d.get("label") == label for d in res.data_used):
             res.data_used.append({"label": label, "period": None, "license": result.get("license"),
                                   "attribution": result.get("attribution")})
+    if name == "reach_record" and result.get("river_id") and not result.get("error"):
+        label = f"GEOGLOWS v2 river reach {result['river_id']} (modelled)"
+        if not any(d.get("label") == label for d in res.data_used):
+            res.data_used.append({"label": label, "period": f"{result.get('start')} to {result.get('end')}",
+                                  "license": result.get("licence"), "attribution": result.get("attribution")})
     if name == "anywhere" and "latitude" in result:
         label = f"point {result['latitude']}, {result['longitude']}"
         if not any(d.get("label") == label for d in res.data_used):

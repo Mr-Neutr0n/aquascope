@@ -6,7 +6,7 @@
 // single "apply this URL" path that Back, a pasted link and a deep link all
 // go through.
 
-import { $, actions, state, trace } from "./src/core.js?v=__BUILD__";
+import { $, actions, setTime, state, trace } from "./src/core.js?v=__BUILD__";
 import { loadCatalog, toFeatureCollection } from "./src/catalog.js?v=__BUILD__";
 import {
   DEFAULT_CENTER, addStationLayers, fitWorldZoom, flyToStation, highlightStation, initMap, map,
@@ -14,9 +14,14 @@ import {
   whenMapLoadsLate,
 } from "./src/map.js?v=__BUILD__";
 import { defaultDate } from "./src/layers.js?v=__BUILD__";
-import { applyLayerState, initLayerUI, syncRailControls } from "./src/layer-ui.js?v=__BUILD__";
+import { applyLayerState, initLayerUI, renderCredits, syncRailControls } from "./src/layer-ui.js?v=__BUILD__";
+import { initTimeBar } from "./src/time-ui.js?v=__BUILD__";
 import { buildRail, syncRail, updateCount } from "./src/rail.js?v=__BUILD__";
 import { setBasinsVisible } from "./src/basins.js?v=__BUILD__";
+import { setRiversVisible } from "./src/river-map.js?v=__BUILD__";
+import { clearRiver, initRiver } from "./src/river.js?v=__BUILD__";
+import { initNow } from "./src/now.js?v=__BUILD__";
+import { initBulletin } from "./src/bulletin.js?v=__BUILD__";
 import { initSearch } from "./src/search.js?v=__BUILD__";
 import { initShell, initTabs, selectTab, setStatusEl, showSurface } from "./src/shell.js?v=__BUILD__";
 import { initStationPanel, reanalyze, selectStation, setPeriod } from "./src/panel-station.js?v=__BUILD__";
@@ -30,6 +35,7 @@ import { registerWebMcpTools } from "./src/webmcp.js?v=__BUILD__";
 import { studyUrlParam } from "./src/study-link.js?v=__BUILD__";
 import { initSignatureFilter } from "./src/signature-filter.js?v=__BUILD__";
 import { initPlaces } from "./src/places.js?v=__BUILD__";  // My places + Compare
+import { greetOnLoad, initWatch } from "./src/watch.js?v=__BUILD__";  // Watch: since you were here (#521)
 import { loadAvailability } from "./src/availability.js?v=__BUILD__";
 
 import { initMetrics } from "./src/metrics-ui.js?v=__BUILD__";
@@ -76,7 +82,12 @@ function applyUrl(url, { fromHistory = false } = {}) {
     syncRail();
   }
   if (fromHistory && readLayerState(url)) applyLayerState();
+  if (fromHistory) {   // the map date, step, range and compare (#522), through the one setter
+    setTime({ date: url.date || state.date, step: url.step || "day", range: url.range || null,
+      compare: url.compare || null }, { source: "url" });
+  }
   if (url.basins !== undefined && url.basins !== state.basinsOn) setBasinsVisible(url.basins);
+  if (url.rivers !== undefined && url.rivers !== state.riversOn) { setRiversVisible(url.rivers); renderCredits(); }
   if (url.view) { state.view = url.view; setView(url.view); }
   if (url.mode === "workbench") { openWorkbench(); return; }
   if (url.station) {
@@ -118,7 +129,6 @@ function readLayerState(url) {
     if (state[key] !== value) { state[key] = value; changed = true; }
   };
   set("basemap", url.basemap);
-  set("date", url.date);
   set("terrain", url.terrain);
   set("hillshade", url.hillshade);
   set("globe", url.globe);
@@ -156,9 +166,11 @@ function bringMapOnline(url) {
     setView(url.view);
   }
   initLayerUI();
+  initTimeBar();
   applyLayerState();
   syncRailControls();
   if (state.basinsOn || url.basins) setBasinsVisible(true);
+  if (state.riversOn || url.rivers) { setRiversVisible(true); renderCredits(); }
   // A selection made while the map was still dark has nothing on the map yet.
   if (state.selected) {
     highlightStation(`${state.selected.source}/${state.selected.station_id}`);
@@ -172,6 +184,7 @@ function goHome() {
   state.selected = null;
   state.point = null;
   state.activeTab = null;
+  clearRiver();  // the trace to the sea belongs to the panel being closed
   showSurface("panel-empty");
   writeUrl({ push: true });
 }
@@ -187,8 +200,12 @@ function goHome() {
   initTabs($("panel-workbench"));
   initStationPanel();
   initPointPanel();
+  initRiver();
+  initNow();
+  initBulletin();
   initWorkbench();
   initPlaces();  // My places + Compare
+  initWatch();   // Watch (#521)
   initAsk();   // async: fills the provider list from providers.json
   initStudyLoader();
   initSearch();
@@ -218,7 +235,12 @@ function goHome() {
   });
 
   if (url.hidden) state.hidden = new Set(url.hidden);
+  // The map date and how it moves (#522). Set directly here, before anything
+  // subscribes; every later change goes through setTime().
   state.date = url.date || defaultDate();
+  state.timeStep = url.step || "day";
+  state.timeRange = url.range || null;
+  state.compare = url.compare || null;
   readLayerState(url);
   // A white basemap inside a dark interface is a lamp in a dark room. With no
   // basemap in the URL, follow the reader's system theme; "Copy link" then
@@ -261,6 +283,7 @@ function goHome() {
   ensureWorker();  // warm Python in the background so the first click is quicker
 
   applyUrl(url);
+  greetOnLoad({ ...url, study: url.study || Boolean(studyUrlParam(location.search)) });  // Watch (#521): "Since you were here", when something is watched and the link opens nothing else
   const studyUrl = studyUrlParam(location.search);   // ?study_url=<https study.yaml> (study-link.js)
   if (studyUrl && !url.studyLink) actions.openSharedStudy({ studyUrl });
   // Offer the page's tools to an in-browser agent, where the browser has WebMCP.

@@ -124,7 +124,7 @@ class Dataset:
     """One row of the data inventory: a gauge, a well, a rain gauge, the ERA5 cell, the catchment, a user's table."""
 
     id: str
-    #: station | upload | reanalysis | catchment | donors | samples
+    #: station | upload | reanalysis | modelled | catchment | donors | samples
     kind: str
     variable: str | None = None
     source: str | None = None
@@ -163,6 +163,12 @@ class Inventory:
     catchment: dict[str, Any] | None = None
     donors: int | None = None
     notes: list[str] = field(default_factory=list)
+    #: The place-context layers that cover the site (#520): ``{layer, label, sources, licences, summary?}``.
+    #: Listed, not counted as datasets: they describe the place, they are not a record to analyse.
+    context: list[dict[str, Any]] = field(default_factory=list)
+    #: Which global model to lean on near the site (#518): :func:`aquascope.evidence.lean_on` over the published
+    #: skill table, ``{"model", "label", "median_kge", "n_gauges", "sentence", ...}``; None when not read.
+    models: dict[str, Any] | None = None
 
     @property
     def sufficiency(self) -> list[dict[str, Any]]:
@@ -180,8 +186,13 @@ class Inventory:
         return [d for d in self.datasets if d.kind == "upload"]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"site": dict(self.site), "datasets": [d.to_dict() for d in self.datasets], "recon": self.recon,
-                "catchment": self.catchment, "donors": self.donors, "notes": list(self.notes)}
+        out = {"site": dict(self.site), "datasets": [d.to_dict() for d in self.datasets], "recon": self.recon,
+               "catchment": self.catchment, "donors": self.donors, "notes": list(self.notes)}
+        if self.context:
+            out["context"] = [dict(c) for c in self.context]
+        if self.models:
+            out["models"] = dict(self.models)
+        return out
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> Inventory | None:
@@ -190,7 +201,9 @@ class Inventory:
         return cls(site=dict(d.get("site") or {}),
                    datasets=[Dataset.from_dict(x) for x in (d.get("datasets") or []) if isinstance(x, dict)],
                    recon=dict(d.get("recon") or {}), catchment=d.get("catchment"), donors=d.get("donors"),
-                   notes=[str(n) for n in (d.get("notes") or [])])
+                   notes=[str(n) for n in (d.get("notes") or [])],
+                   context=[dict(c) for c in (d.get("context") or []) if isinstance(c, dict)],
+                   models=dict(d["models"]) if isinstance(d.get("models"), dict) else None)
 
 
 # ── artifacts and messages ──────────────────────────────────────────────────
@@ -309,6 +322,12 @@ class Workspace:
     #: Follow-ups after the report: ``{"text", "at", "kind": "question" | "change", "steps": [...]}``.
     follow_ups: list[dict[str, Any]] = field(default_factory=list)
     declined_reason: str | None = None
+    #: The house style the documents are dressed in (:class:`aquascope.studio.document.HouseStyle` as a dict:
+    #: organisation, project, the people who prepared and checked it, the logo as ``logo_b64``).
+    house_style: dict[str, Any] | None = None
+    #: The Study Desk's state (:mod:`aquascope.studio.desk`): ``{"revisions": [...], "comments": [...],
+    #: "estimator": "gev_lmoments" | "lp3" | "gev_bootstrap"}``.
+    desk: dict[str, Any] | None = None
     version: int = WORKSPACE_VERSION
     #: A face's callback for every event as it happens (the Coordinator sets it); not serialised.
     listener: Any = field(default=None, repr=False, compare=False)
@@ -439,6 +458,8 @@ class Workspace:
             "tables": dict(self.tables),
             "follow_ups": list(self.follow_ups),
             "declined_reason": self.declined_reason,
+            "house_style": dict(self.house_style) if self.house_style else None,
+            "desk": dict(self.desk) if self.desk else None,
         }
 
     @classmethod
@@ -466,6 +487,8 @@ class Workspace:
             tables={str(k): str(v) for k, v in (d.get("tables") or {}).items()},
             follow_ups=[dict(f) for f in (d.get("follow_ups") or []) if isinstance(f, dict)],
             declined_reason=d.get("declined_reason"),
+            house_style=dict(d["house_style"]) if isinstance(d.get("house_style"), dict) else None,
+            desk=dict(d["desk"]) if isinstance(d.get("desk"), dict) else None,
             version=int(d.get("version") or WORKSPACE_VERSION),
         )
         return ws
