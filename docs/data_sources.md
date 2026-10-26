@@ -86,6 +86,27 @@ To request a new source, open an [issue](https://github.com/Rekin226/aquascope/i
 
 ---
 
+## Quality Metadata Survey
+
+What each agency publishes about the quality of a single observation, and whether AquaScope keeps it ([#438](https://github.com/Rekin226/aquascope/issues/438)). How a collector maps these onto AquaScope's own codes is in [Data Quality Flags](#data-quality-flags). Values are quoted as the agency publishes them; a meaning is given only where the agency documents one. Rows are added a few sources at a time; sources not listed yet have not been surveyed.
+
+| `--source` | Field(s) | Values and what they mean | Where documented | We read it? |
+| :--- | :--- | :--- | :--- | :---: |
+| `usgs` | `approval_status`, `qualifier` | `approval_status`: `Approved` (review completed, approved for publication) or `Provisional` (subject to revision). `qualifier`: qualifiers on the observation, "for instance if a sensor may have been impacted by ice or if values were estimated"; no list of codes is published. Responses carry a list, e.g. `["ESTIMATED"]` or `["ESTIMATED", "ICE"]` | [OGC API daily queryables](https://api.waterdata.usgs.gov/ogcapi/v1/collections/daily/queryables?f=json), [provisional data statement](https://waterdata.usgs.gov/provisional-data-statement/) | yes |
+| `uk_ea` | `quality`, `completeness`, `valid` / `invalid` / `missing`, `qcode` | `quality`: `Good`, `Estimated`, `Suspect`, `Unchecked`, `Missing` (listed without definitions; a `Missing` reading has no value). `completeness`: `Complete` / `Incomplete`, "whether the value is based on complete data or not". `valid` / `invalid` / `missing`: the share of the sub-daily points behind an aggregate (e.g. a daily mean) that were valid, invalid or missing (see the note on units below). `qcode`: "other qualifiers for this reading", e.g. `Edited`, `WithinRating`, `NoRating`, `BeyondUpperLimit`, `Dry`, `Snow`, `Trace` (names only, no definitions) | [Hydrology API reference](https://environment.data.gov.uk/hydrology/doc/reference) | partly: not `qcode` |
+| `aquastat` | unknown | Endpoint unavailable: `https://www.fao.org/faostat/api/v1/en/data/AQUASTAT` returns 404 ([#167](https://github.com/Rekin226/aquascope/issues/167)), so the quality metadata could not be verified | not verified | no |
+| `japan_mlit` | unknown | Endpoint unavailable: `http://www1.river.go.jp/cgi-bin/SrchWaterLevel` returns 404 ([#168](https://github.com/Rekin226/aquascope/issues/168)), so the quality metadata could not be verified | not verified | no |
+| `taiwan_civil_iot` | unknown | Endpoint unavailable: with TLS verification on, the certificate served for `sta.ci.taiwan.gov.tw` fails hostname verification ([#176](https://github.com/Rekin226/aquascope/issues/176) also reports timeouts), so the quality metadata could not be verified | not verified | no |
+
+Notes, checked on 2026-10-22:
+
+- **USGS.** The queryables schema types `qualifier` as a string with the example `Ice`, but responses return a list of upper-case codes. The example response on the [API documentation page](https://api.waterdata.usgs.gov/docs/ogcapi/) spells the field `approvals_status` and shows a list (`["Approved"]`); responses use `approval_status` with a single string. The collector also accepts older single-letter codes (`A`, `P`, `e`) as a fallback; none appeared in the responses checked.
+- **UK EA counts.** The reference calls `valid`, `invalid` and `missing` a "percentage", but they come back as strings that sum to `10000` in every reading checked (`10000/0/0`, `8021/0/1979`, `3646/0/6354`). That looks like hundredths of a percent; the Environment Agency does not say so. On the 15-minute measure checked, readings carried `quality` (and `qcode` when set) but no counts or `completeness`.
+- **UK EA `Incomplete` with `0/0/0`.** Many `Good` + `Incomplete` days come back with all three counts `0`: there is no sub-daily record behind them (older digitised data), so this is not a partial day ([#485](https://github.com/Rekin226/aquascope/pull/485)).
+- **UK EA `qcode`.** The reference lists the values under the name `qflag` in its prose but `qcode` in its property table. Responses use `qcode` (`Edited` on a 15-minute flow reading in 2024). `Checked` and `Rejected` do not occur in the published or observed vocabulary.
+
+---
+
 ## API Keys — what you need before collecting
 
 | Source | Key required? | How to get one |
